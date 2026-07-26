@@ -67,9 +67,18 @@ Review every generated candidate:
   browser tag, with explicit consent, terminal-source, payload, and
   deduplication comparisons;
 - cyclic trigger-group dependencies;
+- Custom HTML `dataLayer.push` event names that differ from their Custom Event
+  listeners only by a high-confidence spelling/casing near miss; never
+  auto-correct a merely similar business event;
+- SPA History Change page-view tags alongside a Google tag whose
+  `send_page_view` is not explicitly disabled; confirm property-side Enhanced
+  Measurement and retain exactly one virtual page-view sender;
 - shared firing trigger or related trigger scope;
 - shared terminal variable source or shared inputs;
 - identical custom code;
+- behavior-bearing environment/container variants that become equivalent only
+  after development, staging, production, local, or `GTM-*` literals are
+  normalized; UI/export metadata is excluded;
 - normalized equivalent, near-equivalent, subset, or shared-step trigger logic;
 - canonical funnel/question scope such as `Q1`, `question 1`, and `step 1`.
 
@@ -81,6 +90,7 @@ reviewed, perform one open discovery pass across every source object using:
 
 - semantic name and business-term variants;
 - normalized trigger conditions and execution routes;
+- environment/container portability variants in behavior-bearing values;
 - terminal source, formula, and output-shape overlap;
 - shared consumers, destination, vendor, or event intent;
 - consent, sequencing, and browser/server-route conflicts;
@@ -143,7 +153,21 @@ relationship member's behavior. An unrelated object change or metadata-only
 rename does not resolve the candidate. A before/after no-op does not count, and
 the claimed candidate object key must match the exact source-path prefix being
 changed. Exact-duplicate and consolidation operations keep a canonical member
-of that relationship and delete a non-canonical member of it.
+of that relationship and delete a non-canonical member of it. Prove
+configuration/business equivalence before ranking a keeper; consumer volume is
+never equivalence evidence. Once exact configuration equivalence is proven,
+there is no distinct business behavior left to choose: create the exact
+consolidation operation and use the normal operation-approval gate rather than
+an owner question. Select one default canonical member from exported evidence.
+Rank active over paused, then more
+container-visible consumers, then a name without copy/duplicate/old/legacy/
+backup/test/temp markers; use the stable object key only as the final
+deterministic tie-breaker. State the ranking evidence and cover every surviving
+consumer remap before deleting another member.
+Retained variants require a positive source-visible event, route, destination,
+payload, consent, sequence, or dependency distinction for each member. An
+opaque behavior-signature hash, a higher consumer count, or the absence of a
+proven common target cannot justify `Keep`.
 
 Unsafe owner questions identify at least two actual candidate objects and put
 their route, Zone/child/boundary scope, trigger-group cycle, or browser/server

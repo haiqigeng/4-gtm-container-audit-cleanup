@@ -13,33 +13,45 @@ impact. Priority describes when to act.
 | Low | Minor hygiene, naming, documentation, or low-risk maintainability issue. |
 | Info | Observation, context, or verified correct behavior with no change recommended. |
 
-Priority values:
+Operation priority values are `Critical`, `High`, `Medium`, and `Low`.
+Unresolved ownership is represented by execution readiness/disposition, not by
+inventing a fifth priority.
 
-- `P0 Now`
-- `P1 This sprint`
-- `P2 Planned cleanup`
-- `P3 Backlog`
-- `Decision needed`
+Every reconciled operation carries an evidence-based `priority_basis`:
+
+- active reachability: active, paused-only, inactive/unreferenced,
+  metadata-only, or unknown;
+- impact class: consent/privacy, security, measurement loss/corruption,
+  duplicate delivery/attribution, routing/integration, or maintainability;
+- evidence confidence;
+- reversibility of the proposed mutation;
+- owner dependency.
+
+The compiler records a conservative evidence floor and whether the analyst's
+assigned priority is below it. This is a review signal, not a new delivery or
+approval gate. Do not hide low confidence by reducing possible impact, and do
+not make an inactive naming/folder issue urgent merely because its proof is
+strong.
 
 ## Calibration Examples
 
-| Finding | Suggested severity | Suggested priority |
+| Finding | Suggested severity | Priority basis / usual priority |
 | --- | --- | --- |
-| A direct browser marketing/vendor request is initiated before its required consent. | Critical | P0 Now |
+| A direct active browser marketing/vendor request is initiated before its required consent. | Critical | Active consent/privacy, high confidence: Critical |
 | A first-party server transporter fires without a client blocker but forwards a complete consent contract for server enforcement. | Info; no client-side defect by itself | No action unless the forwarding contract is incomplete |
-| Purchase event does not fire or is blocked for all users. | Critical | P0 Now |
-| GA4 purchase value/currency/item payload materially wrong. | High | P1 This sprint |
-| Ads/Floodlight/Meta purchase conversion missing order ID or value. | High | P1 This sprint |
-| Active GA4 ecommerce uses UA Enhanced Ecommerce paths without mapper proof. | High | P1 This sprint |
-| CMP-ready/pageview gating is inconsistent across same vendor pageview tags. | High or Medium depending on observed leakage/duplication | P1 or Decision needed |
-| Custom HTML injects third-party script without consent or origin rationale. | High | P1 This sprint |
-| Custom JS fixed-index item variables power multi-item product payloads. | High or Medium depending on consumer importance | P1 or P2 |
-| Duplicate page_view or PageView hits for analytics/media. | High if used for billing/optimization, otherwise Medium | P1 or P2 |
-| Trigger group has one member and adds no behavior. | Medium | P2 Planned cleanup |
-| Unused trigger/variable with no consumers after dependency sweep. | Low or Medium if confusing/risky | P2 or P3 |
-| Duplicate names obscure maintenance but behavior is correct. | Low or Medium depending on release risk | P2 or P3 |
-| Missing folder organization. | Low | P3 Backlog |
-| External behavior is not verifiable from a container-only audit. | Info or More info needed; severity follows the configured risk | Decision needed |
+| Purchase event does not fire or is blocked for all users. | Critical | Active measurement loss, high confidence: Critical |
+| GA4 purchase value/currency/item payload is materially wrong. | High | Active measurement corruption: High |
+| Ads/Floodlight/Meta purchase conversion lacks an approved order ID or value. | High | Active attribution/revenue impact: High |
+| Active GA4 ecommerce uses UA paths without mapper proof. | High | Active measurement corruption, medium/high confidence: High |
+| CMP-ready/pageview gating differs across same-vendor routes. | High or Medium | Consent impact and active reach; owner/runtime uncertainty stays explicit: High or Medium |
+| Custom HTML injects a third-party script without consent or origin rationale. | High | Active consent/security and field-level rollback: High |
+| Custom JS fixed-index item variables power multi-item payloads. | High or Medium | Active measurement impact and consumer reach: High or Medium |
+| Duplicate page_view/PageView hits feed billing or optimization. | High; otherwise Medium | Active duplicate delivery: High or Medium |
+| A trigger group has one member and adds no behavior. | Medium | Active maintainability with reversible remap: Medium |
+| An unused trigger/variable has no reachable consumers. | Low or Medium | Inactive maintenance; raise only for proven release risk: Low or Medium |
+| Duplicate names obscure maintenance but behavior is correct. | Low | Metadata/maintenance and easy rollback: Low |
+| Folder organization is missing. | Low | Metadata-only: Low |
+| External behavior is unprovable from the export. | Info/boundary | Container-evidence boundary; priority follows any separate source-visible operation |
 
 ## Escalation Rules
 

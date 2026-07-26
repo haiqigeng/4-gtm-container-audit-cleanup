@@ -9,8 +9,12 @@ from collections import defaultdict
 from typing import Any
 from urllib.parse import urlsplit
 
-from gtm_lib import behavior_projection, refs, stable_hash, walk_json_fields
-from gtm_vendor_registry import detect_vendor_text, vendor_records
+from gtm_lib import refs, stable_hash, walk_json_fields
+from gtm_vendor_registry import (
+    behavior_bearing_vendor_text,
+    detect_vendor_text,
+    vendor_records,
+)
 
 CONSENT_PURPOSES = (
     "analytics_storage",
@@ -218,8 +222,7 @@ def tag_consent_route(
     variables: list[dict[str, Any]] | None = None,
     root_path: str = "$.containerVersion",
 ) -> dict[str, Any]:
-    behavior = behavior_projection(tag)
-    serialized_behavior = json.dumps(behavior, ensure_ascii=False)
+    serialized_behavior = behavior_bearing_vendor_text(tag, "tag")
     matches = vendor_records(serialized_behavior)
     vendor, category = detect_vendor_text(serialized_behavior)
     detected_vendors = [str(match.get("name") or "") for match in matches]

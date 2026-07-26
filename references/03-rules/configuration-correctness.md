@@ -123,10 +123,29 @@ retain every candidate node and terminate the trace as `ambiguous`. Do not
 resolve through first-match, last-match, or preferred-layer fallback; the
 object cannot be Correct until identity is resolved.
 
+Normalize only Unicode compatibility form and invisible whitespace to diagnose
+a missing reference; preserve case and every other character. If that
+normalization produces exactly one existing variable or built-in name, the
+repair target is source-known. Create the exact field change and preserve the
+surrounding expression and unrelated settings. If there is no unique match,
+do not infer one from a similar label. A consumer whose only missing terminal
+is repaired in an upstream variable resolves to that same operation and does
+not create a second owner question.
+
 For each node in the recursive chain, state its literal configured function,
 configured output, output type/shape, availability/fallback, and compatibility
 with the current consumer. Explain every variable-to-variable hop. Reviewing a
 variable elsewhere in the matrix does not replace this consumer-context check.
+
+### Lookup And Regex Tables
+
+For `smm` and `remm` variables, inspect the exported input, every ordered row,
+and default behavior. Malformed rows, missing input, duplicate exact matches,
+invalid regex syntax, and an enabled-but-missing default are source-visible
+issues. Blank matches/outputs, universal patterns, and broad rows preceding
+specific rows remain explicit review obligations because intentional
+empty/fallback semantics are not inferable. A clean neighboring table with
+unique valid rows must not be flagged.
 
 ## Standard Business Values
 
@@ -196,7 +215,18 @@ not executable. Review visible permissions in the template contract. Each block 
 Resolve each static parser/security/optimization finding. Check unsafe eval,
 HTML injection, message origin, HTTP endpoints, dynamic scripts, repeated
 listeners, global state, storage, fixed product indexes, parse errors, missing
-returns, output type, exceptions, and replaceability by native GTM features.
+returns, output type, exceptions, dataLayer model resets, direct
+`google_tag_manager` internals, manual `gtag()` senders, debugger statements,
+literal-cookie Secure/SameSite attributes, listener removal/once/registration
+guards, and replaceability by native GTM features. Also resolve explicit
+`document.write()` against the exported Support document.write setting;
+JavaScript-looking Custom HTML without a `<script>` wrapper; Google
+Optimize/anti-flicker remnants; callback-based CMP reads in synchronous Custom
+JavaScript variables; and literal secret-like credentials. Credential evidence
+is always redacted: strong secret fields are defects, while API-key candidates
+remain Unclear until confirmed intentionally browser-public and restricted.
+Cache-buster, base64, `MutationObserver`, and network-call signals remain
+source facts or review candidates unless their exact use proves a defect.
 
 If the optional AST parser is unavailable, fails, or returns parse errors,
 create a mandatory parser-coverage finding. It cannot be a false positive. A
@@ -209,17 +239,37 @@ segment cannot stand in for a second segment. A generic manual-review statement
 is not coverage. Source-visible calls, outputs, network requests, script/DOM
 effects, dataLayer writes, storage access, listeners, DOM reads, and returns are
 polarity-locked: citing the right tokens while denying the behavior is a failed
-review. Source-proven health and security signals cannot be dismissed as false
-positives; either confirm them, document an evidence-bound accepted exception,
-or leave an explicit owner decision. `Cleanup opportunity` supplies a concrete
+review. Static findings have a decision class. Deterministic defects include
+the explicit unwrapped-JavaScript, asynchronous-CMP-variable,
+unguarded-listener, debugger, `dataLayer.reset`, internal
+`google_tag_manager`, eval, originless-message, HTTP, cookie-attribute, and
+strong-secret signals. Parser/opaque/API-key uncertainty is an evidence
+boundary. Generic inline-script, code-size, DOM/storage/global,
+dynamic-script, direct-sender, and guarded-listener patterns are review
+signals: inspect the complete code and consumer route, then use `No defect
+after review` when the pattern is present but no defect exists. An advisory
+pattern alone cannot create an owner question, and a source-present pattern
+cannot be called a false positive. `Cleanup opportunity` supplies a concrete
 `proposed_action`; `Documented exception` supplies a source-bound
 `exception_basis`; and `Owner decision needed` supplies a source-specific
 `owner_question` plus the analyst's concrete `recommended_action`. Changing
-only the verdict label is not resolution. A source-proven overall Issue must
-become an exact cleanup operation before the full plan can pass action
-completeness.
+only the verdict label is not resolution. A source-proven overall Issue becomes
+an exact cleanup operation when the valid target state is visible. If the
+export proves the defect but an owner must choose the replacement value or
+route, the row may remain `owner_decision_needed` only when its recommendation
+names the affected object, defect ID or exact evidence anchor, and concrete
+repair/remap/removal direction. A generic request to correct the listed defects
+fails action completeness.
 A `Confirmed issue` links by `technical_finding_keys` to exactly one concrete,
 source-evidenced defect before the overall object can be considered resolved.
+Every confirmed issue or cleanup opportunity also propagates to an exact
+cleanup operation unless a complete source-bound exception or genuine owner
+decision applies. Identical executable code receives one consistent technical
+disposition unless different exported consumers justify a cited,
+consumer-specific outcome.
+An exported Support `document.write` mismatch has a visible Boolean target:
+enable it only when the exported HTML calls `document.write`, and disable it
+when the HTML does not. It is an exact field operation, not an owner fallback.
 GTM substitutions may be replaced with disclosed neutral identifiers only for
 structural parsing. That normalization does not prove the substituted runtime
 type. A return consisting solely of `{{Variable}}` has unresolved delegated
@@ -234,6 +284,17 @@ When a custom-template resource exposes only metadata/permissions and no
 reviewable executable implementation, classify behavior as opaque. Do not infer
 network, DOM, payload, or return behavior from its name; keep an explicit owner
 or evidence-boundary decision.
+
+## Behavior-Bearing Portability
+
+Inspect behavior-bearing values and executable template/code for literal GTM
+container IDs, embedded GTM account/container/workspace references, and
+development/staging/QA/local endpoints. Exclude export/UI metadata such as
+`tagManagerUrl`, path, notes, workspace identity, fingerprints, and names.
+Record a portability uncertainty rather than declaring a defect until the
+analyst confirms whether the value is intentionally fixed. Run 3 independently
+compares objects whose behavior becomes equivalent only after environment or
+container literals are normalized.
 
 ## Official Contracts
 
@@ -251,6 +312,13 @@ behavior, or unresolved consent contract is Unproven. `Not applicable` is valid
 only when the topic genuinely does not apply, never as a substitute for missing
 proof. Registry event replacements identify the current candidate event but do
 not authorize an automatic mutation.
+
+Registry schema 2 may lock a reviewed contract version plus supported,
+deprecated, or unsupported event status; required event, deduplication,
+consent, and routing fields; static field type/length/pattern constraints; and
+deprecated endpoints. Activate only rules backed by the registered official
+sources. A dynamic configured field is Unproven rather than falsely typed, and
+a currently supported event must never inherit an obsolete replacement rule.
 
 When no registry entry matches an external host, script, or custom template,
 create one canonical unknown-vendor research obligation per host/template
@@ -280,6 +348,12 @@ evidence. When a recognized vendor or Google tag
 configuration explicitly names a server transport endpoint, review that host
 under the server-routing contract instead of creating a second unknown-vendor
 identity; other unmatched script/request hosts remain mandatory research.
+
+First decide every container-visible branch, value, route, and contract state.
+Keep live delivery, resolved dynamic values, DOM/CMP state, vendor acceptance,
+and unseen downstream behavior in separate external-evidence fields. A
+runtime-only Unproven state may coexist with a container-visible Correct
+verdict, but it cannot replace or soften a source-visible Issue.
 
 Zones require official checks for child-container scope, boundary conditions/
 evaluation triggers, and type restrictions. Google tag configurations require

@@ -59,7 +59,7 @@ class AdversarialAuditTests(unittest.TestCase):
             )
         )
         case_ids = {row["id"] for row in manifest["cases"]}
-        self.assertEqual(63, len(case_ids))
+        self.assertEqual(71, len(case_ids))
         self.assertIn("single_member_trigger_group", case_ids)
         self.assertIn("dynamic_ga4_purchase_contract", case_ids)
         self.assertIn("worsened_future_finding", case_ids)
@@ -107,6 +107,14 @@ class AdversarialAuditTests(unittest.TestCase):
         self.assertIn("incremental_shard_completion_check", case_ids)
         self.assertIn("decision_first_human_output", case_ids)
         self.assertIn("semantic_release_invariant", case_ids)
+        self.assertIn("missing_setup_peer_repair", case_ids)
+        self.assertIn("ua_label_ga4_consumer", case_ids)
+        self.assertIn("source_ranked_canonical_default", case_ids)
+        self.assertIn("metadata_only_vendor_noise", case_ids)
+        self.assertIn("identical_code_disposition_consistency", case_ids)
+        self.assertIn("independent_reasoning_context_identity", case_ids)
+        self.assertIn("runtime_test_contract_grouping", case_ids)
+        self.assertIn("action_incomplete_blocked_draft", case_ids)
 
     def test_provided_context_is_reproducible_and_tamper_evident(self) -> None:
         context_path = self.write_json(
@@ -134,7 +142,9 @@ class AdversarialAuditTests(unittest.TestCase):
             "input_contract",
         ):
             completed[field] = copy.deepcopy(packaged_review[field])
-        completed["completion_attestation"] = complete_review_attestation(completed)
+        completed["completion_attestation"] = complete_review_attestation(
+            completed, decision_authoring_method="independent_test_fixture_review"
+        )
         review_path = self.write_json("contextual-operational.json", completed)
         errors, _ = validate_operational(self.export, review_path)
         self.assertEqual([], errors)
@@ -356,7 +366,9 @@ class AdversarialAuditTests(unittest.TestCase):
             "input_contract",
         ):
             baseline[field] = copy.deepcopy(contextual[field])
-        baseline["completion_attestation"] = complete_review_attestation(baseline)
+        baseline["completion_attestation"] = complete_review_attestation(
+            baseline, decision_authoring_method="independent_test_fixture_review"
+        )
         baseline["findings"][0].update(
             {
                 "disposition": "documented_exception",
@@ -873,39 +885,57 @@ class AdversarialAuditTests(unittest.TestCase):
         ):
             self.assertEqual("business_decision", operational_finding_class(finding_type))
 
-    def test_projected_benign_candidate_requires_all_retained_architecture_pairs(self) -> None:
+    def test_projected_benign_candidate_requires_source_reviewed_deletion_subset(self) -> None:
         from gtm_future_state_check import (
-            candidate_has_retention_coverage,
-            retained_architecture_pairs,
+            retained_architecture_comparisons,
+            retention_coverage_decision,
         )
 
         keys = ["trigger:1", "trigger:2", "trigger:3"]
-        ledger = [
-            {
-                "source_run": "business_architecture",
-                "comparison_types": ["semantic_name_family_candidate"],
-                "disposition": "keep",
-                "verdict": "Intentional variant",
-                "source_object_keys": [left, right],
-            }
-            for index, left in enumerate(keys)
-            for right in keys[index + 1 :]
-        ]
-        pairs = retained_architecture_pairs({"decision_ledger": ledger})
+        source_keys = [*keys, "trigger:4"]
+        operations = {
+            "decision_ledger": [
+                {
+                    "decision_id": "REL-RETAINED",
+                    "source_run": "business_architecture",
+                    "comparison_types": ["shared_business_scope"],
+                    "disposition": "keep",
+                    "verdict": "Intentional variant",
+                    # The compiled ledger retains only surviving members.
+                    "source_object_keys": keys,
+                }
+            ]
+        }
+        source_architecture = {
+            "comparisons": [
+                {
+                    "comparison_id": "REL-RETAINED",
+                    "candidate_object_keys": source_keys,
+                    "comparison_types": ["shared_business_scope"],
+                }
+            ]
+        }
+        retained = retained_architecture_comparisons(operations, source_architecture)
         candidate = {
             "candidate_object_keys": keys,
             "comparison_types": ["shared_business_scope"],
         }
-        self.assertTrue(candidate_has_retention_coverage(candidate, pairs))
-        self.assertFalse(
-            candidate_has_retention_coverage(
-                candidate, {("trigger:1", "trigger:2")}
-            )
+        self.assertEqual(
+            "REL-RETAINED",
+            retention_coverage_decision(candidate, retained, {"trigger:4"}, set()),
         )
-        self.assertFalse(
-            candidate_has_retention_coverage(
-                {**candidate, "comparison_types": ["same_payload_different_route"]}, pairs
-            )
+        self.assertEqual(
+            "",
+            retention_coverage_decision(candidate, retained, set(), set()),
+        )
+        self.assertEqual(
+            "",
+            retention_coverage_decision(
+                {**candidate, "comparison_types": ["same_payload_different_route"]},
+                retained,
+                {"trigger:4"},
+                set(),
+            ),
         )
 
     def test_exact_architecture_cleanup_resolves_weaker_candidate_rows(self) -> None:

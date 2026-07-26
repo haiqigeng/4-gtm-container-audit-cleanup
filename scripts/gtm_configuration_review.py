@@ -58,7 +58,11 @@ from gtm_review_common import (
 )
 from gtm_shared_facts import build_shared_facts
 from gtm_taxonomy import taxonomy_errors
-from gtm_vendor_registry import vendor_record, vendor_records
+from gtm_vendor_registry import (
+    behavior_bearing_vendor_text,
+    vendor_record,
+    vendor_records,
+)
 
 VALID_VERDICTS = {
     "Correct",
@@ -85,6 +89,7 @@ VALID_DISPOSITIONS = {
 }
 VALID_CONTRACT_VERDICTS = {"Compliant", "Non-compliant", "Not applicable", "Unproven"}
 VALID_BRANCH_VERDICTS = {"Correct", "Issue", "Unclear", "Metadata", "Not applicable"}
+VALID_EXTERNAL_EVIDENCE_STATUSES = {"none", "runtime_handoff_required"}
 GA4_ECOMMERCE_EVENTS = {
     "add_payment_info",
     "add_shipping_info",
@@ -133,6 +138,24 @@ CONTRACT_RULE_TERMS = {
     "consumer_value_shape_and_type": ["consumer", "value", "shape", "type"],
     "availability_at_consumer_event": ["availability", "consumer", "event"],
     "consent_state_semantics": ["consent", "state", "semantics"],
+    "url_passthrough_and_ads_data_redaction": [
+        "url_passthrough",
+        "ads_data_redaction",
+        "consent",
+    ],
+    "conversion_linking_coverage": [
+        "conversion",
+        "linker",
+        "google",
+        "tag",
+        "coverage",
+    ],
+    "first_party_server_domain_review": [
+        "server",
+        "first",
+        "party",
+        "domain",
+    ],
 }
 GENERATED_FIELDS = {
     "review_id",
@@ -185,6 +208,32 @@ SEMANTIC_TEXT_FIELDS = (
     "correctness_basis",
 )
 VALID_LOGIC_CHECK_VERDICTS = {"Aligned", "Issue", "Unclear"}
+VALID_TECHNICAL_FINDING_VERDICTS = {
+    "Confirmed issue",
+    "Cleanup opportunity",
+    "No defect after review",
+    "False positive",
+    "Documented exception",
+    "Owner decision needed",
+}
+DETERMINISTIC_TECHNICAL_SIGNAL_MARKERS = (
+    "without an exported <script> wrapper",
+    "callback-based cmp read",
+    "without an exported remove, once-only",
+    "contains a debugger statement",
+    "calls datalayer.reset()",
+    "internal google_tag_manager object",
+    "runs text as javascript",
+    "without an exported origin check",
+    "unencrypted http://",
+    "literal cookie write omits",
+    "literal secret-like credential candidate",
+)
+TECHNICAL_EVIDENCE_BOUNDARY_MARKERS = (
+    "no code body was exported",
+    "no reviewable executable behavior",
+    "literal api-key candidate",
+)
 PURPOSE_VERBS = {
     "tag": ("send", "load", "set", "route", "record", "fire", "inject", "configure"),
     "trigger": ("match", "listen", "block", "allow", "fire", "activate"),
@@ -250,6 +299,66 @@ VENDOR_CODE_EVENT_PATTERNS = {
         r"\bpintrk\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", re.I
     ),
 }
+
+
+def technical_finding_decision_class(category: str, statement: str) -> str:
+    """Separate review prompts from facts that justify action or ownership.
+
+    Pattern presence alone is not a defect. Only the deliberately narrow
+    source-visible signals below can force a defect/exception/owner outcome.
+    """
+
+    lowered = str(statement or "").lower()
+    if category == "parser" or any(
+        marker in lowered for marker in TECHNICAL_EVIDENCE_BOUNDARY_MARKERS
+    ):
+        return "evidence_boundary"
+    if any(marker in lowered for marker in DETERMINISTIC_TECHNICAL_SIGNAL_MARKERS):
+        return "deterministic_defect"
+    return "review_signal"
+META_PAYLOAD_RE = re.compile(
+    r"\bfbq\s*\(\s*['\"](?:track|trackCustom)['\"]\s*,\s*"
+    r"['\"](?P<event>[^'\"]+)['\"]\s*,\s*\{(?P<body>[^{}]*)\}",
+    re.I | re.S,
+)
+JS_OBJECT_FIELD_RE = re.compile(
+    r"(?:^|,)\s*(?:['\"](?P<quoted>[A-Za-z_$][\w$]*)['\"]|"
+    r"(?P<bare>[A-Za-z_$][\w$]*))\s*:\s*"
+    r"(?P<value>['\"][^'\"]*['\"]|[-+]?\d+(?:\.\d+)?|"
+    r"\{\{[^{}]+\}\}|[^,}\r\n]+)",
+    re.S,
+)
+CONSENT_INITIALIZATION_TRIGGER_ID = "2147479593"
+CONSENT_MANAGEMENT_BEHAVIOR_RE = re.compile(
+    r"\b(?:setDefaultConsentState|updateConsentState|setConsentSettings)\b|"
+    r"\bgtag\s*\(\s*['\"]consent['\"]",
+    re.I,
+)
+STRONG_SECRET_FIELD_RE = re.compile(
+    r"^(?:client[_-]?secret|api[_-]?secret|access[_-]?token|refresh[_-]?token|"
+    r"authorization|password|private[_-]?key)$",
+    re.I,
+)
+PUBLIC_KEY_CANDIDATE_FIELD_RE = re.compile(
+    r"^(?:api[_-]?key|subscription[_-]?key)$",
+    re.I,
+)
+STRONG_SECRET_NAME_RE = re.compile(
+    r"\b(?:client|api)[ _-]?secret\b|\b(?:access|refresh)[ _-]?token\b|"
+    r"\bprivate[ _-]?key\b|\bpassword\b",
+    re.I,
+)
+PUBLIC_KEY_CANDIDATE_NAME_RE = re.compile(
+    r"\b(?:api|subscription)[ _-]?key\b",
+    re.I,
+)
+JWT_VALUE_RE = re.compile(
+    r"^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$"
+)
+PRIVATE_KEY_VALUE_RE = re.compile(
+    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+    re.I,
+)
 
 
 def as_list(value: Any) -> list[Any]:
@@ -678,9 +787,9 @@ def vendor_contexts_for_objects(
     }
     own_vendors: dict[str, list[dict[str, Any]]] = {}
     for key, obj in objects.items():
-        serialized = json.dumps(behavior_projection(obj), ensure_ascii=False)
-        vendors = vendor_records(serialized)
         layer = key.split(":", 1)[0]
+        serialized = behavior_bearing_vendor_text(obj, layer)
+        vendors = vendor_records(serialized)
         transport_hosts = (
             set(server_route_hosts(obj)) if vendors or layer == "gtagConfig" else set()
         )
@@ -763,6 +872,12 @@ def vendor_contexts_for_objects(
                         vendor.get("unsupported_standard_events") or []
                     ),
                     "event_replacements": list(vendor.get("event_replacements") or []),
+                    "contract_version": str(vendor.get("contract_version") or ""),
+                    "contracts": [
+                        dict(contract)
+                        for contract in as_list(vendor.get("contracts"))
+                        if isinstance(contract, dict)
+                    ],
                     "context_object_keys": sorted(
                         key
                         for key in seen
@@ -795,6 +910,212 @@ def configured_parameter_terms(obj: dict[str, Any]) -> set[str]:
     return terms
 
 
+def configured_field_values(obj: dict[str, Any], field: str) -> list[str]:
+    """Return source-visible scalar values for a configured parameter key."""
+    values: list[str] = []
+    target = field.strip().lower()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            key = str(value.get("key") or "").strip().lower()
+            raw = value.get("value")
+            if key == target and raw is not None and not isinstance(raw, (dict, list)):
+                values.append(str(raw))
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(obj.get("parameter", []))
+    return list(dict.fromkeys(values))
+
+
+def custom_code_text(obj: dict[str, Any]) -> str:
+    return " ".join(
+        str(parameter.get("value") or "")
+        for parameter in as_list(obj.get("parameter"))
+        if isinstance(parameter, dict)
+        and str(parameter.get("key") or "") in {"html", "javascript"}
+    )
+
+
+def meta_payload_fields(
+    obj: dict[str, Any],
+    event: str,
+) -> dict[str, list[str]]:
+    """Extract only top-level source-visible fields from a Meta event payload."""
+    fields: dict[str, list[str]] = {}
+    for call in META_PAYLOAD_RE.finditer(custom_code_text(obj)):
+        if str(call.group("event") or "").casefold() != event.casefold():
+            continue
+        for match in JS_OBJECT_FIELD_RE.finditer(call.group("body")):
+            key = str(match.group("quoted") or match.group("bare") or "").lower()
+            raw_value = str(match.group("value") or "").strip()
+            quoted = (
+                len(raw_value) >= 2
+                and raw_value[:1] == raw_value[-1:]
+                and raw_value[0] in {
+                "'",
+                '"',
+                }
+            )
+            if quoted:
+                raw_value = raw_value[1:-1]
+            elif not re.fullmatch(r"[-+]?\d+(?:\.\d+)?|\{\{[^{}]+\}\}", raw_value):
+                raw_value = "__dynamic__:" + raw_value
+            fields.setdefault(key, []).append(raw_value)
+    return {key: list(dict.fromkeys(values)) for key, values in fields.items()}
+
+
+def registry_contract_topics(
+    obj: dict[str, Any],
+    context: dict[str, Any],
+    configured_events: list[str],
+    configured_terms: set[str],
+) -> list[dict[str, Any]]:
+    """Turn versioned official registry rules into locked Run-2 topics."""
+    vendor = str(context.get("vendor") or "")
+    configured_event_set = {value.casefold() for value in configured_events}
+    serialized = json.dumps(behavior_projection(obj), ensure_ascii=False)
+    topics: list[dict[str, Any]] = []
+    for contract in as_list(context.get("contracts")):
+        if not isinstance(contract, dict):
+            continue
+        contract_id = str(contract.get("id") or "").strip()
+        event = str(contract.get("event") or "").strip()
+        if event and event.casefold() not in configured_event_set:
+            continue
+        status = str(contract.get("status") or "supported").strip().lower()
+        code_fields = meta_payload_fields(obj, event) if vendor == "Meta" and event else {}
+        contract_terms = configured_terms | set(code_fields)
+        required_fields = {
+            str(value).strip().lower()
+            for field in (
+                "required_fields",
+                "deduplication_fields",
+                "required_consent_fields",
+                "required_routing_fields",
+            )
+            for value in as_list(contract.get(field))
+            if str(value).strip()
+        }
+        missing_fields = sorted(required_fields - contract_terms)
+        violations: list[str] = []
+        unproven: list[str] = []
+
+        for rule in as_list(contract.get("field_rules")):
+            if not isinstance(rule, dict):
+                continue
+            field = str(rule.get("field") or "").strip()
+            if not field:
+                continue
+            values = configured_field_values(obj, field)
+            if not values and vendor == "Meta":
+                values = code_fields.get(field.lower(), [])
+            if not values:
+                continue
+            for value in values:
+                if refs(value) or value.startswith("__dynamic__:"):
+                    unproven.append(f"{field} has a dynamic exported value")
+                    continue
+                expected_type = str(rule.get("value_type") or "").lower()
+                if expected_type == "number":
+                    try:
+                        float(value)
+                    except ValueError:
+                        violations.append(f"{field} is not a number")
+                elif expected_type == "boolean" and value.lower() not in {
+                    "true",
+                    "false",
+                }:
+                    violations.append(f"{field} is not a boolean")
+                exact_length = rule.get("exact_length")
+                if isinstance(exact_length, int) and len(value) != exact_length:
+                    violations.append(
+                        f"{field} length is {len(value)}, expected {exact_length}"
+                    )
+                pattern = str(rule.get("pattern") or "")
+                if pattern and not re.fullmatch(pattern, value):
+                    violations.append(f"{field} does not match registry pattern")
+
+        deprecated_hits = sorted(
+            {
+                endpoint
+                for endpoint in as_list(contract.get("deprecated_endpoints"))
+                if str(endpoint) and str(endpoint).lower() in serialized.lower()
+            }
+        )
+        if deprecated_hits:
+            violations.append(
+                "deprecated endpoint(s) configured: "
+                + ", ".join(str(value) for value in deprecated_hits)
+            )
+
+        replacement = str(contract.get("replacement") or "").strip()
+        if status in {"deprecated", "unsupported"}:
+            violations.append(
+                f"event {event!r} is {status}"
+                + (f"; registry replacement is {replacement!r}" if replacement else "")
+            )
+
+        deterministic_state = (
+            "known_noncompliant"
+            if missing_fields or violations
+            else "unproven_from_container"
+            if unproven
+            else "source_check_required"
+        )
+        rule_terms = [
+            vendor,
+            f"registry_contract_{contract_id}",
+            event or contract_id,
+            status,
+            *sorted(required_fields),
+            *[
+                str(rule.get("field") or "")
+                for rule in as_list(contract.get("field_rules"))
+                if isinstance(rule, dict)
+            ],
+        ]
+        topics.append(
+            {
+                "topic_key": f"{vendor}:registry_contract:{contract_id}",
+                "vendor": vendor,
+                "category": str(context.get("category") or "unclassified"),
+                "topic": f"registry_contract_{contract_id}",
+                "required_rule_terms": [
+                    term.lower()
+                    for term in dict.fromkeys(rule_terms)
+                    if str(term).strip()
+                ],
+                "official_doc_candidates": list(context.get("official_docs") or []),
+                "research_required": False,
+                "research_dependency_key": "",
+                "research_owner_object_key": "",
+                "detection_evidence": list(context.get("detection_evidence") or []),
+                "required_configuration_terms": sorted(required_fields),
+                "configuration_presence_state": (
+                    "missing" if missing_fields else "present"
+                ),
+                "applicability_state": "applicable",
+                "configured_event_values": configured_events,
+                "unsupported_event_values": (
+                    [event] if status in {"deprecated", "unsupported"} else []
+                ),
+                "event_replacements": (
+                    [f"{event}=>{replacement}"] if event and replacement else []
+                ),
+                "deterministic_contract_state": deterministic_state,
+                "contract_version": str(context.get("contract_version") or ""),
+                "registry_contract": dict(contract),
+                "contract_violations": violations,
+                "contract_unproven_reasons": unproven,
+            }
+        )
+    return topics
+
+
 def vendor_event_values(
     cv: dict[str, Any], obj: dict[str, Any], vendor: str
 ) -> list[str]:
@@ -823,6 +1144,85 @@ def vendor_event_values(
             if value.strip()
         }
     )
+
+
+def google_linking_coverage(cv: dict[str, Any]) -> dict[str, Any]:
+    """Describe source-visible linking coverage without requiring a legacy linker."""
+    conversion_linkers = []
+    all_pages_google_tags = []
+    for tag in as_list(cv.get("tag")):
+        if bool(tag.get("paused")):
+            continue
+        trigger_ids = {str(value) for value in as_list(tag.get("firingTriggerId"))}
+        if "2147479553" not in trigger_ids:
+            continue
+        tag_type = str(tag.get("type") or "").lower()
+        key = f"tag:{tag.get('tagId') or tag.get('name') or ''}"
+        if tag_type == "gclidw":
+            conversion_linkers.append(key)
+        vendor = str(
+            vendor_record(behavior_bearing_vendor_text(tag, "tag")).get("name") or ""
+        )
+        if vendor == "GA4 / Google tag" and tag_type in {
+            "googtag",
+            "gaawc",
+            "ua",
+        }:
+            all_pages_google_tags.append(key)
+    return {
+        "conversion_linker_all_pages_keys": sorted(conversion_linkers),
+        "google_tag_all_pages_keys": sorted(all_pages_google_tags),
+        "source_visible_coverage": (
+            "conversion_linker_all_pages"
+            if conversion_linkers
+            else "google_tag_all_pages"
+            if all_pages_google_tags
+            else "no_source_visible_all_pages_linker_or_google_tag"
+        ),
+    }
+
+
+def supplemental_contract_topic(
+    context: dict[str, Any],
+    vendor: str,
+    topic: str,
+    configured_events: list[str],
+    *,
+    presence_state: str,
+    deterministic_state: str = "source_check_required",
+    required_terms: list[str] | None = None,
+    detection_evidence: list[str] | None = None,
+    official_docs: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "topic_key": f"{vendor}:{topic}",
+        "vendor": vendor,
+        "category": str(context.get("category") or "unclassified"),
+        "topic": topic,
+        "required_rule_terms": CONTRACT_RULE_TERMS.get(topic, []),
+        "official_doc_candidates": list(
+            dict.fromkeys(
+                [
+                    *as_list(context.get("official_docs")),
+                    *(official_docs or []),
+                ]
+            )
+        ),
+        "research_required": False,
+        "research_dependency_key": "",
+        "research_owner_object_key": "",
+        "detection_evidence": [
+            *as_list(context.get("detection_evidence")),
+            *(detection_evidence or []),
+        ],
+        "required_configuration_terms": required_terms or [],
+        "configuration_presence_state": presence_state,
+        "applicability_state": "applicable",
+        "configured_event_values": configured_events,
+        "unsupported_event_values": [],
+        "event_replacements": [],
+        "deterministic_contract_state": deterministic_state,
+    }
 
 
 def required_contract_topics(
@@ -857,6 +1257,15 @@ def required_contract_topics(
     for context in contexts:
         vendor = str(context.get("vendor") or "")
         category = str(context.get("category") or "unclassified")
+        configured_events = vendor_event_values(cv, obj, vendor)
+        obligations.extend(
+            registry_contract_topics(
+                obj,
+                context,
+                configured_events,
+                configured_terms,
+            )
+        )
         topics: list[str]
         if context.get("platform_topics"):
             topics = list(context["platform_topics"])
@@ -919,7 +1328,6 @@ def required_contract_topics(
                 "purchase_transaction_id_uniqueness": ["transaction_id"],
                 "refund_transaction_id_linkage": ["transaction_id"],
             }.get(topic, [])
-            configured_events = vendor_event_values(cv, obj, vendor)
             unsupported = {
                 value.lower(): value
                 for value in as_list(context.get("unsupported_standard_events"))
@@ -1005,6 +1413,77 @@ def required_contract_topics(
                     "deterministic_contract_state": deterministic_state,
                 }
             )
+        consent_mode_terms = sorted(
+            configured_terms & {"url_passthrough", "ads_data_redaction"}
+        )
+        if vendor in {"GA4 / Google tag", "Google Ads", "Floodlight"} and consent_mode_terms:
+            obligations.append(
+                supplemental_contract_topic(
+                    context,
+                    vendor,
+                    "url_passthrough_and_ads_data_redaction",
+                    configured_events,
+                    presence_state="present",
+                    required_terms=consent_mode_terms,
+                    detection_evidence=[
+                        "configured parameter(s): " + ", ".join(consent_mode_terms)
+                    ],
+                    official_docs=[
+                        "https://developers.google.com/tag-platform/security/guides/"
+                        "consent"
+                    ],
+                )
+            )
+        if vendor in {"Google Ads", "Floodlight"}:
+            linking = google_linking_coverage(cv)
+            obligations.append(
+                supplemental_contract_topic(
+                    context,
+                    vendor,
+                    "conversion_linking_coverage",
+                    configured_events,
+                    presence_state=str(linking["source_visible_coverage"]),
+                    detection_evidence=[
+                        "linking coverage: "
+                        + str(linking["source_visible_coverage"]),
+                        *as_list(linking["conversion_linker_all_pages_keys"]),
+                        *as_list(linking["google_tag_all_pages_keys"]),
+                    ],
+                    official_docs=[
+                        "https://support.google.com/tagmanager/answer/7549390?hl=en"
+                    ],
+                )
+            )
+        route_hosts = sorted(
+            {
+                *server_route_hosts(obj),
+                *[
+                    str(value)
+                    for value in as_list(
+                        effective_consent_route.get("server_routing_hosts")
+                    )
+                    if str(value)
+                ],
+            }
+        )
+        run_app_hosts = [host for host in route_hosts if host.endswith(".run.app")]
+        if run_app_hosts:
+            obligations.append(
+                supplemental_contract_topic(
+                    context,
+                    vendor,
+                    "first_party_server_domain_review",
+                    configured_events,
+                    presence_state="run_app_route_configured",
+                    detection_evidence=[
+                        "default Cloud Run route(s): " + ", ".join(run_app_hosts)
+                    ],
+                    official_docs=[
+                        "https://developers.google.com/tag-platform/tag-manager/"
+                        "server-side/custom-domain"
+                    ],
+                )
+            )
     unique = {item["topic_key"]: item for item in obligations}
     return [unique[key] for key in sorted(unique)]
 
@@ -1022,30 +1501,30 @@ def required_configuration_obligations(
     facts_by_path = {
         str(fact.get("json_path") or ""): fact for fact in source_facts
     }
+    metadata_suffixes = tuple(
+        f".{field}"
+        for field in (
+            "accountId",
+            "containerId",
+            "workspaceId",
+            "fingerprint",
+            "path",
+            "tagManagerUrl",
+            "notes",
+            "parentFolderId",
+            "tagId",
+            "triggerId",
+            "variableId",
+            "templateId",
+            "clientId",
+            "zoneId",
+            "gtagConfigId",
+            "transformationId",
+            "name",
+        )
+    )
 
     def anchors_for(*tokens: str) -> list[str]:
-        metadata_suffixes = tuple(
-            f".{field}"
-            for field in (
-                "accountId",
-                "containerId",
-                "workspaceId",
-                "fingerprint",
-                "path",
-                "tagManagerUrl",
-                "notes",
-                "parentFolderId",
-                "tagId",
-                "triggerId",
-                "variableId",
-                "templateId",
-                "clientId",
-                "zoneId",
-                "gtagConfigId",
-                "transformationId",
-                "name",
-            )
-        )
         return [
             path
             for path in sorted(available)
@@ -1113,6 +1592,471 @@ def required_configuration_obligations(
                 else ()
             ),
         )
+
+    if layer == "tag" and str(obj.get("type") or "").lower() == "html":
+        parameters = as_list(obj.get("parameter"))
+        html_index = next(
+            (
+                index
+                for index, parameter in enumerate(parameters)
+                if isinstance(parameter, dict) and parameter.get("key") == "html"
+            ),
+            -1,
+        )
+        support_index = next(
+            (
+                index
+                for index, parameter in enumerate(parameters)
+                if isinstance(parameter, dict)
+                and parameter.get("key") == "supportDocumentWrite"
+            ),
+            -1,
+        )
+        html = str(
+            parameters[html_index].get("value") or ""
+            if html_index >= 0
+            else ""
+        )
+        support_enabled = bool(
+            support_index >= 0
+            and str(parameters[support_index].get("value") or "").lower() == "true"
+        )
+        document_write = bool(
+            re.search(r"\bdocument\s*\.\s*write\s*\(", html, re.I)
+        )
+        html_anchors = anchors_for(
+            f"parameter[{html_index}]" if html_index >= 0 else "html",
+            "html",
+        )
+        support_anchors = anchors_for(
+            f"parameter[{support_index}]"
+            if support_index >= 0
+            else "supportDocumentWrite",
+            "supportDocumentWrite",
+        )
+        if document_write and not support_enabled:
+            add(
+                "document_write_support_missing",
+                "Issue",
+                (
+                    "Custom HTML calls document.write() but does not export an enabled "
+                    "Support document.write setting."
+                ),
+                [*html_anchors, *support_anchors],
+                ("purpose_output_alignment", "custom_code_behavior_alignment"),
+            )
+            if "document_write_support_missing" in obligations:
+                obligations["document_write_support_missing"][
+                    "source_known_repair"
+                ] = (
+                    {
+                        "mode": "change",
+                        "object_key": str(shared.get("object_key") or ""),
+                        "json_path": (
+                            f"{own_prefix}.parameter[{support_index}].value"
+                        ),
+                        "before": str(
+                            parameters[support_index].get("value") or ""
+                        ),
+                        "after": "true",
+                    }
+                    if support_index >= 0
+                    else {
+                        "mode": "append",
+                        "object_key": str(shared.get("object_key") or ""),
+                        "json_path": f"{own_prefix}.parameter",
+                        "value": {
+                            "type": "BOOLEAN",
+                            "key": "supportDocumentWrite",
+                            "value": "true",
+                        },
+                    }
+                )
+        elif support_enabled and not document_write:
+            add(
+                "unused_document_write_support",
+                "Issue",
+                (
+                    "Custom HTML enables Support document.write although the exported "
+                    "code contains no document.write() call."
+                ),
+                [*support_anchors, *html_anchors],
+                ("purpose_output_alignment", "custom_code_behavior_alignment"),
+            )
+            if "unused_document_write_support" in obligations:
+                obligations["unused_document_write_support"][
+                    "source_known_repair"
+                ] = {
+                    "mode": "change",
+                    "object_key": str(shared.get("object_key") or ""),
+                    "json_path": (
+                        f"{own_prefix}.parameter[{support_index}].value"
+                    ),
+                    "before": str(
+                        parameters[support_index].get("value") or ""
+                    ),
+                    "after": "false",
+                }
+
+    if (
+        layer == "tag"
+        and CONSENT_INITIALIZATION_TRIGGER_ID
+        in {str(value) for value in as_list(obj.get("firingTriggerId"))}
+    ):
+        behavior_text = behavior_bearing_vendor_text(obj, layer)
+        vendor = vendor_record(behavior_text)
+        manages_consent = (
+            str(vendor.get("category") or "") == "cmp"
+            or bool(CONSENT_MANAGEMENT_BEHAVIOR_RE.search(behavior_text))
+        )
+        if not manages_consent:
+            add(
+                "consent_initialization_non_consent_tag",
+                "Issue",
+                (
+                    "Tag uses the Consent Initialization system trigger without "
+                    "container-visible behavior that sets or updates consent state."
+                ),
+                anchors_for("firingTriggerId", CONSENT_INITIALIZATION_TRIGGER_ID),
+                ("execution_scope_alignment", "consent_sequence_alignment"),
+                ("consent_and_timing",),
+            )
+
+    def inspect_secret_fields(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            configured_name = str(value.get("key") or "").strip()
+            configured_value = value.get("value")
+            if (
+                configured_name
+                and configured_value is not None
+                and not isinstance(configured_value, (dict, list))
+                and str(configured_value).strip()
+                and not refs(str(configured_value))
+            ):
+                literal_value = str(configured_value).strip()
+                object_name = str(obj.get("name") or "")
+                value_slot = configured_name.lower() in {
+                    "value",
+                    "defaultvalue",
+                    "default_value",
+                }
+                strong_candidate = bool(
+                    STRONG_SECRET_FIELD_RE.fullmatch(configured_name)
+                    or value_slot and STRONG_SECRET_NAME_RE.search(object_name)
+                    or JWT_VALUE_RE.fullmatch(literal_value)
+                    or PRIVATE_KEY_VALUE_RE.search(literal_value)
+                )
+                public_candidate = bool(
+                    PUBLIC_KEY_CANDIDATE_FIELD_RE.fullmatch(configured_name)
+                    or value_slot
+                    and PUBLIC_KEY_CANDIDATE_NAME_RE.search(object_name)
+                )
+                if strong_candidate:
+                    add(
+                        f"embedded_secret:{stable_hash({'path': path, 'class': configured_name.lower()})}",
+                        "Issue",
+                        (
+                            "A literal secret-like credential is stored in a "
+                            f"{configured_name!r} field; the value is redacted."
+                        ),
+                        [f"{path}.key", f"{path}.value"],
+                        ("input_output_consumer_alignment", "vendor_contract_alignment"),
+                    )
+                elif public_candidate:
+                    add(
+                        f"embedded_public_key_candidate:{stable_hash({'path': path, 'class': configured_name.lower()})}",
+                        "Unclear",
+                        (
+                            "A literal API-key candidate is stored in the container; "
+                            "the value is redacted. Confirm that it is intentionally "
+                            "browser-public and origin-restricted."
+                        ),
+                        [f"{path}.key", f"{path}.value"],
+                        ("input_output_consumer_alignment", "vendor_contract_alignment"),
+                    )
+            for key, child in value.items():
+                inspect_secret_fields(child, f"{path}.{key}")
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                inspect_secret_fields(child, f"{path}[{index}]")
+
+    inspect_secret_fields(obj, own_prefix)
+    for signal in as_list(technical.get("secret_like_credential_signals")):
+        signal_text = str(signal)
+        outcome = (
+            "Unclear" if signal_text == "literal_api_key_candidate" else "Issue"
+        )
+        add(
+            f"embedded_code_credential:{signal_text}",
+            outcome,
+            (
+                f"Custom code contains redacted credential signal {signal_text!r}; "
+                "confirm ownership and remove/rotate any non-public credential."
+            ),
+            anchors_for("html", "javascript", "templateData"),
+            ("custom_code_behavior_alignment", "vendor_contract_alignment"),
+        )
+
+    if layer == "variable" and str(obj.get("type") or "").lower() in {"smm", "remm"}:
+        variable_type = str(obj.get("type") or "").lower()
+        table_kind = "lookup" if variable_type == "smm" else "regex"
+        parameters = as_list(obj.get("parameter"))
+
+        def parameter_with_index(key: str) -> tuple[int, dict[str, Any] | None]:
+            for index, parameter in enumerate(parameters):
+                if isinstance(parameter, dict) and parameter.get("key") == key:
+                    return index, parameter
+            return -1, None
+
+        input_index, input_parameter = parameter_with_index("input")
+        input_value = (
+            str(input_parameter.get("value") or "").strip()
+            if input_parameter
+            else ""
+        )
+        if not input_value:
+            add(
+                f"{table_kind}_table_missing_input",
+                "Issue",
+                f"{table_kind.title()} table has no nonblank exported input.",
+                anchors_for(
+                    f"parameter[{input_index}]" if input_index >= 0 else "type",
+                    "input",
+                    variable_type,
+                ),
+                ("purpose_output_alignment", "input_output_consumer_alignment"),
+            )
+
+        map_index, map_parameter = parameter_with_index("map")
+        raw_rows: Any = None
+        row_container = "list"
+        if map_parameter:
+            if "list" in map_parameter:
+                raw_rows = map_parameter.get("list")
+            elif "map" in map_parameter:
+                raw_rows = map_parameter.get("map")
+                row_container = "map"
+        if not isinstance(raw_rows, list) or not raw_rows:
+            add(
+                f"{table_kind}_table_missing_or_invalid_rows",
+                "Issue",
+                f"{table_kind.title()} table does not export a nonempty row array.",
+                anchors_for(
+                    f"parameter[{map_index}]" if map_index >= 0 else "type",
+                    "map",
+                    variable_type,
+                ),
+                ("purpose_output_alignment", "input_output_consumer_alignment"),
+            )
+            raw_rows = []
+
+        extracted_rows: list[tuple[int, str, str, list[str]]] = []
+        for row_index, row in enumerate(raw_rows):
+            row_path = (
+                f"{own_prefix}.parameter[{map_index}].{row_container}[{row_index}]"
+            )
+            row_anchors = [
+                path
+                for path in available
+                if path == row_path or path.startswith(row_path + ".")
+            ]
+            entries = (
+                as_list(row.get("map"))
+                if isinstance(row, dict)
+                else []
+            )
+            fields = {
+                str(entry.get("key") or ""): str(entry.get("value") or "")
+                for entry in entries
+                if isinstance(entry, dict) and entry.get("key")
+            }
+            key_value = fields.get("key")
+            output_value = fields.get("value")
+            if (
+                not isinstance(row, dict)
+                or not isinstance(row.get("map"), list)
+                or key_value is None
+                or output_value is None
+            ):
+                add(
+                    f"{table_kind}_table_malformed_row:{row_index}",
+                    "Issue",
+                    (
+                        f"{table_kind.title()} table row {row_index} does not contain "
+                        "exactly addressable key and value entries."
+                    ),
+                    row_anchors,
+                    ("purpose_output_alignment", "input_output_consumer_alignment"),
+                )
+                continue
+            if not key_value.strip() or not output_value.strip():
+                blank_parts = [
+                    label
+                    for label, value in (
+                        ("match key/pattern", key_value),
+                        ("output", output_value),
+                    )
+                    if not value.strip()
+                ]
+                add(
+                    f"{table_kind}_table_blank_row_value:{row_index}",
+                    "Unclear",
+                    (
+                        f"{table_kind.title()} table row {row_index} has a blank "
+                        f"{' and '.join(blank_parts)}; intentional empty-value semantics "
+                        "are not proven by the export."
+                    ),
+                    row_anchors,
+                    ("purpose_output_alignment", "input_output_consumer_alignment"),
+                )
+            extracted_rows.append((row_index, key_value, output_value, row_anchors))
+
+        by_match_value: dict[str, list[tuple[int, list[str]]]] = {}
+        for row_index, key_value, _output_value, row_anchors in extracted_rows:
+            by_match_value.setdefault(key_value, []).append((row_index, row_anchors))
+        for match_value, duplicates in sorted(by_match_value.items()):
+            if not match_value or len(duplicates) < 2:
+                continue
+            add(
+                f"{table_kind}_table_duplicate_match:{stable_hash(match_value)}",
+                "Issue",
+                (
+                    f"{table_kind.title()} table repeats match value {match_value!r} "
+                    f"at row indexes {[index for index, _anchors in duplicates]!r}."
+                ),
+                [
+                    anchor
+                    for _index, row_anchors in duplicates
+                    for anchor in row_anchors
+                ],
+                ("purpose_output_alignment", "input_output_consumer_alignment"),
+            )
+
+        if variable_type == "remm":
+            universal_patterns = {".*", "^.*$", ".+", "^.+$"}
+            for row_index, pattern, _output_value, row_anchors in extracted_rows:
+                try:
+                    re.compile(pattern)
+                except re.error as exc:
+                    add(
+                        f"regex_table_invalid_pattern:{row_index}",
+                        "Issue",
+                        f"Regex table row {row_index} has invalid pattern {pattern!r}: {exc}.",
+                        row_anchors,
+                        ("purpose_output_alignment", "input_output_consumer_alignment"),
+                    )
+                    continue
+                if pattern in universal_patterns:
+                    add(
+                        f"regex_table_permissive_pattern:{row_index}",
+                        "Unclear",
+                        (
+                            f"Regex table row {row_index} uses broadly permissive pattern "
+                            f"{pattern!r}; row order and intended fallback behavior require review."
+                        ),
+                        row_anchors,
+                        ("purpose_output_alignment", "input_output_consumer_alignment"),
+                    )
+                    if row_index < len(extracted_rows) - 1:
+                        add(
+                            f"regex_table_shadowed_rows:{row_index}",
+                            "Unclear",
+                            (
+                                f"Broad regex row {row_index} precedes later rows and may "
+                                "capture their inputs before they are evaluated."
+                            ),
+                            [
+                                anchor
+                                for later_index, _pattern, _output, later_anchors in extracted_rows
+                                if later_index >= row_index
+                                for anchor in later_anchors
+                            ],
+                            (
+                                "purpose_output_alignment",
+                                "input_output_consumer_alignment",
+                            ),
+                        )
+
+        default_index, default_enabled = parameter_with_index("setDefaultValue")
+        default_is_enabled = bool(
+            default_enabled
+            and str(default_enabled.get("value") or "").strip().lower() == "true"
+        )
+        default_value_index, default_value = parameter_with_index("defaultValue")
+        if default_is_enabled and (
+            not default_value
+            or not str(default_value.get("value") or "").strip()
+        ):
+            add(
+                f"{table_kind}_table_enabled_default_missing",
+                "Issue",
+                (
+                    f"{table_kind.title()} table enables its default output but exports "
+                    "no nonblank defaultValue."
+                ),
+                anchors_for(
+                    f"parameter[{default_index}]",
+                    f"parameter[{default_value_index}]"
+                    if default_value_index >= 0
+                    else "defaultValue",
+                    "setDefaultValue",
+                ),
+                ("purpose_output_alignment", "input_output_consumer_alignment"),
+            )
+
+    portability_patterns = (
+        (
+            "hard_coded_container_identifier",
+            re.compile(
+                r"\bGTM-(?=[A-Z0-9]{4,12}\b)(?=[A-Z0-9]*\d)[A-Z0-9]+\b",
+                re.I,
+            ),
+            "A behavior-bearing value hard-codes a GTM container public ID.",
+        ),
+        (
+            "hard_coded_gtm_admin_reference",
+            re.compile(
+                r"(?:tagmanager\.google\.com/[^\s\"']*(?:accounts|containers|workspaces)"
+                r"|(?:account|container|workspace)(?:Id)?\s*[:=]\s*['\"]?\d{2,})",
+                re.I,
+            ),
+            "A behavior-bearing value embeds a GTM admin/account/container/workspace reference.",
+        ),
+        (
+            "environment_specific_endpoint_candidate",
+            re.compile(
+                r"(?:https?://)?(?:localhost|127\.0\.0\.1|"
+                r"(?:dev|development|stage|staging|qa|uat|sandbox|preprod)"
+                r"(?:[-.][A-Za-z0-9-]+)+)(?::\d+)?(?:[/\s\"']|$)",
+                re.I,
+            ),
+            "A behavior-bearing value contains an environment-specific endpoint candidate.",
+        ),
+    )
+    projected_facts = walk_json_fields(behavior_projection(obj), own_prefix)
+    for fact in projected_facts:
+        path = str(fact.get("json_path") or "")
+        if path not in available or path.endswith(metadata_suffixes):
+            continue
+        value = str(fact.get("value_preview") or "")
+        for finding_key, pattern, statement in portability_patterns:
+            matches = sorted(set(pattern.findall(value)))
+            if not matches:
+                continue
+            add(
+                f"portability:{finding_key}:{stable_hash({'path': path, 'matches': matches})}",
+                "Unclear",
+                (
+                    f"{statement} Confirm whether {matches!r} is intentionally fixed for "
+                    "this container or must be parameterized/remapped for the target environment."
+                ),
+                [path],
+                (
+                    "purpose_output_alignment",
+                    "execution_scope_alignment",
+                    "vendor_contract_alignment",
+                ),
+            )
 
     def inspect_trace(trace: dict[str, Any], inherited_paths: list[str]) -> None:
         relation = str(trace.get("relation") or "dependency")
@@ -1622,7 +2566,7 @@ def scaffold_review(
         required_paths = logic_anchors(facts)
         required_path_set = set(required_paths)
         lines = code_line_facts(layer, obj)
-        vendor = vendor_record(json.dumps(behavior_projection(obj), ensure_ascii=False))
+        vendor = vendor_record(behavior_bearing_vendor_text(obj, layer))
         contexts = downstream_vendor_contexts.get(current_key, [])
         topics = required_contract_topics(
             cv,
@@ -1660,6 +2604,9 @@ def scaffold_review(
                         "finding_key": f"{category}:{position}",
                         "category": category,
                         "statement": str(statement),
+                        "decision_class": technical_finding_decision_class(
+                            category, str(statement)
+                        ),
                     }
                 )
         parser_status = str(technical.get("javascript_parser") or "")
@@ -1671,6 +2618,7 @@ def scaffold_review(
                 {
                     "finding_key": "parser:coverage",
                     "category": "parser",
+                    "decision_class": "evidence_boundary",
                     "statement": (
                         "JavaScript AST parser was unavailable; line-by-line behavior review "
                         "must carry the code assessment without claiming AST coverage."
@@ -1682,6 +2630,7 @@ def scaffold_review(
                 {
                     "finding_key": "parser:coverage",
                     "category": "parser",
+                    "decision_class": "evidence_boundary",
                     "statement": (
                         f"JavaScript parser status is {parser_status or 'unknown'}"
                         + (f" with errors: {'; '.join(parser_errors[:3])}" if parser_errors else "")
@@ -1803,6 +2752,10 @@ def scaffold_review(
                 "disposition": "",
                 "owner_question": "",
                 "recommended_action": "",
+                "external_evidence_status": "none",
+                "external_evidence_summary": "",
+                "external_evidence_next_action": "",
+                "consumer_specific_code_basis": "",
                 "operation": {},
                 "confidence": "",
                 "evidence_citations": {},
@@ -2144,7 +3097,8 @@ def validate_contract_evidence(
 def validate_contract_outcomes(
     row: dict[str, Any],
     noncompliant_anchors: set[str],
-    unproven_anchors: set[str],
+    blocking_unproven_anchors: set[str],
+    runtime_unproven_anchors: set[str],
     label: str,
 ) -> list[str]:
     errors: list[str] = []
@@ -2157,12 +3111,14 @@ def validate_contract_outcomes(
     }
     if noncompliant_anchors - defect_anchors:
         errors.append(f"{label}: vendor contract failures must be linked to concrete defects")
-    if unproven_anchors and row.get("correctness_verdict") not in {
+    if blocking_unproven_anchors and row.get("correctness_verdict") not in {
         "Owner decision needed",
         "Container evidence limit",
         "Issue",
     }:
-        errors.append(f"{label}: unproven vendor contract cannot be marked Correct")
+        errors.append(
+            f"{label}: an unproven source/identity contract cannot be marked Correct"
+        )
     branches = {
         str(item.get("json_path") or ""): str(item.get("correctness") or "")
         for item in as_list(row.get("configuration_branch_reviews"))
@@ -2173,10 +3129,11 @@ def validate_contract_outcomes(
             errors.append(
                 f"{label}: non-compliant contract requires Issue branch verdict at {anchor}"
             )
-    for anchor in sorted(unproven_anchors - noncompliant_anchors):
+    for anchor in sorted(blocking_unproven_anchors - noncompliant_anchors):
         if branches.get(anchor) not in {"Unclear", "Issue"}:
             errors.append(
-                f"{label}: unproven contract requires Unclear or Issue branch verdict at {anchor}"
+                f"{label}: blocking unproven contract requires Unclear or Issue branch "
+                f"verdict at {anchor}"
             )
     logic = {
         str(item.get("check_key") or ""): str(item.get("verdict") or "")
@@ -2186,8 +3143,14 @@ def validate_contract_outcomes(
     vendor_verdict = logic.get("vendor_contract_alignment")
     if noncompliant_anchors and vendor_verdict != "Issue":
         errors.append(f"{label}: non-compliant contract contradicts vendor D3 alignment")
-    elif unproven_anchors and vendor_verdict not in {"Unclear", "Issue"}:
+    elif blocking_unproven_anchors and vendor_verdict not in {"Unclear", "Issue"}:
         errors.append(f"{label}: unproven contract contradicts vendor D3 alignment")
+    elif runtime_unproven_anchors and vendor_verdict not in {
+        "Aligned",
+        "Unclear",
+        "Issue",
+    }:
+        errors.append(f"{label}: runtime boundary has an invalid vendor D3 conclusion")
     return errors
 
 
@@ -2196,7 +3159,8 @@ def validate_contract_checks(row: dict[str, Any], label: str) -> list[str]:
     required_topics, _supplied_topics, errors = contract_topic_maps(row, checks, label)
     available = set(as_list(row.get("available_evidence_anchors")))
     noncompliant_anchors: set[str] = set()
-    unproven_anchors: set[str] = set()
+    blocking_unproven_anchors: set[str] = set()
+    runtime_unproven_anchors: set[str] = set()
     for index, check in enumerate(checks, start=1):
         prefix = f"{label}: contract check {index}"
         topic_key = str(check.get("contract_topic") or "")
@@ -2213,10 +3177,17 @@ def validate_contract_checks(row: dict[str, Any], label: str) -> list[str]:
         if check.get("verdict") == "Non-compliant":
             noncompliant_anchors.update(anchors)
         if check.get("verdict") == "Unproven":
-            unproven_anchors.update(anchors)
+            if topic.get("deterministic_contract_state") == "unproven_from_container":
+                runtime_unproven_anchors.update(anchors)
+            else:
+                blocking_unproven_anchors.update(anchors)
     errors.extend(
         validate_contract_outcomes(
-            row, noncompliant_anchors, unproven_anchors, label
+            row,
+            noncompliant_anchors,
+            blocking_unproven_anchors,
+            runtime_unproven_anchors,
+            label,
         )
     )
     return errors
@@ -2431,7 +3402,7 @@ def validate_logic_cross_checks(row: dict[str, Any], label: str) -> list[str]:
     if set(supplied) != set(required):
         errors.append(f"{label}: D3 logic checks must cover every required cross-check exactly once")
     issue_anchors: set[str] = set()
-    unclear = False
+    unclear_keys: set[str] = set()
     for check_key, requirement in required.items():
         review = supplied.get(check_key)
         if not review:
@@ -2462,7 +3433,7 @@ def validate_logic_cross_checks(row: dict[str, Any], label: str) -> list[str]:
         if verdict == "Issue":
             issue_anchors.update(anchors)
         elif verdict == "Unclear":
-            unclear = True
+            unclear_keys.add(check_key)
     defect_anchors = {
         str(anchor)
         for defect in as_list(row.get("defects"))
@@ -2472,7 +3443,12 @@ def validate_logic_cross_checks(row: dict[str, Any], label: str) -> list[str]:
         errors.append(f"{label}: every failed D3 logic check must be linked to a defect")
     if issue_anchors and row.get("correctness_verdict") != "Issue":
         errors.append(f"{label}: failed D3 logic check requires overall Issue verdict")
-    if unclear and row.get("correctness_verdict") not in {
+    runtime_only_unclear = (
+        bool(unclear_keys)
+        and unclear_keys <= {"vendor_contract_alignment"}
+        and row.get("external_evidence_status") == "runtime_handoff_required"
+    )
+    if unclear_keys and not runtime_only_unclear and row.get("correctness_verdict") not in {
         "Owner decision needed",
         "Container evidence limit",
         "Issue",
@@ -2624,20 +3600,14 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
         row.get("technical_facts_assessment"), 6
     ):
         errors.append(f"{label}: custom code lacks a concrete technical assessment")
-    confirmed: list[str] = []
+    actionable: list[str] = []
     for key, source in required.items():
         review = supplied.get(key)
         if not review:
             continue
         if review.get("source_statement") != source["statement"]:
             errors.append(f"{label}: technical finding {key} source statement changed")
-        if review.get("verdict") not in {
-            "Confirmed issue",
-            "Cleanup opportunity",
-            "False positive",
-            "Documented exception",
-            "Owner decision needed",
-        }:
+        if review.get("verdict") not in VALID_TECHNICAL_FINDING_VERDICTS:
             errors.append(f"{label}: technical finding {key} has invalid verdict")
         if not specific_text(review.get("rationale"), 5):
             errors.append(f"{label}: technical finding {key} lacks concrete rationale")
@@ -2667,14 +3637,41 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
                 f"{label}: technical finding {key} rationale is not tied to its exact "
                 "source-proven signal"
             )
-        source_proven_risk = source.get("category") in {"health", "security"}
-        if source_proven_risk and review.get("verdict") == "False positive":
+        source_proven_signal = source.get("category") in {"health", "security"}
+        decision_class = str(
+            source.get("decision_class")
+            or technical_finding_decision_class(
+                str(source.get("category") or ""),
+                str(source.get("statement") or ""),
+            )
+        )
+        if source_proven_signal and review.get("verdict") == "False positive":
             errors.append(
                 f"{label}: source-proven {source.get('category')} signal {key} cannot be "
-                "dismissed as a false positive; document an evidence-bound exception, "
-                "confirm the issue, or request an owner decision"
+                "dismissed as a false positive; use No defect after review when the "
+                "pattern is present but the complete source-bound review proves no defect"
             )
-        if source_proven_risk and review.get("verdict") == "Cleanup opportunity":
+        if decision_class == "deterministic_defect" and review.get("verdict") == (
+            "No defect after review"
+        ):
+            errors.append(
+                f"{label}: deterministic technical defect {key} cannot be closed as "
+                "No defect after review"
+            )
+        if (
+            decision_class == "review_signal"
+            and review.get("verdict") == "Owner decision needed"
+        ):
+            errors.append(
+                f"{label}: advisory technical review signal {key} cannot by itself "
+                "create an owner decision; conclude No defect after review, identify a "
+                "concrete defect/action, or tie the owner question to a separate "
+                "source-visible business choice"
+            )
+        if source_proven_signal and review.get("verdict") in {
+            "Cleanup opportunity",
+            "Confirmed issue",
+        }:
             action = str(review.get("proposed_action") or "").lower()
             if not specific_text(action, 6) or not any(
                 term in action
@@ -2691,10 +3688,29 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
                 )
             ):
                 errors.append(
-                    f"{label}: source-proven risk {key} marked Cleanup opportunity "
+                    f"{label}: actionable source-proven risk {key} "
                     "requires one concrete proposed_action"
                 )
-        if source_proven_risk and review.get("verdict") == "Documented exception":
+            signal_action_terms: tuple[tuple[str, tuple[str, ...]], ...] = (
+                ("datalayer.reset", ("reset", "event-scoped", "explicit key")),
+                ("google_tag_manager", ("google_tag_manager", "supported", "documented")),
+                ("gtag()", ("gtag", "native google", "sender", "destination")),
+                ("debugger", ("debugger", "remove")),
+                ("cookie write", ("secure", "samesite", "cookie")),
+                ("event listener", ("once", "remove", "guard", "listener")),
+            )
+            statement = str(source.get("statement") or "").lower()
+            matched_terms = [
+                terms for marker, terms in signal_action_terms if marker in statement
+            ]
+            if matched_terms and not any(
+                term in action for terms in matched_terms for term in terms
+            ):
+                errors.append(
+                    f"{label}: proposed_action for {key} does not address its exact "
+                    "source-proven code signal"
+                )
+        if source_proven_signal and review.get("verdict") == "Documented exception":
             exception_basis = str(review.get("exception_basis") or "").lower()
             if (
                 not specific_text(exception_basis, 8)
@@ -2717,7 +3733,10 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
                     f"{label}: source-proven risk {key} marked Documented exception "
                     "requires an evidence-bound exception_basis"
                 )
-        if source_proven_risk and review.get("verdict") == "Owner decision needed":
+        if (
+            decision_class in {"deterministic_defect", "evidence_boundary"}
+            and review.get("verdict") == "Owner decision needed"
+        ):
             owner_question = str(
                 review.get("owner_question") or row.get("owner_question") or ""
             ).lower()
@@ -2854,11 +3873,15 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
                 errors.append(
                     f"{label}: fixed-slot exception must name the proven cardinality or consumer rule"
                 )
-        if review.get("verdict") == "Confirmed issue":
-            confirmed.append(key)
-    if confirmed and row.get("correctness_verdict") != "Issue":
-        errors.append(f"{label}: confirmed technical issues require overall Issue verdict")
-    for finding_key in confirmed:
+        if review.get("verdict") in {"Confirmed issue", "Cleanup opportunity"}:
+            actionable.append(key)
+    if actionable and row.get("correctness_verdict") != "Issue":
+        errors.append(f"{label}: actionable technical findings require overall Issue verdict")
+    if actionable and row.get("disposition") != "cleanup_operation":
+        errors.append(
+            f"{label}: actionable technical findings require one exact cleanup operation"
+        )
+    for finding_key in actionable:
         linked_defects = [
             defect
             for defect in as_list(row.get("defects"))
@@ -2866,7 +3889,7 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
         ]
         if len(linked_defects) != 1:
             errors.append(
-                f"{label}: confirmed technical issue {finding_key} must link to exactly "
+                f"{label}: actionable technical finding {finding_key} must link to exactly "
                 "one source-bound defect"
             )
     return errors
@@ -2973,7 +3996,28 @@ def branch_outcome_errors(
     errors: list[str] = []
     if issue_paths and row.get("correctness_verdict") != "Issue":
         errors.append(f"{label}: branch issues require an overall Issue verdict")
-    if unclear_paths and row.get("correctness_verdict") not in {
+    topics = {
+        str(item.get("topic_key") or ""): item
+        for item in as_list(row.get("required_contract_topics"))
+        if isinstance(item, dict)
+    }
+    runtime_unclear_paths = {
+        str(anchor)
+        for check in as_list(row.get("contract_checks"))
+        if isinstance(check, dict)
+        and check.get("verdict") == "Unproven"
+        and topics.get(str(check.get("contract_topic") or ""), {}).get(
+            "deterministic_contract_state"
+        )
+        == "unproven_from_container"
+        for anchor in as_list(check.get("evidence_anchors"))
+    }
+    runtime_only_unclear = (
+        bool(unclear_paths)
+        and unclear_paths <= runtime_unclear_paths
+        and row.get("external_evidence_status") == "runtime_handoff_required"
+    )
+    if unclear_paths and not runtime_only_unclear and row.get("correctness_verdict") not in {
         "Owner decision needed",
         "Container evidence limit",
         "Issue",
@@ -3199,6 +4243,146 @@ def validate_row_identity_and_evidence(
     return errors
 
 
+def direct_unique_reference_repairs(row: dict[str, Any]) -> list[dict[str, Any]]:
+    repairs: list[dict[str, Any]] = []
+    for trace in as_list(row.get("reference_trace_requirements")):
+        paths = [
+            str(value)
+            for value in as_list(trace.get("source_reference_paths"))
+            if str(value)
+        ]
+        for terminal in as_list(trace.get("terminal_requirements")):
+            candidates = [
+                str(value)
+                for value in as_list(terminal.get("normalization_candidate_names"))
+                if str(value)
+            ]
+            if (
+                terminal.get("state") == "missing"
+                and not str(terminal.get("source_object_key") or "")
+                and terminal.get("normalization_resolution") == "unique"
+                and len(candidates) == 1
+                and paths
+            ):
+                repairs.append(
+                    {
+                        "reference": str(terminal.get("reference") or ""),
+                        "replacement": candidates[0],
+                        "source_reference_paths": paths,
+                    }
+                )
+    return repairs
+
+
+def reference_repair_is_the_only_known_issue(row: dict[str, Any]) -> bool:
+    repairs = direct_unique_reference_repairs(row)
+    if not repairs:
+        return False
+    missing_terminals = [
+        terminal
+        for trace in as_list(row.get("reference_trace_requirements"))
+        for terminal in as_list(trace.get("terminal_requirements"))
+        if terminal.get("state") == "missing"
+        and not str(terminal.get("source_object_key") or "")
+    ]
+    if len(missing_terminals) != len(repairs):
+        return False
+    if any(
+        obligation.get("required_outcome") == "Issue"
+        for obligation in as_list(row.get("required_configuration_obligations"))
+    ):
+        return False
+    if any(
+        check.get("verdict") == "Non-compliant"
+        for check in as_list(row.get("contract_checks"))
+    ):
+        return False
+    return not any(
+        review.get("verdict") in {"Confirmed issue", "Cleanup opportunity"}
+        for review in as_list(row.get("technical_finding_reviews"))
+    )
+
+
+def reference_repair_operation_errors(
+    row: dict[str, Any], label: str
+) -> list[str]:
+    operation = row.get("operation") or {}
+    changes = as_list(operation.get("changes"))
+    errors: list[str] = []
+    for repair in direct_unique_reference_repairs(row):
+        before_token = "{{" + repair["reference"] + "}}"
+        after_token = "{{" + repair["replacement"] + "}}"
+        matched = any(
+            str(change.get("object_key") or "") == str(row.get("object_key") or "")
+            and str(change.get("json_path") or "")
+            in set(repair["source_reference_paths"])
+            and before_token in str(change.get("before") or "")
+            and after_token in str(change.get("after") or "")
+            for change in changes
+        )
+        if not matched:
+            errors.append(
+                f"{label}: source-known reference repair {repair['reference']!r} -> "
+                f"{repair['replacement']!r} requires one exact field change at its "
+                "recorded source path"
+            )
+    return errors
+
+
+def source_known_document_write_errors(
+    row: dict[str, Any], label: str
+) -> list[str]:
+    obligation = next(
+        (
+            item
+            for item in as_list(row.get("required_configuration_obligations"))
+            if item.get("obligation_key")
+            in {
+                "unused_document_write_support",
+                "document_write_support_missing",
+            }
+        ),
+        None,
+    )
+    if not obligation:
+        return []
+    repair = obligation.get("source_known_repair") or {}
+    if row.get("disposition") != "cleanup_operation":
+        return [
+            f"{label}: the exported document.write support mismatch has a "
+            "source-known target and requires an exact cleanup operation"
+        ]
+    operation = row.get("operation") or {}
+    mutations = [
+        *as_list(operation.get("changes")),
+        *as_list(operation.get("additions")),
+    ]
+    if not any(
+        str(item.get("object_key") or "") == str(row.get("object_key") or "")
+        and str(item.get("json_path") or "") == str(repair.get("json_path") or "")
+        and (
+            (
+                repair.get("mode") == "change"
+                and str(item.get("before") or "")
+                == str(repair.get("before") or "")
+                and str(item.get("after") or "")
+                == str(repair.get("after") or "")
+            )
+            or (
+                repair.get("mode") == "append"
+                and item.get("mode") == "append"
+                and item.get("value") == repair.get("value")
+            )
+        )
+        for item in mutations
+    ):
+        return [
+            f"{label}: document.write support cleanup must set the exact exported "
+            "support field to the source-known target"
+        ]
+    return []
+
+
 def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
     errors: list[str] = []
     if row.get("disposition") == "owner_decision_needed" and not precise_question(
@@ -3212,13 +4396,12 @@ def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
         errors.append(
             f"{label}: unresolved outcome requires one concrete recommended_action"
         )
-    if row.get("correctness_verdict") == "Issue" and row.get("disposition") not in {
-        "cleanup_operation",
-        "owner_decision_needed",
-        "container_evidence_limit",
-    }:
-        errors.append(f"{label}: Issue verdict has incompatible disposition")
     expected_dispositions = {
+        # A confirmed defect should normally become an operation. Some source-
+        # proven defects still need an owner to choose the valid replacement
+        # value; in that case the handoff must remain decision-ready and cite
+        # the affected object plus exact defect evidence below.
+        "Issue": {"cleanup_operation", "owner_decision_needed"},
         "Correct": {"keep"},
         "Owner decision needed": {"owner_decision_needed"},
         "Container evidence limit": {"container_evidence_limit"},
@@ -3229,6 +4412,59 @@ def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
         errors.append(
             f"{label}: {row.get('correctness_verdict')} verdict has incompatible disposition"
         )
+    if (
+        row.get("correctness_verdict") == "Issue"
+        and row.get("disposition") == "owner_decision_needed"
+    ):
+        recommendation = str(row.get("recommended_action") or "")
+        lowered = recommendation.lower()
+        object_terms = [
+            str(row.get("object_key") or ""),
+            str(row.get("object_name") or ""),
+        ]
+        defect_terms = [
+            str(value)
+            for defect in as_list(row.get("defects"))
+            if isinstance(defect, dict)
+            for value in [
+                defect.get("defect_id"),
+                *as_list(defect.get("evidence_anchors")),
+            ]
+            if str(value)
+        ]
+        if not any(term.lower() in lowered for term in object_terms if term):
+            errors.append(
+                f"{label}: unresolved Issue recommendation must name the affected object"
+            )
+        if defect_terms and not any(
+            term.lower() in lowered for term in defect_terms
+        ):
+            errors.append(
+                f"{label}: unresolved Issue recommendation must cite a defect ID or "
+                "exact evidence anchor"
+            )
+        if not re.search(
+            r"\b(?:correct|delete|disable|fix|remap|remove|repair|replace|"
+            r"reconfigure|restore|split)\b",
+            lowered,
+        ):
+            errors.append(
+                f"{label}: unresolved Issue recommendation must state a concrete "
+                "remediation action"
+            )
+    if (
+        row.get("correctness_verdict") == "Issue"
+        and reference_repair_is_the_only_known_issue(row)
+    ):
+        if row.get("disposition") != "cleanup_operation":
+            errors.append(
+                f"{label}: every missing reference has one exact "
+                "Unicode/whitespace-equivalent source target, so the repair must be "
+                "an exact cleanup operation rather than an owner decision"
+            )
+        else:
+            errors.extend(reference_repair_operation_errors(row, label))
+    errors.extend(source_known_document_write_errors(row, label))
     if row.get("correctness_verdict") == "Container evidence limit":
         boundary = " ".join(
             str(row.get(field) or "")
@@ -3240,6 +4476,78 @@ def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
             errors.append(
                 f"{label}: container evidence limit must name the precise unseen evidence"
             )
+    return errors
+
+
+def validate_external_evidence_boundary(
+    row: dict[str, Any], label: str
+) -> list[str]:
+    """Keep runtime proof separate from the container-visible verdict."""
+
+    topics = {
+        str(item.get("topic_key") or ""): item
+        for item in as_list(row.get("required_contract_topics"))
+        if isinstance(item, dict)
+    }
+    runtime_contracts = []
+    blocking_contracts = []
+    for check in as_list(row.get("contract_checks")):
+        if not isinstance(check, dict) or check.get("verdict") != "Unproven":
+            continue
+        topic_key = str(check.get("contract_topic") or "")
+        topic = topics.get(topic_key) or {}
+        target = (
+            runtime_contracts
+            if topic.get("deterministic_contract_state") == "unproven_from_container"
+            else blocking_contracts
+        )
+        target.append(topic_key)
+
+    technical_limits = [
+        str(value)
+        for value in as_list(
+            (row.get("technical_code_facts") or {}).get("container_evidence_limits")
+        )
+        if str(value)
+        and not str(value).startswith("No material external behavior")
+        and "does not expose executable behavior" not in str(value).lower()
+    ]
+    runtime_required = bool(runtime_contracts or technical_limits)
+    status = str(row.get("external_evidence_status") or "")
+    errors: list[str] = []
+    if status not in VALID_EXTERNAL_EVIDENCE_STATUSES:
+        errors.append(f"{label}: external_evidence_status is invalid")
+    if runtime_required and status != "runtime_handoff_required":
+        errors.append(
+            f"{label}: runtime-only proof must be recorded as a separate runtime handoff"
+        )
+    if not runtime_required and status != "none":
+        errors.append(
+            f"{label}: runtime handoff is declared without a generated external boundary"
+        )
+    if runtime_required:
+        if not specific_text(row.get("external_evidence_summary"), 7):
+            errors.append(
+                f"{label}: runtime handoff requires a concise, source-specific boundary"
+            )
+        if not specific_text(row.get("external_evidence_next_action"), 7):
+            errors.append(
+                f"{label}: runtime handoff requires one exact next test action"
+            )
+        if (
+            not blocking_contracts
+            and row.get("correctness_verdict") == "Container evidence limit"
+        ):
+            errors.append(
+                f"{label}: runtime-only uncertainty cannot replace the container-visible "
+                "correctness verdict; conclude the exported configuration and keep the "
+                "runtime test in the separate handoff"
+            )
+    elif any(
+        str(row.get(field) or "").strip()
+        for field in ("external_evidence_summary", "external_evidence_next_action")
+    ):
+        errors.append(f"{label}: external evidence text is present without a handoff")
     return errors
 
 
@@ -3268,10 +4576,62 @@ def validate_configuration_row(
             source_consumer_map,
             source_paths_by_key,
         ),
+        lambda: validate_external_evidence_boundary(row, label),
         lambda: validate_row_outcome(row, label),
     )
     for validator in validators:
         errors.extend(validator())
+    return errors
+
+
+def validate_identical_code_decisions(rows: list[dict[str, Any]]) -> list[str]:
+    """Require one technical disposition for identical code unless consumers differ."""
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        code_hash = str((row.get("technical_code_facts") or {}).get("code_hash") or "")
+        if code_hash and as_list(row.get("required_technical_findings")):
+            groups.setdefault(code_hash, []).append(row)
+
+    errors: list[str] = []
+    for code_hash, group in sorted(groups.items()):
+        if len(group) < 2:
+            continue
+
+        def outcome_signature(row: dict[str, Any]) -> tuple[tuple[str, str, str, str], ...]:
+            return tuple(
+                sorted(
+                    (
+                        " ".join(str(item.get("source_statement") or "").lower().split()),
+                        str(item.get("verdict") or ""),
+                        " ".join(str(item.get("proposed_action") or "").lower().split()),
+                        " ".join(str(item.get("exception_basis") or "").lower().split()),
+                    )
+                    for item in as_list(row.get("technical_finding_reviews"))
+                    if isinstance(item, dict)
+                )
+            )
+
+        signatures = {outcome_signature(row) for row in group}
+        if len(signatures) == 1:
+            continue
+        for row in group:
+            label = f"configuration {row.get('object_key')}"
+            basis = str(row.get("consumer_specific_code_basis") or "")
+            consumer_keys = [
+                str(item.get("consumer_key") or "")
+                for item in as_list(row.get("export_consumers"))
+                if str(item.get("consumer_key") or "")
+            ]
+            if (
+                not specific_text(basis, 8)
+                or not consumer_keys
+                or not any(key.lower() in basis.lower() for key in consumer_keys)
+            ):
+                errors.append(
+                    f"{label}: code hash {code_hash} has a different technical outcome "
+                    "from identical code without a source-specific consumer reason"
+                )
     return errors
 
 
@@ -3308,6 +4668,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
                 source_paths_by_key,
             )
         )
+    errors.extend(validate_identical_code_decisions(list(supplied_by_key.values())))
     return errors, warnings
 
 

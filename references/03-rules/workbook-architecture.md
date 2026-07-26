@@ -3,6 +3,15 @@
 The cleanup plan is a decision document for web analysts and marketing teams,
 not a dump of agent internals.
 
+## Contents
+
+- [Canonical Tabs](#canonical-tabs)
+- [Limits](#limits)
+- [Cleanup Plan Columns](#cleanup-plan-columns)
+- [General Problem Categories](#general-problem-categories)
+- [Wording](#wording)
+- [Separation From Change Log](#separation-from-change-log)
+
 ## Canonical Tabs
 
 | Tab | Visibility | Purpose |
@@ -21,7 +30,8 @@ Hidden tabs remain available by unhiding. Do not password-protect them.
 ## Limits
 
 - maximum eight tabs;
-- maximum six columns per tab;
+- exactly seven canonical columns in `02 Cleanup Plan`;
+- maximum six columns in every other tab;
 - only Summary and Cleanup Plan visible;
 - wrapped top-aligned text;
 - stable column widths, capped at 92;
@@ -37,10 +47,35 @@ Hidden tabs remain available by unhiding. Do not password-protect them.
 
 1. ID
 2. Status
-3. Area / problem type
-4. Affected object(s)
-5. Problem / evidence
-6. Action / priority / QA
+3. General problem category
+4. Area / problem type
+5. Affected object(s)
+6. Problem / evidence
+7. Action / priority / QA
+
+Keep the header order exact. Apply the worksheet filter across all seven
+columns. Preserve `layer:ID — Name` labels in `Affected object(s)` so an analyst
+can use a text filter such as `tag:`, `trigger:`, `variable:`,
+`builtInVariable:`, `folder:`, or `customTemplate:` without opening hidden
+proof.
+
+## General Problem Categories
+
+Derive the broad category deterministically from the exact problem type. Use
+only:
+
+- `Removal & lifecycle`
+- `Configuration & routing`
+- `Duplication & consolidation`
+- `Custom code & integrations`
+- `Consent & governance`
+- `Naming & organization`
+- `Measurement & payload`
+
+The broad category exists only for filtering. It never replaces or weakens the
+specific `Area / problem type`, finding, evidence, action, or approval scope.
+Keep the mapping centralized in `scripts/gtm_taxonomy.py`; do not let an agent
+invent a category per row.
 
 Keep one row per distinct actionable issue. A summary row may precede detailed
 rows only when visual hierarchy makes the relationship clear. Homogeneous exact
@@ -53,16 +88,34 @@ analyst's recommended action. Consolidate nonblocking container-evidence limits
 into one visible scope-boundary row; preserve every per-object boundary and
 exact next action in the hidden reviews and machine-readable package. Do not
 turn out-of-scope runtime certification into hundreds of visible cleanup tasks.
+It must not prescribe runtime-QA handoffs or tests; those belong to a separate
+explicitly requested acceptance workflow.
+Use `layer:ID — Name` for object labels in operation, owner, and batch rows.
+Omit “1 related decision” boilerplate for a single owner row; show counts only
+for genuine groups.
+Describe removal from the enabled `builtInVariable` list as
+“Disable/deselect,” not as deleting a user-created GTM object.
 The Summary must distinguish operations ready for scoped approval from the
 specific objects still blocked by owner decisions, and must expose any action-
 completeness failure.
+When action completeness is not `pass`, show only one visible `BLOCKED-001`
+draft row and accurate Summary counts. Keep the proposed mutations in the
+machine-readable packet for correction, but do not display a partial operation
+list as approval-ready.
 
 Order visible rows by decision impact without changing operation IDs,
 dependency-aware execution order, or hidden proof order. Lead with Critical and
 High proposed actions and continue through lower-priority proposals before
-unresolved owner/evidence decisions. For each action state
-the root problem, measurement or operational impact, exact target state/action,
-readiness, and QA. The Summary also counts retained/no-change decisions and
+unresolved owner/evidence decisions. For each action state the literal
+configured problem, why GTM behaves that way, the exact change, preserved
+settings/measurement, priority/approval, static verification, and rollback.
+Use short analyst sentences rather than concatenating source fields under
+machine-like labels. Raw JSON paths, hashes, validator phrases, and generic
+“maintenance risk” text remain proof, not the primary explanation. When
+invisible Unicode corrupts a variable reference, name the non-breaking or
+non-standard space, show the readable intended `{{Variable}}`, and explain
+that GTM performs exact name matching. The basis states active
+reachability, impact, confidence, reversibility, and owner dependency. The Summary also counts retained/no-change decisions and
 names a concise set of retained business families so the target architecture is
 not described only through defects. It exposes measurement-family preservation,
 the target-state architecture, and the container-only proof boundary.

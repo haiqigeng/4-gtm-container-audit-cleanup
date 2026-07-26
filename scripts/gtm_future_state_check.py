@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import itertools
 import json
 import re
 import sys
@@ -14,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from gtm_architecture_review import scaffold_review as scaffold_architecture_review
-from gtm_baseline_audit import audit_export
+from gtm_baseline_audit import audit_export, build_execution_reachability
 from gtm_configuration_review import scaffold_review as scaffold_configuration_review
 from gtm_custom_code_extract import extract_export
 from gtm_lib import ID_KEYS, container_version, source_descriptor, source_integrity_findings
@@ -23,16 +22,16 @@ from gtm_validate_artifact import duplicate_ids, missing_references
 
 PATH_TOKEN_RE = re.compile(r"\.([^.[\]]+)|\[(\d+)\]")
 
-# A planned source repair can reveal a benign semantic grouping that was
-# already exhaustively retained pair by pair in Run 3. These discovery-only
-# candidate types do not need a fictive mutation merely to make the future
-# state pass. Unsafe route, consent, Zone, cycle, and deduplication candidates
-# remain subject to an explicit architecture-backed operation.
-RETENTION_COVERABLE_COMPARISON_TYPES = {
-    "shared_business_scope",
-    "shared_execution_trigger",
-    "shared_input_variable_logic",
-}
+# Deleting source members can shrink an already-reviewed architecture group.
+# That is not a newly introduced relationship. It must not force a fictive
+# Run-3 mutation simply because the deterministic detector emits the surviving
+# subset under a new membership signature. This exemption is deliberately
+# narrow: one retained source comparison must cover every current member and
+# comparison type, every removed source member must be deleted by the approved
+# plan, and no surviving member may be changed by a non-deletion operation.
+# Any relationship introduced or altered by a route, consent, Zone, cycle,
+# deduplication, creation, remap, or other configuration mutation still needs
+# explicit architecture backing.
 RETENTION_VERDICTS = {"Intentional variant", "Complementary", "Unrelated"}
 
 
@@ -540,6 +539,61 @@ def count_deltas(
     }
 
 
+def configured_activation_risk(
+    before_cv: dict[str, Any],
+    future_cv: dict[str, Any],
+    operations: dict[str, Any],
+) -> dict[str, Any]:
+    """Report newly reachable configured tags without claiming live execution."""
+    before_active = {
+        str(value)
+        for value in as_list(
+            build_execution_reachability(before_cv).get("active_object_keys")
+        )
+        if str(value).startswith("tag:")
+    }
+    after_active = {
+        str(value)
+        for value in as_list(
+            build_execution_reachability(future_cv).get("active_object_keys")
+        )
+        if str(value).startswith("tag:")
+    }
+    newly_active = sorted(after_active - before_active)
+    risk_operations = [
+        {
+            "operation_id": str(operation.get("operation_id") or ""),
+            "operation_key": str(operation.get("operation_key") or ""),
+        }
+        for operation in as_list(operations.get("operations"))
+        if bool(
+            (
+                (operation.get("execution_safety") or {}).get(
+                    "configured_activation_risk"
+                )
+                or {}
+            ).get("flag")
+        )
+    ]
+    return {
+        "flag": bool(newly_active),
+        "scope": "configured graph reachability only; not evidence of live firing",
+        "before_active_tag_count": len(before_active),
+        "after_active_tag_count": len(after_active),
+        "newly_active_tag_keys": newly_active,
+        "candidate_operation_ids": [
+            item["operation_id"] for item in risk_operations if item["operation_id"]
+        ],
+        "candidate_operations": risk_operations,
+        "execution_requirement": (
+            "individually review the newly reachable configured tags before approval; "
+            "this container-only audit does not perform runtime acceptance"
+            if newly_active
+            else "none"
+        ),
+    }
+
+
 def deterministic_quality_scaffolds(export_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """Regenerate the two semantic-lens fact queues for a projected container."""
 
@@ -594,55 +648,157 @@ def architecture_candidate_summary(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def retained_architecture_pairs(operations: dict[str, Any]) -> set[tuple[str, str]]:
-    """Return Run-3 comparison pairs explicitly retained as distinct.
+def retained_architecture_comparisons(
+    operations: dict[str, Any], source_architecture: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """Return source-bound Run-3 comparison decisions that cover retained subsets.
 
-    Only comparison decisions, rather than broad family membership, qualify.
-    The review validator already requires source-specific distinguishing proof
-    for these retention verdicts.
+    The compiled ledger removes deleted object keys from decision rows so that
+    the final plan names only objects that still need attention. The future
+    state check needs the original source membership to distinguish an actual
+    new relationship from the surviving subset of one already reviewed in Run
+    3, so it restores that membership from the deterministic source scaffold by
+    comparison ID.
     """
-    pairs: set[tuple[str, str]] = set()
+    source_rows_by_id = {
+        str(row.get("comparison_id") or ""): row
+        for row in as_list((source_architecture or {}).get("comparisons"))
+        if str(row.get("comparison_id") or "")
+    }
+    comparisons: list[dict[str, Any]] = []
     for decision in as_list(operations.get("decision_ledger")):
         if decision.get("source_run") != "business_architecture":
             continue
         if not as_list(decision.get("comparison_types")):
             continue
-        if decision.get("disposition") != "keep":
+        disposition = str(decision.get("disposition") or "")
+        verdict = str(decision.get("verdict") or "")
+        if disposition == "keep" and verdict in RETENTION_VERDICTS:
+            coverage = "source_bound_retention_comparison"
+        elif disposition in {"owner_decision_needed", "container_evidence_limit"}:
+            # The final ledger/workbook retains the unresolved source decision.
+            # A deletion-only subset is therefore still explicitly owned rather
+            # than silently treated as a new, unreviewed candidate.
+            coverage = "source_bound_unresolved_decision"
+        else:
             continue
-        if decision.get("verdict") not in RETENTION_VERDICTS:
-            continue
+        decision_id = str(decision.get("decision_id") or "")
+        source_row = source_rows_by_id.get(decision_id, {})
         keys = sorted(
             {
                 str(value)
-                for value in as_list(decision.get("source_object_keys"))
+                for value in as_list(
+                    source_row.get("candidate_object_keys")
+                    or decision.get("source_object_keys")
+                )
                 if str(value)
             }
         )
-        pairs.update(itertools.combinations(keys, 2))
-    return pairs
+        comparison_types = sorted(
+            {
+                str(value)
+                for value in as_list(
+                    source_row.get("comparison_types")
+                    or decision.get("comparison_types")
+                )
+                if str(value)
+            }
+        )
+        if len(keys) < 2 or not comparison_types:
+            continue
+        comparisons.append(
+            {
+                "decision_id": decision_id,
+                "source_object_keys": keys,
+                "comparison_types": comparison_types,
+                "coverage": coverage,
+            }
+        )
+    return comparisons
 
 
-def candidate_has_retention_coverage(
-    row: dict[str, Any], retained_pairs: set[tuple[str, str]]
-) -> bool:
-    """Whether a new benign candidate is fully covered by Run-3 retention.
+def planned_deleted_keys(operations: dict[str, Any]) -> set[str]:
+    """Return only exact object keys removed by the planned operation set."""
+    return {
+        str(deletion.get("object_key"))
+        for operation in as_list(operations.get("operations"))
+        for deletion in as_list(operation.get("deletions"))
+        if isinstance(deletion, dict) and str(deletion.get("object_key") or "")
+    }
 
-    Every pair must have an explicit source-bound comparison decision. A single
-    overlapping family or unrelated comparison cannot mask a new relationship.
+
+def non_deletion_mutation_keys(operations: dict[str, Any]) -> set[str]:
+    """Return object keys touched by a mutation other than a pure deletion."""
+    keys: set[str] = set()
+    mutation_fields = ("creations", "additions", "changes", "remaps", "renames")
+    for operation in as_list(operations.get("operations")):
+        if not any(as_list(operation.get(field)) for field in mutation_fields):
+            continue
+        for field in ("affected_object_keys", "source_object_keys"):
+            keys.update(
+                str(value)
+                for value in as_list(operation.get(field))
+                if str(value)
+            )
+    return keys
+
+
+def retention_coverage_decision(
+    row: dict[str, Any],
+    retained_comparisons: list[dict[str, Any]],
+    deleted_keys: set[str],
+    non_deletion_keys: set[str],
+) -> str:
+    """Return the retained comparison ID that safely covers a shrunk group.
+
+    The source comparison must be a strict superset of the projected candidate
+    and all disappeared members must be exact planned deletions. This prevents
+    a source-retained relationship from masking a configuration-created one.
     """
     comparison_types = {
         str(value) for value in as_list(row.get("comparison_types")) if str(value)
     }
-    if not comparison_types or not comparison_types <= RETENTION_COVERABLE_COMPARISON_TYPES:
-        return False
-    keys = sorted(
-        {
-            str(value) for value in as_list(row.get("candidate_object_keys")) if str(value)
-        }
+    candidate_keys = {
+        str(value) for value in as_list(row.get("candidate_object_keys")) if str(value)
+    }
+    if (
+        len(candidate_keys) < 2
+        or not comparison_types
+        or candidate_keys & non_deletion_keys
+    ):
+        return ""
+    for comparison in retained_comparisons:
+        source_keys = set(comparison["source_object_keys"])
+        source_types = set(comparison["comparison_types"])
+        removed_members = source_keys - candidate_keys
+        if (
+            candidate_keys < source_keys
+            and comparison_types <= source_types
+            and removed_members <= deleted_keys
+        ):
+            return str(comparison["decision_id"])
+    return ""
+
+
+def source_comparison_coverage(
+    row: dict[str, Any],
+    retained_comparisons: list[dict[str, Any]],
+    deleted_keys: set[str],
+    non_deletion_keys: set[str],
+) -> dict[str, str] | None:
+    """Return the exact source-decision coverage for a deletion-only subset."""
+    decision_id = retention_coverage_decision(
+        row, retained_comparisons, deleted_keys, non_deletion_keys
     )
-    return len(keys) >= 2 and all(
-        pair in retained_pairs for pair in itertools.combinations(keys, 2)
-    )
+    if not decision_id:
+        return None
+    for comparison in retained_comparisons:
+        if comparison["decision_id"] == decision_id:
+            return {
+                "decision_id": decision_id,
+                "coverage": str(comparison["coverage"]),
+            }
+    return None
 
 
 def projected_quality_review(
@@ -655,8 +811,8 @@ def projected_quality_review(
     This reuses the deterministic obligation/candidate generators. It does not
     invent semantic verdicts: exact mutations retain their reviewed rationale,
     while new relationships must be attributable to an architecture-backed
-    operation and every deterministic configuration Issue must be gone from a
-    plan that claims action completeness.
+    operation and every deterministic configuration Issue must be fixed or
+    explicitly covered by a source-specific owner remediation decision.
     """
 
     with tempfile.TemporaryDirectory() as temporary_directory:
@@ -700,7 +856,11 @@ def projected_quality_review(
         for key in as_list(operation.get(field))
         if str(key)
     }
-    retention_pairs = retained_architecture_pairs(operations)
+    retention_comparisons = retained_architecture_comparisons(
+        operations, before_architecture
+    )
+    deleted_keys = planned_deleted_keys(operations)
+    non_deletion_keys = non_deletion_mutation_keys(operations)
     covered_new_candidates = []
     unexpected_new_candidates = []
     for row in new_candidate_rows:
@@ -711,18 +871,44 @@ def projected_quality_review(
         if candidate_keys & architecture_backed_keys:
             summary["coverage"] = "architecture_operation"
             covered_new_candidates.append(summary)
-        elif candidate_has_retention_coverage(row, retention_pairs):
-            summary["coverage"] = "source_bound_retention_comparisons"
+        elif coverage := source_comparison_coverage(
+            row,
+            retention_comparisons,
+            deleted_keys,
+            non_deletion_keys,
+        ):
+            summary["coverage"] = coverage["coverage"]
+            summary["retention_comparison_id"] = coverage["decision_id"]
             covered_new_candidates.append(summary)
         else:
             unexpected_new_candidates.append(summary)
 
     errors: list[str] = []
-    if operations.get("plan_status") == "complete" and after_issues:
+    owner_blocked_configuration_keys = {
+        str(key)
+        for decision in as_list(operations.get("decision_ledger"))
+        if decision.get("source_run") == "configuration_correctness"
+        and decision.get("verdict") == "Issue"
+        and decision.get("disposition") == "owner_decision_needed"
+        for key in as_list(decision.get("source_object_keys"))
+        if str(key)
+    }
+    owner_blocked_issues = [
+        row
+        for row in after_issues
+        if row["object_key"] in owner_blocked_configuration_keys
+    ]
+    unaccounted_after_issues = [
+        row
+        for row in after_issues
+        if row["object_key"] not in owner_blocked_configuration_keys
+    ]
+    if operations.get("plan_status") == "complete" and unaccounted_after_issues:
         errors.append(
-            "projected state retains deterministic configuration Issues: "
+            "projected state retains unaccounted deterministic configuration Issues: "
             + ", ".join(
-                f"{row['object_key']}:{row['obligation_key']}" for row in after_issues
+                f"{row['object_key']}:{row['obligation_key']}"
+                for row in unaccounted_after_issues
             )
         )
     if operations.get("plan_status") == "complete" and unexpected_new_candidates:
@@ -742,6 +928,8 @@ def projected_quality_review(
             "after_issue_count": len(after_issues),
             "new_issues": new_configuration_issues,
             "remaining_issues": after_issues,
+            "owner_blocked_issues": owner_blocked_issues,
+            "unaccounted_remaining_issues": unaccounted_after_issues,
             "before_unclear_count": len(before_unclear),
             "after_unclear_count": len(after_unclear),
         },
@@ -846,6 +1034,11 @@ def check_future_state(
         "status": "pass" if not errors else "fail",
         "operation_count": len(as_list(operations.get("operations"))),
         "object_counts": count_deltas(before_cv, future_cv),
+        "configured_activation_risk": configured_activation_risk(
+            before_cv,
+            future_cv,
+            operations,
+        ),
         "before_operational_findings": len(before_signatures),
         "after_operational_findings": len(after_signatures),
         "resolved_operational_cleanup_ids": sorted(operational_cleanup_ids - set(unresolved)),

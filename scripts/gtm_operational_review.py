@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 import sys
@@ -55,6 +56,7 @@ DECISION_FIELDS = {
     "expected_clean_state",
     "exact_proposed_action",
     "canonical_object_key",
+    "canonical_selection_rationale",
     "creations",
     "additions",
     "changes",
@@ -255,6 +257,7 @@ def scaffold_review(
                 "expected_clean_state": "",
                 "exact_proposed_action": "",
                 "canonical_object_key": "",
+                "canonical_selection_rationale": "",
                 "creations": [],
                 "additions": [],
                 "changes": [],
@@ -428,6 +431,32 @@ def validate_disposition(
             f"{label}: a deterministic nonzero finding must be resolved by cleanup, "
             "a visible owner decision, or a source-locked exception"
         )
+    finding_class = str(expected_row.get("finding_class") or "deterministic_defect")
+    repair = expected_row.get("deterministic_repair") or {}
+    action_candidate = str(
+        expected_row.get("deterministic_action_candidate") or ""
+    )
+    exact_action_available = (
+        str(repair.get("status") or "").startswith("unique_")
+        or action_candidate == "delete_candidate"
+        or (
+            action_candidate == "rename_candidate"
+            and not bool(expected_row.get("policy_confirmation_required"))
+            and bool(expected_row.get("rename_candidate_unique"))
+            and bool(str(expected_row.get("proposed_final_name") or "").strip())
+            and not str(expected_row.get("rename_blocker") or "").strip()
+        )
+    )
+    if (
+        finding_class == "deterministic_defect"
+        and exact_action_available
+        and disposition in {"owner_decision_needed", "keep"}
+    ):
+        errors.append(
+            f"{label}: a unique safe operational action is already source-proven; use "
+            "that exact cleanup operation or an intake-locked documented exception "
+            "before Run 1 can pass"
+        )
     if disposition == "documented_exception":
         errors.extend(validate_exception(row, expected_row, audit_context, label))
     return errors
@@ -471,11 +500,13 @@ def register_operation_key(
 
 def validate_cleanup_operation(
     row: dict[str, Any],
+    expected_row: dict[str, Any],
     finding_id: str,
     operation_keys: dict[str, str],
     valid_keys: set[str],
     expected_consumers: dict[str, set[str]],
     source_paths_by_key: dict[str, str],
+    lifecycle_by_key: dict[str, dict[str, Any]],
     label: str,
 ) -> tuple[list[str], list[str]]:
     errors, warnings = register_operation_key(row, finding_id, operation_keys, label)
@@ -507,12 +538,132 @@ def validate_cleanup_operation(
             row,
             valid_keys,
             label,
-            expected_consumers,
+            # Cross-finding cleanup is deliberately atomic.  Consumer coverage
+            # is checked over the complete accepted operation set below, where
+            # a consumer deleted by another finding is visible.
+            None,
             source_paths_by_key,
         )
     )
     errors.extend(validate_challenge(row, label))
+    errors.extend(
+        validate_deterministic_repair(row, expected_row, lifecycle_by_key, label)
+    )
     return errors, warnings
+
+
+def validate_deterministic_repair(
+    row: dict[str, Any],
+    expected_row: dict[str, Any],
+    lifecycle_by_key: dict[str, dict[str, Any]],
+    label: str,
+) -> list[str]:
+    repair = row.get("deterministic_repair")
+    if not isinstance(repair, dict) or not str(repair.get("status") or "").startswith(
+        "unique_"
+    ):
+        return []
+    repair_targets = {
+        str(value)
+        for value in as_list(expected_row.get("repair_affected_object_keys"))
+        if str(value)
+    }
+    deleted_targets = {
+        str(item.get("object_key") or "")
+        for item in as_list(row.get("deletions"))
+        if isinstance(item, dict)
+    }
+    # A full deletion is cleaner than repairing a stale field on a tag that is
+    # itself paused and has no active export-visible consumers.  This narrow
+    # precedence avoids emitting both a repair and a deletion for the same
+    # inactive object while preserving the fail-closed rule for every active
+    # or referenced repair target.
+    deletion_replaces_repair = bool(repair_targets) and repair_targets <= deleted_targets
+    if deletion_replaces_repair:
+        deletion_replaces_repair = all(
+            bool((lifecycle_by_key.get(key) or {}).get("paused"))
+            and int((lifecycle_by_key.get(key) or {}).get("active_consumer_count") or 0)
+            == 0
+            for key in repair_targets
+        )
+    errors: list[str] = []
+    for field in ("changes", "renames", "deletions"):
+        required = {
+            json.dumps(item, sort_keys=True, ensure_ascii=False)
+            for item in as_list(repair.get(field))
+        }
+        supplied = {
+            json.dumps(item, sort_keys=True, ensure_ascii=False)
+            for item in as_list(row.get(field))
+        }
+        missing = required - supplied
+        if missing and deletion_replaces_repair:
+            missing = set()
+        if missing and field == "changes":
+            composed_missing: set[str] = set()
+            supplied_changes = as_list(row.get("changes"))
+            for required_item in as_list(repair.get("changes")):
+                if any(
+                    json.dumps(required_item, sort_keys=True, ensure_ascii=False)
+                    == json.dumps(item, sort_keys=True, ensure_ascii=False)
+                    for item in supplied_changes
+                ):
+                    continue
+                object_key = str(required_item.get("object_key") or "")
+                path = str(required_item.get("json_path") or "")
+                for supplied_item in supplied_changes:
+                    if (
+                        str(supplied_item.get("object_key") or "") != object_key
+                        or str(supplied_item.get("json_path") or "") != path
+                        or supplied_item.get("before") != required_item.get("before")
+                        or not isinstance(required_item.get("before"), str)
+                        or not isinstance(required_item.get("after"), str)
+                        or not isinstance(supplied_item.get("after"), str)
+                    ):
+                        continue
+                    edits_required = []
+                    for tag, start, end, replacement_start, replacement_end in difflib.SequenceMatcher(
+                        a=required_item["before"], b=required_item["after"], autojunk=False
+                    ).get_opcodes():
+                        if tag != "equal":
+                            edits_required.append(
+                                (start, end, required_item["after"][replacement_start:replacement_end])
+                            )
+                    if not edits_required or any(
+                        replacement and replacement not in supplied_item["after"]
+                        for _start, _end, replacement in edits_required
+                    ):
+                        continue
+                    composed_missing.add(
+                        json.dumps(required_item, sort_keys=True, ensure_ascii=False)
+                    )
+                    break
+            missing -= composed_missing
+        if missing:
+            errors.append(
+                f"{label}: cleanup operation omits the generated unique "
+                f"{repair.get('repair_kind')} {field[:-1]} mutation"
+            )
+    if repair.get("repair_kind") in {"setupTag", "teardownTag"}:
+        exact_paths = {
+            str(item.get("json_path") or "")
+            for item in as_list(repair.get("changes"))
+        }
+        for change in as_list(row.get("changes")):
+            path = str(change.get("json_path") or "")
+            if (
+                any(
+                    path == exact.rsplit("[", 1)[0]
+                    or path == exact.rsplit(".", 1)[0]
+                    for exact in exact_paths
+                )
+                and change.get("after") in ([], None, "")
+            ):
+                errors.append(
+                    f"{label}: a peer-supported sequence target exists; clearing the "
+                    "setup/teardown edge is not the generated safe repair"
+                )
+    return errors
 
 
 def validate_non_operation(row: dict[str, Any], label: str) -> list[str]:
@@ -554,6 +705,7 @@ def validate_finding_decision(
     valid_keys: set[str],
     expected_consumers: dict[str, set[str]],
     source_paths_by_key: dict[str, str],
+    lifecycle_by_key: dict[str, dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
     finding_id = str(expected_row.get("finding_id") or "")
     label = f"finding {finding_id}"
@@ -565,11 +717,13 @@ def validate_finding_decision(
     if row.get("disposition") == "cleanup_operation":
         operation_errors, warnings = validate_cleanup_operation(
             row,
+            expected_row,
             finding_id,
             operation_keys,
             valid_keys,
             expected_consumers,
             source_paths_by_key,
+            lifecycle_by_key,
             label,
         )
         errors.extend(operation_errors)
@@ -590,6 +744,11 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
     expected_consumers = object_consumer_map(export_path)
     object_names = object_name_map(export_path)
     source_paths_by_key = object_source_path_map(export_path)
+    lifecycle_by_key = {
+        str(item.get("object_key") or ""): item
+        for item in as_list(expected.get("lifecycle_matrix"))
+        if isinstance(item, dict) and str(item.get("object_key") or "")
+    }
 
     errors.extend(
         validate_review_identity(
@@ -612,6 +771,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             valid_keys,
             expected_consumers,
             source_paths_by_key,
+            lifecycle_by_key,
         )
         errors.extend(finding_errors)
         warnings.extend(finding_warnings)

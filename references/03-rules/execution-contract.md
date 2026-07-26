@@ -21,6 +21,11 @@ canonical deterministic fact artifact. Every generated review must carry the
 source, context, and shared-fact hashes. A changed export or material context
 change starts a new review package.
 
+Record the runnable skill's project version and deterministic runtime-tree hash
+in the package manifest. When an installed copy and a development checkout are
+both present, compare their runtime identities before choosing one. A git branch
+name or matching version string alone does not prove equal skill content.
+
 Generate and present the context preflight before semantic review. Distinguish
 analyst-provided context, high-confidence deterministic inference, and
 unresolved fields. A material question pauses semantic review; a non-material
@@ -71,6 +76,11 @@ prohibited artifact roles plus source, context, and shared-fact hashes. Each
 completed review attests its actual roles. A missing role, undeclared role,
 foreign verdict artifact, reconciled output, or repository test helper fails
 that run before reconciliation.
+Deterministic tools may scaffold, shard, merge, and validate source obligations;
+they may not bulk-author semantic verdicts, rationales, dispositions, or
+operations. Every completed run records a distinct reasoning-context identity.
+Reusing one identity across two runs, or declaring a semantic bulk-completion
+artifact, fails before reconciliation.
 
 Prefer a fresh reasoning context for each run. If only one context is
 available, exclude completed verdict artifacts from the next run's inputs and
@@ -192,14 +202,18 @@ future-state gate remain mandatory.
 
 An exact source-bound, non-destructive Run-1 or Run-2 repair may proceed with
 completed Run-3 family coverage rather than a duplicated architecture mutation.
-It cannot create, delete, or remap an object and remains subject to simulation.
+It cannot create, delete, or remap an object and remains subject to simulation,
+except that an exact impossible-blocker repair may delete the trigger it makes
+orphan when the complete consumer graph proves no other use.
 An explicit Run-3 cleanup decision resolves weaker candidate rows only for that
 same complete structured mutation; overlapping object IDs alone are never
 enough.
 
 - A configuration issue may produce a fix even when the object is structurally valid.
 - An exact operational duplicate may be deleted only when architecture confirms
-  consolidation rather than an intentional variant.
+  configuration/business equivalence. Once confirmed, architecture emits the
+  consolidation operation; approval is handled by the operation gate rather
+  than a redundant owner choice between identical copies.
 - A correctly configured object may still be unnecessary at family level.
 - An architecture operation may redesign several individually correct objects.
 - An unresolved owner or container-evidence decision blocks conflicting mutation.
@@ -208,21 +222,44 @@ Operations with identical structured mutations may reconcile even when the
 three lenses use different human wording or operation keys. Preserve every lens
 rationale and source reference. Reusing one operation key for different
 structured mutations is an error. Broad issue categories never merge
-operations. The completion gate recompiles the three source reviews and
-requires the supplied operation packet to match exactly; hand edits require
+operations.
+When one run proposes only deletions that are an exact subset of one
+unambiguous broader operation, fold those deletion facts into that operation so
+each object is deleted once and every evidence lens remains visible. Competing
+broader action payloads remain a hard conflict.
+The completion gate recompiles the three source reviews and requires the
+supplied operation packet to match exactly; hand edits require
 updating and revalidating the originating review.
+Two generated text edits may compose only when they share object key,
+normalized field path, and before value. Repairs to unrelated fields remain
+separately approvable operations.
+One exact mutation compiles to one operation packet even when several lenses
+find it. The packet retains each lens's classification, rationale, and source
+reference. A runtime-neutral label from one finding cannot suppress an
+architecture decision required by another finding merged into that mutation.
 
 Compilation creates a complete decision ledger. Every operational finding,
 configuration object, architecture family, and comparison must have one final
 disposition; every cleanup disposition must link to one compiled operation.
-Action completeness then rejects a source-proven configuration Issue without an
-operation and requires a concrete recommendation for every genuine owner or
-external-evidence decision.
+Reconciliation narrows or resolves decisions whose source objects disappear,
+links the exact deletion operations, and rejects deletion of a recommended
+canonical object. Action completeness rejects a source-known configuration fix
+without an operation; an Issue requiring a genuine replacement choice must
+name its object, defect ID/evidence anchor, and remediation direction.
+Reconciliation represents one complete object-set owner choice once under the
+architecture comparison while retaining each independent source judgment.
+It also links downstream missing-reference decisions to an exact upstream
+Unicode/whitespace repair when that operation fixes every missing terminal.
 
 Compilation also creates a measurement-preservation projection for every
 source-confirmed architecture family. It states whether the family is retained,
 changed, owner-blocked, or limited by container evidence; links its operations;
 and records required behavior, consent/routing context, and target state.
+It also projects only source-backed target organisation and groups external
+runtime follow-up into exact nonblocking test contracts by category,
+vendor/destination, route, event family, required evidence, and next action.
+Those contracts target surviving executable consuming tags/routes instead of
+low-level variables/templates and omit objects deleted from the target state.
 
 ## Future-State Gate
 
@@ -238,7 +275,8 @@ Block when the simulated state:
 - creates a missing reference or duplicate ID;
 - creates a new sanitation finding;
 - leaves an operational finding selected for cleanup unresolved;
-- retains a deterministic configuration Issue in a plan claiming completeness;
+- retains a deterministic configuration Issue that is neither fixed nor
+  explicitly owner-blocked by a source-specific remediation decision;
 - creates a relationship candidate outside an architecture-backed operation or,
   for a non-unsafe discovery-only candidate, explicit Run-3 retention decisions
   that cover every candidate pair;
@@ -254,6 +292,9 @@ technically valid.
 
 Audit and recommendation depth are always full. Before approval, the route may
 remain `Pending user selection`.
+When action completeness fails, the human output is a blocked draft: one visible
+blocked row and accurate Summary counts, with no partial operation list
+presented for approval.
 
 After plan approval, ask for:
 
@@ -261,6 +302,11 @@ After plan approval, ask for:
 2. route: direct GTM/API/MCP or import JSON.
 
 Do not ask for an aggressiveness mode. Recommend the best safe future state once.
+Low-risk, non-active exact operations may be presented as one bulk-eligible
+approval bundle. High/Critical, active, consent/security, server-coupled, and
+configured-activation-risk operations remain individually approved. Run the
+execution preflight against exact `do_not_touch` keys and the passing simulated
+future state before either mutation route.
 Approval controls which exact operations may be executed; rejected or amended
 operations stay visible in the analyst's decision record and require the future
 state to be regenerated before mutation. A subset is a staged, incomplete

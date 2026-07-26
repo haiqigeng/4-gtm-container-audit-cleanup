@@ -62,6 +62,14 @@
     {"id": "independent_run_input_boundary", "expected_engine": "execution_contract"},
     {"id": "incremental_shard_completion_check", "expected_engine": "review_sharding"},
     {"id": "decision_first_human_output", "expected_engine": "human_output"},
-    {"id": "semantic_release_invariant", "expected_engine": "release_process"}
+    {"id": "semantic_release_invariant", "expected_engine": "release_process"},
+    {"id": "missing_setup_peer_repair", "expected_engine": "operational_sanitation"},
+    {"id": "ua_label_ga4_consumer", "expected_engine": "operational_sanitation"},
+    {"id": "source_ranked_canonical_default", "expected_engine": "business_architecture"},
+    {"id": "metadata_only_vendor_noise", "expected_engine": "configuration_correctness"},
+    {"id": "identical_code_disposition_consistency", "expected_engine": "configuration_correctness"},
+    {"id": "independent_reasoning_context_identity", "expected_engine": "completion_gate"},
+    {"id": "runtime_test_contract_grouping", "expected_engine": "reconciliation"},
+    {"id": "action_incomplete_blocked_draft", "expected_engine": "human_output"}
   ]
 }

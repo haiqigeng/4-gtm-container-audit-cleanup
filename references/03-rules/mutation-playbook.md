@@ -18,11 +18,25 @@ Never mutate or publish from an audit request alone.
 2. Ask for route: direct GTM/API/MCP or import JSON.
 3. Confirm whether all operations or an explicit list of operation IDs is approved.
 4. Confirm rollback export and blockers.
-5. Regenerate the selected future state and execute only approved operations.
+5. Regenerate the selected future state and run the execution preflight.
+6. Execute only the approved operations that pass the preflight.
 
 Audit and recommendation depth are independent of this choice. Do not use
 aggressiveness modes; approval is operation-specific. Treat a subset as staged
 work, not as completion of the full cleanup plan.
+
+The preflight fails closed when an approved operation intersects an exact
+`do_not_touch` layer/ID, the future-state gate failed, or source hashes differ.
+Server-coupled and configured-activation-risk operations require explicit
+confirmation. A quarantined deletion also requires separate post-observation
+confirmation. These are risk-specific fences, not extra audit modes.
+
+```powershell
+python -B scripts/gtm_execution_guard.py reconciled_operations.json context.json future_state_gate.json --approve OP-0001 --confirm-server-coupled OP-0001 --pretty
+```
+
+Add `--confirm-activation-risk` or `--confirm-observation` only for the exact
+operation IDs whose corresponding evidence has been reviewed.
 
 ## Direct GTM/API/MCP
 

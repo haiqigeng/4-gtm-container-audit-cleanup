@@ -5,15 +5,19 @@ from __future__ import annotations
 
 import argparse
 import copy
+import difflib
 import json
 import re
 import sys
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from gtm_architecture_review import validate_review as validate_architecture_review
+from gtm_baseline_audit import build_execution_reachability
 from gtm_configuration_review import validate_review as validate_configuration_review
+from gtm_consent_model import server_route_hosts
 from gtm_lib import ID_KEYS, container_version, source_integrity_findings, stable_hash
 from gtm_operational_review import validate_review as validate_operational_review
 from gtm_review_common import as_list, specific_text, validate_review_provenance
@@ -40,14 +44,16 @@ TEXT_FIELDS = (
     "priority",
     "confidence",
     "execution_readiness",
+    "canonical_selection_rationale",
 )
+GTM_REFERENCE_RE = re.compile(r"\{\{([^{}]+)\}\}")
 
 
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def source_object_catalog(export_path: Path) -> dict[str, dict[str, str]]:
+def source_object_catalog(export_path: Path) -> dict[str, dict[str, Any]]:
     data = load_json(export_path)
     blocking_integrity = [
         row for row in source_integrity_findings(data) if row.get("blocking")
@@ -63,18 +69,32 @@ def source_object_catalog(export_path: Path) -> dict[str, dict[str, str]]:
             )
         )
     cv = container_version(data)
-    catalog: dict[str, dict[str, str]] = {}
+    reachability = build_execution_reachability(cv)
+    active_keys = set(as_list(reachability.get("active_object_keys")))
+    paused_only_keys = set(as_list(reachability.get("paused_only_object_keys")))
+    catalog: dict[str, dict[str, Any]] = {}
     for layer, id_key in ID_KEYS.items():
         for obj in as_list(cv.get(layer)):
             object_id = str(obj.get(id_key) or obj.get("name") or "")
             if not object_id:
                 continue
             key = f"{layer}:{object_id}"
+            reachability_state = (
+                "active"
+                if key in active_keys
+                else "paused_only"
+                if key in paused_only_keys or layer == "tag" and bool(obj.get("paused"))
+                else "inactive_or_unreferenced"
+            )
             catalog[key] = {
                 "object_key": key,
                 "layer": layer,
                 "object_id": object_id,
                 "object_name": str(obj.get("name") or ""),
+                "parent_folder_id": str(obj.get("parentFolderId") or ""),
+                "paused": bool(obj.get("paused")) if layer == "tag" else False,
+                "reachability": reachability_state,
+                "server_route_hosts": server_route_hosts(obj),
                 "config_hash": stable_hash(
                     {
                         name: value
@@ -87,6 +107,14 @@ def source_object_catalog(export_path: Path) -> dict[str, dict[str, str]]:
 
 
 def operational_object_keys(row: dict[str, Any]) -> list[str]:
+    bound_keys = [
+        str(value)
+        for field in ("shared_fact_object_keys", "repair_affected_object_keys")
+        for value in as_list(row.get(field))
+        if str(value)
+    ]
+    if bound_keys:
+        return sorted(set(bound_keys))
     layer = str(row.get("object_type") or "")
     return [f"{layer}:{value}" for value in as_list(row.get("object_ids")) if value]
 
@@ -234,9 +262,203 @@ def _operation_group_key(operation: dict[str, Any]) -> str:
     return json.dumps(normalized_action_payload(operation), sort_keys=True, ensure_ascii=False)
 
 
+def _deletion_targets(operation: dict[str, Any]) -> set[str]:
+    return {
+        str(item.get("object_key") or "")
+        for item in as_list(operation.get("deletions"))
+        if str(item.get("object_key") or "")
+    }
+
+
+def _is_deletion_only_operation(operation: dict[str, Any]) -> bool:
+    return bool(_deletion_targets(operation)) and not any(
+        as_list(operation.get(field))
+        for field in ACTION_FIELDS
+        if field != "deletions"
+    )
+
+
+def reconcile_redundant_deletion_operations(
+    operations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fold a deletion-only subset into one compatible broader operation.
+
+    Independent scans can prove that the same object should be deleted for
+    different reasons. For example, Run 1 may mark an unused trigger for
+    deletion while Run 3 includes that trigger in an exact-duplicate
+    consolidation. When the deletion-only mutation is a strict subset of one
+    unambiguous broader action payload, both evidence lenses should support one
+    atomic operation rather than emit two competing deletes.
+
+    Ambiguous carriers remain untouched so the normal mutation-conflict gate
+    still blocks them.
+    """
+
+    adjusted = copy.deepcopy(operations)
+    for index, operation in enumerate(adjusted):
+        if not _is_deletion_only_operation(operation):
+            continue
+        targets = _deletion_targets(operation)
+        candidates = [
+            candidate
+            for candidate_index, candidate in enumerate(adjusted)
+            if candidate_index != index
+            and targets <= _deletion_targets(candidate)
+            and (
+                targets < _deletion_targets(candidate)
+                or not _is_deletion_only_operation(candidate)
+            )
+        ]
+        candidate_payloads = {
+            _operation_group_key(candidate): candidate for candidate in candidates
+        }
+        if len(candidate_payloads) != 1:
+            continue
+        carrier = next(iter(candidate_payloads.values()))
+        for field in ACTION_FIELDS:
+            operation[field] = copy.deepcopy(carrier.get(field) or [])
+        operation["canonical_object_key"] = str(
+            carrier.get("canonical_object_key") or ""
+        )
+        operation["affected_object_keys"] = sorted(action_object_keys(operation))
+    return adjusted
+
+
+def _compose_text_change(before: str, after_values: list[str]) -> str | None:
+    """Compose disjoint replacements made against the same exported string.
+
+    Independent sanitation findings can legitimately repair different Unicode
+    references inside one Custom JavaScript field.  They must compile to one
+    atomic field write, but overlapping or incompatible edits must remain an
+    error.  This returns a composed value only when every edit has a disjoint
+    span in the original value (or is an identical edit).
+    """
+
+    edits: list[tuple[int, int, str]] = []
+    for after in after_values:
+        if after == before:
+            continue
+        matcher = difflib.SequenceMatcher(a=before, b=after, autojunk=False)
+        for tag, start, end, replacement_start, replacement_end in matcher.get_opcodes():
+            if tag != "equal":
+                edits.append((start, end, after[replacement_start:replacement_end]))
+    deduplicated: list[tuple[int, int, str]] = []
+    for edit in sorted(edits):
+        if edit in deduplicated:
+            continue
+        deduplicated.append(edit)
+    for index, left in enumerate(deduplicated):
+        for right in deduplicated[index + 1 :]:
+            left_start, left_end, left_value = left
+            right_start, right_end, right_value = right
+            if left_end <= right_start or right_end <= left_start:
+                continue
+            if left_start == right_start and left_end == right_end and left_value == right_value:
+                continue
+            return None
+    composed = before
+    for start, end, replacement in sorted(deduplicated, reverse=True):
+        composed = composed[:start] + replacement + composed[end:]
+    return composed
+
+
+def _compose_change_lists(change_lists: list[list[dict[str, Any]]]) -> list[dict[str, Any]] | None:
+    by_target: dict[tuple[str, str], dict[str, Any]] = {}
+    for changes in change_lists:
+        for change in changes:
+            object_key = str(change.get("object_key") or "")
+            path = normalized_mutation_path(object_key, str(change.get("json_path") or ""))
+            target = (object_key, path)
+            previous = by_target.get(target)
+            if previous is None:
+                by_target[target] = copy.deepcopy(change)
+                continue
+            previous_before = previous.get("before")
+            current_before = change.get("before")
+            previous_after = previous.get("after")
+            current_after = change.get("after")
+            if previous_before != current_before:
+                return None
+            if previous_after == current_after:
+                continue
+            if not isinstance(previous_before, str) or not isinstance(previous_after, str) or not isinstance(current_after, str):
+                return None
+            composed = _compose_text_change(previous_before, [previous_after, current_after])
+            if composed is None:
+                return None
+            previous["after"] = composed
+    return sorted(
+        by_target.values(),
+        key=lambda item: (
+            str(item.get("object_key") or ""),
+            normalized_mutation_path(str(item.get("object_key") or ""), str(item.get("json_path") or "")),
+        ),
+    )
+
+
+def _coalesce_compatible_change_writes(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Coalesce compatible same-field changes before exact-action merging."""
+
+    def targets(changes: list[dict[str, Any]]) -> set[tuple[str, str]]:
+        return {
+            (
+                str(change.get("object_key") or ""),
+                normalized_mutation_path(
+                    str(change.get("object_key") or ""),
+                    str(change.get("json_path") or ""),
+                ),
+            )
+            for change in changes
+        }
+
+    base_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for operation in operations:
+        payload = normalized_action_payload(operation)
+        payload["changes"] = []
+        base_groups[json.dumps(payload, sort_keys=True, ensure_ascii=False)].append(operation)
+    adjusted: list[dict[str, Any]] = []
+    for rows in base_groups.values():
+        subgroups: list[dict[str, Any]] = []
+        for operation in rows:
+            operation_changes = [copy.deepcopy(item) for item in as_list(operation.get("changes"))]
+            operation_targets = targets(operation_changes)
+            for subgroup in subgroups:
+                # Composition exists only to combine disjoint edits to the same
+                # exported field (for example, two Unicode reference repairs in
+                # one Custom JavaScript value). Unrelated field writes remain
+                # separately approvable operations even when both are changes.
+                if not operation_targets & subgroup["targets"]:
+                    continue
+                composed = _compose_change_lists(
+                    [subgroup["changes"], operation_changes]
+                )
+                if composed is None:
+                    continue
+                subgroup["changes"] = composed
+                subgroup["targets"].update(operation_targets)
+                subgroup["rows"].append(operation)
+                break
+            else:
+                subgroups.append(
+                    {
+                        "changes": operation_changes,
+                        "targets": operation_targets,
+                        "rows": [operation],
+                    }
+                )
+        for subgroup in subgroups:
+            for operation in subgroup["rows"]:
+                adjusted_operation = copy.deepcopy(operation)
+                adjusted_operation["changes"] = copy.deepcopy(subgroup["changes"])
+                adjusted.append(adjusted_operation)
+    return adjusted
+
+
 def merge_compatible_operations(
     operations: list[dict[str, Any]], errors: list[str]
 ) -> list[dict[str, Any]]:
+    operations = reconcile_redundant_deletion_operations(operations)
+    operations = _coalesce_compatible_change_writes(operations)
     key_actions: dict[str, set[str]] = defaultdict(set)
     for operation in operations:
         key_actions[operation["operation_key"]].add(_operation_group_key(operation))
@@ -251,14 +473,6 @@ def merge_compatible_operations(
         groups[_operation_group_key(operation)].append(operation)
     merged: list[dict[str, Any]] = []
     for action_signature, rows in sorted(groups.items()):
-        areas = {str(row.get("area") or "") for row in rows}
-        problem_types = {str(row.get("problem_type") or "") for row in rows}
-        if len(areas) > 1 or len(problem_types) > 1:
-            errors.append(
-                "independent reviews agree on a mutation but classify its area/problem type "
-                f"differently: areas={sorted(areas)!r}, problem_types={sorted(problem_types)!r}"
-            )
-            continue
         first = copy.deepcopy(rows[0])
         source_operation_keys = sorted({str(row.get("operation_key") or "") for row in rows})
         first["operation_key"] = (
@@ -269,6 +483,53 @@ def merge_compatible_operations(
         first["source_operation_keys"] = source_operation_keys
         for field in TEXT_FIELDS:
             first[field] = _selected_text(rows, field)
+        classification_rank = {
+            "configuration_correctness": 0,
+            "business_architecture": 1,
+            "operational_sanitation": 2,
+        }
+        classification_source = min(
+            rows,
+            key=lambda row: (
+                {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}.get(
+                    str(row.get("priority") or ""), 4
+                ),
+                classification_rank.get(
+                    str(as_list(row.get("source_runs"))[0])
+                    if as_list(row.get("source_runs"))
+                    else "",
+                    9,
+                ),
+                str(row.get("operation_key") or ""),
+            ),
+        )
+        first["area"] = str(classification_source.get("area") or "")
+        first["problem_type"] = str(
+            classification_source.get("problem_type") or ""
+        )
+        first["lens_classifications"] = [
+            {
+                "source_run": str(as_list(row.get("source_runs"))[0])
+                if as_list(row.get("source_runs"))
+                else "",
+                "source_reference": str(as_list(row.get("source_references"))[0])
+                if as_list(row.get("source_references"))
+                else "",
+                "area": str(row.get("area") or ""),
+                "problem_type": str(row.get("problem_type") or ""),
+            }
+            for row in sorted(
+                rows,
+                key=lambda item: (
+                    str(as_list(item.get("source_runs"))[0])
+                    if as_list(item.get("source_runs"))
+                    else "",
+                    str(as_list(item.get("source_references"))[0])
+                    if as_list(item.get("source_references"))
+                    else "",
+                ),
+            )
+        ]
         first["lens_rationales"] = [
             {
                 "source_run": str(row.get("source_runs", ["unknown"])[0]),
@@ -640,6 +901,47 @@ def runtime_neutral_operational_deletions(
     fabricated Run 3 relationship. Reference/remap validation and future-state
     simulation remain mandatory.
     """
+    if (
+        operation.get("problem_type") == "Exact duplicate"
+        and "business_architecture" in as_list(operation.get("source_runs"))
+        and str(operation.get("canonical_object_key") or "")
+        and not any(
+            as_list(operation.get(field))
+            for field in ("creations", "additions", "changes")
+        )
+    ):
+        remapped_sources = {
+            str(remap.get("from_object_key") or "")
+            for remap in as_list(operation.get("remaps"))
+            if str(remap.get("from_object_key") or "")
+        }
+        canonical = str(operation.get("canonical_object_key") or "")
+        return {
+            str(deletion.get("object_key") or "")
+            for deletion in as_list(operation.get("deletions"))
+            if str(deletion.get("object_key") or "") in remapped_sources
+            and str(deletion.get("object_key") or "") != canonical
+        }
+    ineffective_repair_keys: set[str] = set()
+    for reference in as_list(operation.get("source_references")):
+        finding = operational_by_id.get(str(reference))
+        repair = (finding or {}).get("deterministic_repair") or {}
+        if (
+            (finding or {}).get("finding_type") == "ineffective_blocking_trigger"
+            and str(repair.get("status") or "").startswith("unique_")
+        ):
+            ineffective_repair_keys.update(
+                str(item.get("object_key") or "")
+                for item in as_list(repair.get("deletions"))
+                if str(item.get("object_key") or "")
+            )
+    if ineffective_repair_keys:
+        return {
+            str(item.get("object_key") or "")
+            for item in as_list(operation.get("deletions"))
+            if str(item.get("object_key") or "") in ineffective_repair_keys
+        }
+
     if any(
         as_list(operation.get(field))
         for field in ("creations", "additions", "changes", "remaps")
@@ -665,6 +967,29 @@ def runtime_neutral_operational_deletions(
         for item in as_list(operation.get("deletions"))
         if str(item.get("object_key") or "") in lifecycle_keys | paused_tag_keys
     }
+
+
+def runtime_neutral_operational_behavior_keys(
+    operation: dict[str, Any], operational_by_id: dict[str, dict[str, Any]]
+) -> set[str]:
+    """Return exact Run-1 repair keys proven not to change reachable behavior."""
+
+    keys = runtime_neutral_operational_deletions(operation, operational_by_id)
+    for reference in as_list(operation.get("source_references")):
+        finding = operational_by_id.get(str(reference))
+        repair = (finding or {}).get("deterministic_repair") or {}
+        if (
+            (finding or {}).get("finding_type") == "ineffective_blocking_trigger"
+            and str(repair.get("status") or "").startswith("unique_")
+        ):
+            keys.update(
+                str(value)
+                for value in as_list(
+                    (finding or {}).get("repair_affected_object_keys")
+                )
+                if str(value)
+            )
+    return keys
 
 
 def operational_source_bound_repair(
@@ -821,7 +1146,14 @@ def validate_cross_run_reconciliation(
         runtime_neutral_keys = runtime_neutral_operational_deletions(
             operation, operational_by_id
         )
-        behavior_keys -= runtime_neutral_keys
+        runtime_neutral_behavior_keys = runtime_neutral_operational_behavior_keys(
+            operation, operational_by_id
+        )
+        if runtime_neutral_keys:
+            operation["runtime_neutral_deletion_keys"] = sorted(
+                runtime_neutral_keys
+            )
+        behavior_keys -= runtime_neutral_behavior_keys
         reconciliation_destructive_keys = destructive_keys - runtime_neutral_keys
         created_keys = {
             key for key in creation_keys(operation) if not key.startswith("folder:")
@@ -831,8 +1163,12 @@ def validate_cross_run_reconciliation(
             and "business_architecture" in as_list(operation.get("source_runs"))
             and _operation_group_key(operation) in architecture_cleanup_actions
         )
-        if not destructive_keys or not destructive_keys <= runtime_neutral_keys:
-            errors.extend(consolidation_alignment_errors(operation, operational_by_id))
+        # A merged mutation can be runtime-neutral from one sanitation finding
+        # (for example, "unused variable") while the same deletion also resolves
+        # a consolidation candidate.  The latter still needs an independent
+        # architecture decision, so never let the runtime-neutral classification
+        # suppress consolidation alignment.
+        errors.extend(consolidation_alignment_errors(operation, operational_by_id))
         if behavior_keys and "business_architecture" not in as_list(
             operation.get("source_runs")
         ):
@@ -888,34 +1224,91 @@ def affected_objects(operation: dict[str, Any], catalog: dict[str, dict[str, str
     for key in as_list(operation.get("affected_object_keys")):
         item = catalog.get(str(key))
         labels.append(
-            f"{key} - {item['object_name']}" if item and item["object_name"] else str(key)
+            f"{key} — {item['object_name']}" if item and item["object_name"] else str(key)
         )
     return "; ".join(labels)
 
 
+def operational_taxonomy(finding: dict[str, Any]) -> tuple[str, str]:
+    text = (
+        f"{finding.get('finding_type') or ''} "
+        f"{finding.get('module_name') or ''}"
+    ).lower()
+    if "missing" in text or "undefined" in text or "reference" in text:
+        return "Event firing logic", "Broken reference"
+    if "ineffective_blocking_trigger" in text:
+        return "Event firing logic", "Over-firing"
+    if "consent" in text or "blocking" in text:
+        return "Consent & compliance", "Consent mismatch"
+    if "duplicate" in text:
+        return "GTM hygiene", "Exact duplicate"
+    if "unused" in text or "paused" in text:
+        return "GTM hygiene", "Unused object"
+    if "folder" in text or "unfiled" in text:
+        return "GTM hygiene", "Folder organization"
+    if "name" in text or "unicode" in text or "confusable" in text:
+        return "GTM hygiene", "Naming inconsistency"
+    if "legacy" in text or "universal" in text or "ua_" in text:
+        return "GTM hygiene", "Obsolete or legacy setup"
+    if "formula" in text or "fixed" in text:
+        return "Ecommerce payload quality", "Wrong value or formula logic"
+    if "trigger" in text or "sequence" in text or "schedule" in text:
+        return "Event firing logic", "Wrong trigger timing"
+    if "custom_code" in text or "template" in text:
+        return "Custom code & templates", "Custom code risk"
+    return "GTM hygiene", "Unnecessary complexity"
+
+
 def configuration_taxonomy(review: dict[str, Any]) -> tuple[str, str]:
-    text = json.dumps(
+    layer = str(review.get("layer") or "")
+    defect_text = json.dumps(review.get("defects") or [], ensure_ascii=False).lower()
+    technical_text = json.dumps(
         {
-            "name": review.get("object_name"),
-            "vendor": review.get("detected_vendor"),
-            "category": review.get("vendor_category"),
-            "consent": review.get("effective_consent_route_facts"),
-            "defects": review.get("defects"),
-            "basis": review.get("correctness_basis"),
+            "required": review.get("required_technical_findings") or [],
+            "completed": review.get("technical_finding_reviews") or [],
+            "assessment": review.get("technical_facts_assessment") or "",
         },
         ensure_ascii=False,
     ).lower()
-    if re.search(r"consent|storage|cmp|personalization|ad_user_data", text):
-        return "Consent & compliance", "Consent mismatch"
-    if review.get("layer") == "customTemplate" or review.get("required_code_line_hashes"):
+    decision_text = " ".join(
+        str(review.get(field) or "")
+        for field in ("correctness_basis", "owner_question")
+    ).lower()
+    issue_text = " ".join((defect_text, technical_text, decision_text))
+
+    # Classify the actual defect/decision, not the generic consent facts that
+    # every tag row carries. This keeps code, reference, and formula work out
+    # of the consent queue merely because the object also has consent settings.
+    if re.search(
+        r"missing (?:reference|dependency|setup|teardown)|"
+        r"resolves as missing|undefined .*reference|missing or cyclic|ambiguous reference",
+        defect_text,
+    ):
+        return "Event firing logic", "Broken reference"
+    if (
+        layer == "customTemplate"
+        or bool(review.get("required_code_line_hashes"))
+        or bool(review.get("required_technical_findings"))
+    ):
         return "Custom code & templates", "Custom code risk"
-    if re.search(r"purchase|ecommerce|items|currency|quantity|transaction", text):
+    if re.search(
+        r"purchase|refund|ecommerce|items|currency|quantity|transaction|"
+        r"revenue|fixed numbered|formula",
+        issue_text,
+    ):
         return "Ecommerce payload quality", "Wrong value or formula logic"
+    if re.search(
+        r"consent (?:mismatch|route|purpose|status|timing|control)|"
+        r"cmp (?:mapping|category|purpose)|ad_user_data|ad_personalization|"
+        r"analytics_storage|ad_storage",
+        issue_text,
+    ):
+        return "Consent & compliance", "Consent mismatch"
+    if re.search(r"server|transport_url|first.party|routing", issue_text):
+        return "Server-side tracking", "Server-side routing unclear"
     if str(review.get("vendor_category") or "") in {"media", "affiliate"}:
         return "Media platform tracking", "Incomplete payload"
-    if re.search(r"server|transport_url|first.party|routing", text):
-        return "Server-side tracking", "Server-side routing unclear"
-    if review.get("layer") == "trigger":
+    if layer == "trigger":
         return "Event firing logic", "Wrong trigger timing"
     return "Tracking plan / dataLayer", "Unclear business purpose"
 
@@ -959,8 +1352,9 @@ def context_recommendation(question: str) -> str:
     lowered = question.lower()
     if "cmp" in lowered or "consent" in lowered:
         return (
-            "Confirm the CMP and consent owner, then apply the strictest source-supported "
-            "consent route until the intended purpose mapping is documented."
+            "Confirm the CMP and consent owner, preserve the current route until the "
+            "intended purpose mapping is documented, then apply that approved mapping; "
+            "do not choose a route from relative strictness alone."
         )
     if "server" in lowered or "route" in lowered:
         return (
@@ -1004,6 +1398,17 @@ def context_decisions(operational: dict[str, Any]) -> list[dict[str, Any]]:
 def operational_decisions(operational: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for finding in as_list(operational.get("findings")):
+        area, problem_type = operational_taxonomy(finding)
+        layer = str(finding.get("object_type") or "object")
+        affected = "; ".join(
+            f"{layer}:{object_id} — {name}" if name else f"{layer}:{object_id}"
+            for object_id, name in zip(
+                as_list(finding.get("object_ids")),
+                as_list(finding.get("object_names")),
+                strict=False,
+            )
+            if str(object_id)
+        )
         rows.append(
             {
                 "decision_id": str(finding.get("finding_id") or ""),
@@ -1012,24 +1417,38 @@ def operational_decisions(operational: dict[str, Any]) -> list[dict[str, Any]]:
                 "verdict": str(finding.get("finding_type") or ""),
                 "disposition": str(finding.get("disposition") or ""),
                 "finding_class": str(finding.get("finding_class") or ""),
+                "deterministic_action_candidate": str(
+                    finding.get("deterministic_action_candidate") or ""
+                ),
+                "deterministic_repair_status": str(
+                    (finding.get("deterministic_repair") or {}).get("status") or ""
+                ),
+                "rename_candidate_unique": bool(
+                    finding.get("rename_candidate_unique")
+                ),
+                "policy_confirmation_required": bool(
+                    finding.get("policy_confirmation_required")
+                ),
+                "proposed_final_name": str(
+                    finding.get("proposed_final_name") or ""
+                ),
+                "rename_blocker": str(finding.get("rename_blocker") or ""),
                 "title": str(
                     finding.get("title")
                     or str(finding.get("finding_type") or "").replace("_", " ").title()
                 ),
-                "area": str(finding.get("area") or "GTM hygiene"),
-                "problem_type": str(
-                    finding.get("problem_type") or "Unnecessary complexity"
-                ),
-                "affected_objects": "; ".join(
-                    f"{object_id} - {name}"
-                    for object_id, name in zip(
-                        as_list(finding.get("object_ids")),
-                        as_list(finding.get("object_names")),
-                        strict=False,
-                    )
-                ),
+                "area": str(finding.get("area") or area),
+                "problem_type": str(finding.get("problem_type") or problem_type),
+                "affected_objects": affected
+                or "Container-wide operational policy",
                 "summary": str(
                     finding.get("problem")
+                    or (
+                        finding.get("deterministic_evidence")
+                        if finding.get("finding_type")
+                        == "naming_policy_confirmation_required"
+                        else ""
+                    )
                     or finding.get("rationale")
                     or finding.get("deterministic_evidence")
                     or ""
@@ -1050,11 +1469,70 @@ def configuration_decisions(configuration: dict[str, Any]) -> list[dict[str, Any
     for review in as_list(configuration.get("rows")):
         operation = review.get("operation") or {}
         area, problem_type = configuration_taxonomy(review)
+        missing_reference_terminals = [
+            {
+                "reference": str(terminal.get("reference") or ""),
+                "source_object_key": str(
+                    terminal.get("source_object_key") or review.get("object_key") or ""
+                ),
+                "normalization_candidate_names": [
+                    str(value)
+                    for value in as_list(
+                        terminal.get("normalization_candidate_names")
+                    )
+                    if str(value)
+                ],
+                "normalization_resolution": str(
+                    terminal.get("normalization_resolution") or ""
+                ),
+            }
+            for trace in as_list(review.get("reference_trace_requirements"))
+            for terminal in as_list(trace.get("terminal_requirements"))
+            if terminal.get("state") == "missing"
+        ]
+        technical_findings = [
+            {
+                "finding_key": str(source.get("finding_key") or ""),
+                "decision_class": str(source.get("decision_class") or ""),
+                "statement": str(source.get("statement") or ""),
+                "verdict": str(
+                    next(
+                        (
+                            item.get("verdict")
+                            for item in as_list(
+                                review.get("technical_finding_reviews")
+                            )
+                            if item.get("finding_key") == source.get("finding_key")
+                        ),
+                        "",
+                    )
+                    or ""
+                ),
+            }
+            for source in as_list(review.get("required_technical_findings"))
+        ]
         rows.append(
             {
                 "decision_id": str(review.get("review_id") or review.get("object_key") or ""),
                 "source_run": "configuration_correctness",
                 "source_object_keys": [str(review.get("object_key") or "")],
+                "source_layer": str(review.get("layer") or ""),
+                "consumer_object_keys": sorted(
+                    {
+                        str(item.get("consumer_key") or "")
+                        for item in as_list(review.get("export_consumers"))
+                        if isinstance(item, dict) and str(item.get("consumer_key") or "")
+                    }
+                ),
+                "defect_evidence_anchors": sorted(
+                    {
+                        str(anchor)
+                        for defect in as_list(review.get("defects"))
+                        if isinstance(defect, dict)
+                        for anchor in as_list(defect.get("evidence_anchors"))
+                        if str(anchor)
+                    }
+                ),
                 "verdict": str(review.get("correctness_verdict") or ""),
                 "disposition": str(review.get("disposition") or ""),
                 "title": str(
@@ -1064,15 +1542,53 @@ def configuration_decisions(configuration: dict[str, Any]) -> list[dict[str, Any
                 ),
                 "area": area,
                 "problem_type": problem_type,
-                "affected_objects": f"{review.get('object_key')} - {review.get('object_name')}",
+                "affected_objects": (
+                    f"{review.get('object_key')} — {review.get('object_name')}"
+                ),
                 "summary": str(
                     review.get("correctness_basis")
                     or review.get("configured_output_or_side_effect")
                     or ""
                 ),
+                "missing_reference_terminals": missing_reference_terminals,
+                "technical_findings": technical_findings,
+                "technical_summary": str(
+                    review.get("technical_facts_assessment")
+                    or (review.get("technical_code_facts") or {}).get(
+                        "technical_plain_language_summary"
+                    )
+                    or ""
+                ),
                 "owner_question": str(review.get("owner_question") or ""),
                 "recommended_action": str(review.get("recommended_action") or ""),
                 "confidence": str(review.get("confidence") or ""),
+                "external_evidence_status": str(
+                    review.get("external_evidence_status") or ""
+                ),
+                "external_evidence_summary": str(
+                    review.get("external_evidence_summary") or ""
+                ),
+                "external_evidence_next_action": str(
+                    review.get("external_evidence_next_action") or ""
+                ),
+                "detected_vendor": str(review.get("detected_vendor") or ""),
+                "server_routing_hosts": [
+                    str(value)
+                    for value in as_list(
+                        (review.get("effective_consent_route_facts") or {}).get(
+                            "server_routing_hosts"
+                        )
+                    )
+                    if str(value)
+                ],
+                "configured_event_values": sorted(
+                    {
+                        str(value)
+                        for topic in as_list(review.get("required_contract_topics"))
+                        for value in as_list(topic.get("configured_event_values"))
+                        if str(value)
+                    }
+                ),
                 "operation_keys": [str(operation.get("operation_key") or "")]
                 if review.get("disposition") == "cleanup_operation"
                 else [],
@@ -1085,10 +1601,27 @@ def architecture_decision_row(
     row: dict[str, Any], id_field: str, key_field: str
 ) -> dict[str, Any]:
     area, problem_type = architecture_taxonomy(row)
+    keys = [str(value) for value in as_list(row.get(key_field))]
+    if key_field == "candidate_object_keys":
+        names = [str(value) for value in as_list(row.get("candidate_object_names"))]
+        affected = "; ".join(
+            f"{key} — {name}" if name else key
+            for key, name in zip(keys, names, strict=False)
+        )
+    else:
+        names_by_key = row.get("chain_object_names") or {}
+        affected = "; ".join(
+            (
+                f"{key} — {names_by_key.get(key)}"
+                if isinstance(names_by_key, dict) and names_by_key.get(key)
+                else key
+            )
+            for key in keys
+        )
     return {
         "decision_id": str(row.get(id_field) or ""),
         "source_run": "business_architecture",
-        "source_object_keys": [str(value) for value in as_list(row.get(key_field))],
+        "source_object_keys": keys,
         "verdict": str(row.get("relationship_verdict") or ""),
         "disposition": str(row.get("disposition") or ""),
         "title": str(
@@ -1099,7 +1632,7 @@ def architecture_decision_row(
         ),
         "area": area,
         "problem_type": problem_type,
-        "affected_objects": "; ".join(str(value) for value in as_list(row.get(key_field))),
+        "affected_objects": affected or "Container-wide target architecture",
         "summary": str(
             row.get("analyst_rationale")
             or row.get("architecture_effect")
@@ -1111,6 +1644,14 @@ def architecture_decision_row(
         "comparison_types": [
             str(value) for value in as_list(row.get("comparison_types")) if str(value)
         ],
+        "recommended_canonical_object_key": str(
+            row.get("recommended_canonical_object_key") or ""
+        ),
+        "recommended_canonical_basis": str(
+            row.get("recommended_canonical_basis")
+            or row.get("canonical_selection_rationale")
+            or ""
+        ),
         "confidence": str(row.get("confidence") or ""),
         "operation_keys": [
             str(operation.get("operation_key") or "")
@@ -1444,10 +1985,335 @@ EXECUTION_PHASES = (
 )
 
 
+def operation_priority_basis(
+    operation: dict[str, Any],
+    catalog: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Explain priority from source reach, impact, evidence, and rollback facts."""
+    object_keys = {
+        str(value)
+        for value in [
+            *as_list(operation.get("affected_object_keys")),
+            *as_list(operation.get("source_object_keys")),
+        ]
+        if str(value)
+    }
+    known_states = {
+        str(catalog[key].get("reachability") or "")
+        for key in object_keys
+        if key in catalog
+    }
+    known_layers = {
+        str(catalog[key].get("layer") or "")
+        for key in object_keys
+        if key in catalog
+    }
+    if known_layers and known_layers <= {"folder"}:
+        reachability = "metadata_only"
+    elif "active" in known_states:
+        reachability = "active"
+    elif known_states and known_states <= {"paused_only"}:
+        reachability = "paused_only"
+    elif known_states:
+        reachability = "inactive_or_unreferenced"
+    else:
+        reachability = "unknown"
+
+    text = json.dumps(
+        {
+            field: operation.get(field)
+            for field in (
+                "area",
+                "problem_type",
+                "problem",
+                "why_it_matters",
+                "exact_proposed_action",
+            )
+        },
+        ensure_ascii=False,
+    ).lower()
+    impact_patterns = (
+        (
+            "consent_privacy",
+            r"consent|privacy|cookie|samesite|personalization|ad_user_data|storage",
+        ),
+        (
+            "security",
+            r"security|unsafe|eval|origin|injection|unencrypted|http://|google_tag_manager",
+        ),
+        (
+            "measurement_loss_or_corruption",
+            r"measurement|missing|broken|invalid|wrong|formula|value|currency|"
+            r"transaction|revenue|payload|data loss",
+        ),
+        (
+            "duplicate_delivery_or_attribution",
+            r"duplicate|deduplic|double|overlap|consolidat|attribution",
+        ),
+        (
+            "routing_or_integration",
+            r"server|routing|route|destination|vendor|endpoint|transport",
+        ),
+        (
+            "maintainability",
+            r"naming|folder|unused|paused|complex|legacy|hygiene|organisation|organization",
+        ),
+    )
+    impact_classes = [
+        name for name, pattern in impact_patterns if re.search(pattern, text)
+    ] or ["architecture_or_configuration"]
+
+    if as_list(operation.get("deletions")) or as_list(operation.get("remaps")):
+        reversibility = "source_restorable_behavior_change"
+    elif as_list(operation.get("creations")):
+        reversibility = "additive_with_explicit_rollback"
+    elif as_list(operation.get("changes")) or as_list(operation.get("additions")):
+        reversibility = "field_level_rollback"
+    elif as_list(operation.get("renames")):
+        reversibility = "name_and_reference_rollback"
+    else:
+        reversibility = "no_mutation"
+
+    readiness = str(operation.get("execution_readiness") or "")
+    owner_dependency = (
+        "blocking_owner_dependency"
+        if readiness in {"owner_blocked", "not_actionable"}
+        else "approval_only"
+    )
+    confidence = str(operation.get("confidence") or "Low")
+    if (
+        reachability == "active"
+        and {"consent_privacy", "security", "measurement_loss_or_corruption"}
+        & set(impact_classes)
+    ):
+        calibrated_floor = "High"
+    elif reachability == "active" or {
+        "duplicate_delivery_or_attribution",
+        "routing_or_integration",
+    } & set(impact_classes):
+        calibrated_floor = "Medium"
+    else:
+        calibrated_floor = "Low"
+    assigned = str(operation.get("priority") or "")
+    rank = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+    alignment = (
+        "at_or_above_evidence_floor"
+        if rank.get(assigned, 0) >= rank[calibrated_floor]
+        else "below_evidence_floor_review_recommended"
+    )
+    return {
+        "assigned_priority": assigned,
+        "active_reachability": reachability,
+        "impact_classes": impact_classes,
+        "evidence_confidence": confidence,
+        "reversibility": reversibility,
+        "owner_dependency": owner_dependency,
+        "calibrated_floor": calibrated_floor,
+        "alignment": alignment,
+        "rationale": (
+            f"{reachability} source reach; impact={','.join(impact_classes)}; "
+            f"confidence={confidence}; rollback={reversibility}; "
+            f"owner={owner_dependency}."
+        ),
+    }
+
+
+SERVER_ROUTE_PATH_RE = re.compile(
+    r"transport[_-]?url|server(?:container|tagging)?[_-]?url|first[_-]?party[_-]?url",
+    re.I,
+)
+ACTIVATION_PATH_RE = re.compile(
+    r"firingTriggerId|blockingTriggerId|setupTag|teardownTag|paused|"
+    r"scheduleStartMs|scheduleEndMs",
+    re.I,
+)
+
+
+def operation_server_route_hosts(
+    operation: dict[str, Any],
+    catalog: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Return server hosts from exact behavior-bearing source or mutation fields."""
+    hosts = {
+        str(host)
+        for key in {
+            *[str(value) for value in as_list(operation.get("affected_object_keys"))],
+            *[str(value) for value in as_list(operation.get("source_object_keys"))],
+        }
+        for host in as_list(catalog.get(key, {}).get("server_route_hosts"))
+        if str(host)
+    }
+    for creation in as_list(operation.get("creations")):
+        if isinstance(creation, dict):
+            hosts.update(server_route_hosts(creation.get("object") or {}))
+    for field in ("changes", "additions"):
+        for mutation in as_list(operation.get(field)):
+            if not isinstance(mutation, dict):
+                continue
+            path = str(mutation.get("json_path") or "")
+            value = mutation.get("after") if field == "changes" else mutation.get("value")
+            structured_probe = (
+                {"parameter": value if isinstance(value, list) else [value]}
+                if isinstance(value, (dict, list))
+                else {}
+            )
+            hosts.update(server_route_hosts(structured_probe))
+            if not SERVER_ROUTE_PATH_RE.search(path):
+                continue
+            probe = {
+                "parameter": [
+                    {
+                        "key": "transport_url",
+                        "value": value,
+                    }
+                ]
+            }
+            hosts.update(server_route_hosts(probe))
+    return sorted(hosts)
+
+
+def operation_has_configured_activation_risk(operation: dict[str, Any]) -> bool:
+    """Flag mutations that can change configured reachability, never live firing."""
+    if any(
+        str(creation.get("layer") or "") == "tag"
+        and bool(as_list((creation.get("object") or {}).get("firingTriggerId")))
+        and not bool((creation.get("object") or {}).get("paused"))
+        for creation in as_list(operation.get("creations"))
+        if isinstance(creation, dict)
+    ):
+        return True
+    if as_list(operation.get("remaps")):
+        return any(
+            str(remap.get("from_object_key") or "").startswith(("tag:", "trigger:"))
+            or str(remap.get("to_object_key") or "").startswith(("tag:", "trigger:"))
+            or any(
+                str(key).startswith(("tag:", "trigger:"))
+                for key in as_list(remap.get("consumer_object_keys"))
+            )
+            for remap in as_list(operation.get("remaps"))
+            if isinstance(remap, dict)
+        )
+    for field in ("changes", "additions"):
+        for mutation in as_list(operation.get(field)):
+            if not isinstance(mutation, dict):
+                continue
+            if ACTIVATION_PATH_RE.search(str(mutation.get("json_path") or "")):
+                return True
+    return False
+
+
+def operation_safety_metadata(
+    operation: dict[str, Any],
+    catalog: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Derive compact execution safeguards from exact source and mutation facts."""
+    priority_basis = operation.get("priority_basis") or {}
+    reachability = str(priority_basis.get("active_reachability") or "unknown")
+    impact_classes = {
+        str(value) for value in as_list(priority_basis.get("impact_classes"))
+    }
+    priority = str(operation.get("priority") or "")
+    route_hosts = operation_server_route_hosts(operation, catalog)
+    server_coupled = bool(route_hosts)
+    activation_risk = operation_has_configured_activation_risk(operation)
+    sensitive = bool({"consent_privacy", "security"} & impact_classes)
+    individual_reasons = [
+        reason
+        for condition, reason in (
+            (priority in {"High", "Critical"}, f"{priority or 'unknown'} priority"),
+            (reachability == "active", "active configured reachability"),
+            (sensitive, "consent/privacy or security impact"),
+            (server_coupled, "server-coupled route"),
+            (activation_risk, "configured activation scope may change"),
+        )
+        if condition
+    ]
+    bulk_eligible = (
+        priority == "Low"
+        and reachability in {"inactive_or_unreferenced", "metadata_only"}
+        and str(priority_basis.get("alignment") or "")
+        != "below_evidence_floor_review_recommended"
+        and not individual_reasons
+    )
+    if not bulk_eligible and not individual_reasons:
+        individual_reasons.append(
+            "only evidence-calibrated Low, non-active operations are bulk-eligible"
+        )
+
+    deletions = as_list(operation.get("deletions"))
+    decommission: dict[str, Any] = {
+        "required": False,
+        "strategy": "not_applicable",
+        "basis": "operation contains no deletion",
+    }
+    if deletions:
+        deletion_states = {
+            str(catalog.get(str(item.get("object_key") or ""), {}).get("reachability") or "unknown")
+            for item in deletions
+            if isinstance(item, dict)
+        }
+        quarantine = (
+            bool(deletion_states & {"active", "paused_only", "unknown"})
+            or priority in {"High", "Critical"}
+            or sensitive
+            or server_coupled
+            or activation_risk
+        )
+        decommission = {
+            "required": quarantine,
+            "strategy": (
+                "quarantine_then_delete_after_approved_observation"
+                if quarantine
+                else "direct_delete_after_exact_readback"
+            ),
+            "basis": (
+                "active, paused, uncertain, sensitive, server-coupled, or "
+                "activation-relevant deletion requires a reversible observation stage"
+                if quarantine
+                else "all deleted source objects are proven inactive/unreferenced and low risk"
+            ),
+            "observation_window": (
+                "analyst_defined_from_traffic_cycle_and_business_risk"
+                if quarantine
+                else "not_required"
+            ),
+            "delete_gate": (
+                "separate explicit deletion approval after observation evidence"
+                if quarantine
+                else "included in the exact approved operation"
+            ),
+        }
+
+    return {
+        "server_coupled": server_coupled,
+        "server_route_hosts": route_hosts,
+        "configured_activation_risk": {
+            "flag": activation_risk,
+            "meaning": (
+                "structured mutation may change configured tag reachability; "
+                "this is not evidence of live firing"
+                if activation_risk
+                else "no structured activation-scope mutation detected"
+            ),
+            "future_state_confirmation_required": activation_risk,
+        },
+        "approval": {
+            "scope": (
+                "bulk_eligible_exact_low_risk_bundle"
+                if bulk_eligible
+                else "individual_operation"
+            ),
+            "reasons": individual_reasons
+            or ["evidence-calibrated low-risk, non-active exact mutation"],
+        },
+        "decommission": decommission,
+    }
+
+
 def packetize_operations(
     rows: list[dict[str, Any]],
     route: str,
-    catalog: dict[str, dict[str, str]],
+    catalog: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     packets: list[dict[str, Any]] = []
     for number, operation in enumerate(rows, start=1):
@@ -1474,8 +2340,10 @@ def packetize_operations(
                 "execution_phases": [
                     phase for phase, field in EXECUTION_PHASES if as_list(operation.get(field))
                 ],
+                "priority_basis": operation_priority_basis(operation, catalog),
             }
         )
+        packet["execution_safety"] = operation_safety_metadata(packet, catalog)
         packets.append(packet)
     return packets
 
@@ -1494,20 +2362,38 @@ def action_completeness_report(
         decision_id = str(decision.get("decision_id") or "<missing>")
         source_run = str(decision.get("source_run") or "")
         disposition = str(decision.get("disposition") or "")
-        verdict = str(decision.get("verdict") or "")
         linked = [str(value) for value in as_list(decision.get("compiled_operation_ids"))]
 
         if disposition == "cleanup_operation" and not linked:
             errors.append(f"{decision_id}: cleanup decision has no compiled operation")
         finding_class = str(decision.get("finding_class") or "deterministic_defect")
+        exact_action_available = (
+            (
+                not str(decision.get("deterministic_action_candidate") or "")
+                and not str(decision.get("deterministic_repair_status") or "")
+            )
+            or str(decision.get("deterministic_repair_status") or "").startswith(
+                "unique_"
+            )
+            or decision.get("deterministic_action_candidate") == "delete_candidate"
+            or (
+                decision.get("deterministic_action_candidate") == "rename_candidate"
+                and not bool(decision.get("policy_confirmation_required"))
+                and bool(decision.get("rename_candidate_unique"))
+                and bool(str(decision.get("proposed_final_name") or "").strip())
+                and not str(decision.get("rename_blocker") or "").strip()
+            )
+        )
         if (
             source_run == "operational_sanitation"
             and disposition == "owner_decision_needed"
             and finding_class not in {"review_candidate", "business_decision"}
+            and exact_action_available
         ):
             errors.append(
-                f"{decision_id}: deterministic operational finding must become an exact "
-                "cleanup operation or an intake-locked documented exception"
+                f"{decision_id}: deterministic operational finding with a "
+                "source-proven safe action must become an exact cleanup operation or "
+                "an intake-locked documented exception"
             )
         if (
             source_run == "operational_sanitation"
@@ -1520,13 +2406,41 @@ def action_completeness_report(
             )
         if (
             source_run == "configuration_correctness"
-            and verdict == "Issue"
-            and disposition != "cleanup_operation"
+            and str(decision.get("verdict") or "") == "Issue"
+            and disposition == "owner_decision_needed"
         ):
-            errors.append(
-                f"{decision_id}: source-proven configuration Issue requires an exact "
-                "cleanup operation"
+            recommendation = str(decision.get("recommended_action") or "")
+            lowered = recommendation.lower()
+            source_object_key = next(
+                (
+                    str(value)
+                    for value in as_list(decision.get("source_object_keys"))
+                    if str(value)
+                ),
+                "",
             )
+            evidence_terms = [
+                str(value)
+                for value in as_list(decision.get("defect_evidence_anchors"))
+                if str(value)
+            ]
+            if (
+                not source_object_key
+                or source_object_key.lower() not in lowered
+                or (
+                    evidence_terms
+                    and not any(term.lower() in lowered for term in evidence_terms)
+                )
+                or not re.search(
+                    r"\b(?:correct|delete|disable|fix|remap|remove|repair|replace|"
+                    r"reconfigure|restore|split)\b",
+                    lowered,
+                )
+            ):
+                errors.append(
+                    f"{decision_id}: unresolved configuration Issue lacks a "
+                    "source-specific, decision-ready remediation"
+                )
         if disposition in {"owner_decision_needed", "container_evidence_limit"} and not specific_text(
             decision.get("recommended_action"), 6
         ):
@@ -1588,6 +2502,1058 @@ def link_ledger_packets(
         )
 
 
+def normalized_reference_name(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or ""))
+    normalized = "".join(
+        " " if character.isspace() else character for character in normalized
+    )
+    return re.sub(r" +", " ", normalized).strip()
+
+
+def reference_repairs_by_source(
+    packets: list[dict[str, Any]],
+) -> dict[tuple[str, str], set[str]]:
+    """Index exact Unicode/whitespace-only reference repairs by source object."""
+
+    repairs: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for packet in packets:
+        operation_id = str(packet.get("operation_id") or "")
+        if not operation_id:
+            continue
+        for change in as_list(packet.get("changes")):
+            object_key = str(change.get("object_key") or "")
+            before_references = GTM_REFERENCE_RE.findall(
+                str(change.get("before") or "")
+            )
+            after_references = GTM_REFERENCE_RE.findall(
+                str(change.get("after") or "")
+            )
+            for before in before_references:
+                if before in after_references:
+                    continue
+                normalized = normalized_reference_name(before)
+                if any(
+                    candidate != before
+                    and normalized_reference_name(candidate) == normalized
+                    for candidate in after_references
+                ):
+                    repairs[(object_key, before)].add(operation_id)
+    return repairs
+
+
+def reconcile_duplicate_owner_authority(
+    rows: list[dict[str, Any]],
+    packet_by_id: dict[str, dict[str, Any]],
+) -> None:
+    """Represent one exact cross-object decision once in the final ledger."""
+
+    architecture_by_scope: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
+    for decision in rows:
+        keys = frozenset(
+            str(value)
+            for value in as_list(decision.get("source_object_keys"))
+            if str(value)
+        )
+        if (
+            keys
+            and decision.get("source_run") == "business_architecture"
+            and as_list(decision.get("comparison_types"))
+            and decision.get("disposition")
+            in {"owner_decision_needed", "cleanup_operation"}
+        ):
+            architecture_by_scope[keys].append(decision)
+
+    for decision in rows:
+        keys = frozenset(
+            str(value)
+            for value in as_list(decision.get("source_object_keys"))
+            if str(value)
+        )
+        if (
+            not keys
+            or decision.get("source_run") != "operational_sanitation"
+            or decision.get("disposition") != "owner_decision_needed"
+        ):
+            continue
+        authorities = architecture_by_scope.get(keys, [])
+        if len(authorities) != 1:
+            continue
+        authority = authorities[0]
+        source_disposition = str(decision.get("disposition") or "")
+        decision["source_disposition"] = source_disposition
+        decision["source_owner_question"] = str(
+            decision.get("owner_question") or ""
+        )
+        decision["delegated_to_decision_id"] = str(
+            authority.get("decision_id") or ""
+        )
+        decision["owner_question"] = ""
+        decision["recommended_action"] = ""
+        if authority.get("disposition") == "cleanup_operation":
+            operation_ids = [
+                str(value)
+                for value in as_list(authority.get("compiled_operation_ids"))
+                if str(value)
+            ]
+            decision["disposition"] = "cleanup_operation"
+            decision["reconciliation_status"] = (
+                "resolved_by_architecture_authority"
+            )
+            decision["reconciliation_basis"] = (
+                "The exact same object set is resolved by the authoritative "
+                f"architecture comparison {authority.get('decision_id')}; Run 1's "
+                "weaker candidate is retained as evidence without creating a second "
+                "action or approval."
+            )
+            decision["compiled_operation_ids"] = operation_ids
+            decision["operation_keys"] = sorted(
+                {
+                    str(packet_by_id[operation_id].get("operation_key") or "")
+                    for operation_id in operation_ids
+                    if operation_id in packet_by_id
+                    and str(packet_by_id[operation_id].get("operation_key") or "")
+                }
+            )
+            decision["execution_selection"] = (
+                ["proposed"] if operation_ids else []
+            )
+        else:
+            decision["disposition"] = "documented_exception"
+            decision["reconciliation_status"] = (
+                "delegated_to_architecture_decision"
+            )
+            decision["reconciliation_basis"] = (
+                "The exact same cross-object owner choice is already represented by "
+                f"architecture comparison {authority.get('decision_id')}; Run 1's "
+                "independent signal remains in the ledger without duplicating the "
+                "human decision."
+            )
+
+
+def reconcile_ledger_resolutions(
+    ledger: list[dict[str, Any]], packets: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Resolve decisions made obsolete by the exact final operation set.
+
+    Independent runs must retain their original judgments until reconciliation.
+    Once the full plan removes every object in a decision, an owner question
+    about retaining, hardening, or selecting one of those objects is no longer a
+    final-state decision. Preserve its source disposition, but link the final
+    ledger row to the deletion operations instead of showing a stale question.
+    """
+
+    rows = copy.deepcopy(ledger)
+    errors: list[str] = []
+    deleted_by_key: dict[str, set[str]] = defaultdict(set)
+    packet_by_id = {
+        str(packet.get("operation_id") or ""): packet for packet in packets
+    }
+    reference_repairs = reference_repairs_by_source(packets)
+    runtime_neutral_deleted_keys = {
+        str(value)
+        for packet in packets
+        for value in as_list(packet.get("runtime_neutral_deletion_keys"))
+        if str(value)
+    }
+    for packet in packets:
+        operation_id = str(packet.get("operation_id") or "")
+        for deletion in as_list(packet.get("deletions")):
+            key = str(deletion.get("object_key") or "")
+            if key and operation_id:
+                deleted_by_key[key].add(operation_id)
+
+    for decision in rows:
+        source_keys = {
+            str(value)
+            for value in as_list(decision.get("source_object_keys"))
+            if str(value)
+        }
+        if not source_keys:
+            continue
+        deleted_keys = source_keys & set(deleted_by_key)
+        all_deleted = deleted_keys == source_keys
+        disposition = str(decision.get("disposition") or "")
+        source_run = str(decision.get("source_run") or "")
+        recommended = str(
+            decision.get("recommended_canonical_object_key") or ""
+        )
+        if (
+            source_run == "business_architecture"
+            and recommended
+            and recommended in deleted_keys
+            and not (
+                all_deleted and recommended in runtime_neutral_deleted_keys
+            )
+        ):
+            errors.append(
+                f"{decision.get('decision_id')}: recommended canonical object "
+                f"{recommended!r} is deleted by the proposed operation set"
+            )
+            continue
+        if (
+            source_run == "business_architecture"
+            and disposition == "keep"
+            and deleted_keys
+        ):
+            operation_ids = sorted(
+                {
+                    operation_id
+                    for key in deleted_keys
+                    for operation_id in deleted_by_key[key]
+                }
+            )
+            architecture_backed = bool(operation_ids) and all(
+                "business_architecture"
+                in as_list(packet_by_id[operation_id].get("source_runs"))
+                for operation_id in operation_ids
+                if operation_id in packet_by_id
+            )
+            # A retained comparison or family can be superseded by the very
+            # architecture cleanup that removes one of its source members.
+            # Preserve its source verdict, but project its scope to the live
+            # target state instead of manufacturing a contradictory owner
+            # question for every secondary relationship that shared the object.
+            if all_deleted:
+                decision["source_disposition"] = disposition
+                decision["disposition"] = "cleanup_operation"
+                decision["reconciliation_status"] = "resolved_by_complete_object_deletion"
+                decision["reconciliation_basis"] = (
+                    "Every object in this retained source relationship is removed by the "
+                    "final approved cleanup plan, so no retained relationship survives."
+                )
+                decision["compiled_operation_ids"] = operation_ids
+                decision["operation_keys"] = sorted(
+                    {
+                        str(packet_by_id[operation_id].get("operation_key") or "")
+                        for operation_id in operation_ids
+                        if operation_id in packet_by_id
+                        and str(packet_by_id[operation_id].get("operation_key") or "")
+                    }
+                )
+                decision["execution_selection"] = ["proposed"] if operation_ids else []
+                continue
+            if architecture_backed:
+                surviving_keys = source_keys - deleted_keys
+                decision["source_scope_object_keys"] = sorted(source_keys)
+                decision["source_object_keys"] = sorted(surviving_keys)
+                decision["affected_objects"] = "; ".join(sorted(surviving_keys))
+                decision["reconciliation_status"] = "narrowed_by_architecture_cleanup"
+                decision["reconciliation_basis"] = (
+                    f"A source-proven architecture cleanup removes {sorted(deleted_keys)!r}; "
+                    f"the retained relationship now covers only {sorted(surviving_keys)!r}."
+                )
+                decision["compiled_operation_ids"] = sorted(
+                    {
+                        *as_list(decision.get("compiled_operation_ids")),
+                        *operation_ids,
+                    }
+                )
+                continue
+            nonneutral_deleted_keys = deleted_keys - runtime_neutral_deleted_keys
+            if nonneutral_deleted_keys:
+                errors.append(
+                    f"{decision.get('decision_id')}: retained architecture relationship "
+                    f"loses planned object(s) {sorted(nonneutral_deleted_keys)!r}"
+                )
+                continue
+            surviving_keys = source_keys - deleted_keys
+            operation_ids = sorted(
+                {
+                    operation_id
+                    for key in deleted_keys
+                    for operation_id in deleted_by_key[key]
+                }
+            )
+            decision["source_scope_object_keys"] = sorted(source_keys)
+            decision["source_object_keys"] = sorted(surviving_keys)
+            decision["affected_objects"] = "; ".join(sorted(surviving_keys))
+            decision["reconciliation_status"] = (
+                "narrowed_by_runtime_neutral_cleanup"
+            )
+            decision["reconciliation_basis"] = (
+                f"Source-proven behavior-neutral cleanup removes "
+                f"{sorted(deleted_keys)!r}; the retained architecture now covers "
+                f"{sorted(surviving_keys)!r}."
+            )
+            decision["compiled_operation_ids"] = sorted(
+                {
+                    *as_list(decision.get("compiled_operation_ids")),
+                    *operation_ids,
+                }
+            )
+            if not surviving_keys:
+                decision["source_disposition"] = disposition
+                decision["disposition"] = "cleanup_operation"
+                decision["reconciliation_status"] = (
+                    "resolved_by_runtime_neutral_cleanup"
+                )
+                decision["operation_keys"] = sorted(
+                    {
+                        str(packet_by_id[operation_id].get("operation_key") or "")
+                        for operation_id in operation_ids
+                        if operation_id in packet_by_id
+                        and str(
+                            packet_by_id[operation_id].get("operation_key") or ""
+                        )
+                    }
+                )
+                decision["execution_selection"] = (
+                    ["proposed"] if operation_ids else []
+                )
+            continue
+        can_resolve_by_deletion = disposition in {
+            "owner_decision_needed",
+            "container_evidence_limit",
+        }
+        if all_deleted and can_resolve_by_deletion:
+            operation_ids = sorted(
+                {
+                    operation_id
+                    for key in source_keys
+                    for operation_id in deleted_by_key[key]
+                }
+            )
+            decision["source_disposition"] = disposition
+            decision["disposition"] = "cleanup_operation"
+            decision["reconciliation_status"] = "resolved_by_complete_object_deletion"
+            decision["reconciliation_basis"] = (
+                "Every object in this source decision is removed by the final "
+                "source-proven inactive-lifecycle operation set, so its retention "
+                "or hardening question does not survive into the target container."
+            )
+            decision["compiled_operation_ids"] = operation_ids
+            decision["operation_keys"] = sorted(
+                {
+                    str(packet_by_id[operation_id].get("operation_key") or "")
+                    for operation_id in operation_ids
+                    if operation_id in packet_by_id
+                    and str(packet_by_id[operation_id].get("operation_key") or "")
+                }
+            )
+            decision["execution_selection"] = ["proposed"] if operation_ids else []
+            continue
+
+        if source_run != "business_architecture" or not deleted_keys:
+            continue
+        if disposition != "owner_decision_needed":
+            continue
+
+        surviving_keys = source_keys - deleted_keys
+        operation_ids = sorted(
+            {
+                operation_id
+                for key in deleted_keys
+                for operation_id in deleted_by_key[key]
+            }
+        )
+        if len(surviving_keys) == 1 and (
+            not recommended or recommended in surviving_keys
+        ):
+            decision["source_disposition"] = disposition
+            decision["disposition"] = "cleanup_operation"
+            decision["reconciliation_status"] = (
+                "resolved_by_surviving_canonical_object"
+            )
+            decision["reconciliation_basis"] = (
+                f"The approved operation set removes {sorted(deleted_keys)!r} and "
+                f"leaves the sole surviving relationship member "
+                f"{next(iter(surviving_keys))!r}."
+            )
+            decision["compiled_operation_ids"] = operation_ids
+            decision["operation_keys"] = sorted(
+                {
+                    str(packet_by_id[operation_id].get("operation_key") or "")
+                    for operation_id in operation_ids
+                    if operation_id in packet_by_id
+                    and str(packet_by_id[operation_id].get("operation_key") or "")
+                }
+            )
+            decision["execution_selection"] = ["proposed"] if operation_ids else []
+            continue
+
+        decision["source_scope_object_keys"] = sorted(source_keys)
+        decision["source_object_keys"] = sorted(surviving_keys)
+        decision["affected_objects"] = "; ".join(sorted(surviving_keys))
+        decision["reconciliation_status"] = "narrowed_to_surviving_objects"
+        decision["reconciliation_basis"] = (
+            f"Planned deletion removes {sorted(deleted_keys)!r}; the owner decision "
+            f"now applies only to surviving objects {sorted(surviving_keys)!r}."
+        )
+
+    for decision in rows:
+        if (
+            decision.get("source_run") != "configuration_correctness"
+            or decision.get("disposition")
+            not in {"owner_decision_needed", "container_evidence_limit"}
+        ):
+            continue
+        terminals = [
+            terminal
+            for terminal in as_list(
+                decision.get("missing_reference_terminals")
+            )
+            if terminal.get("normalization_resolution") == "unique"
+            and len(as_list(terminal.get("normalization_candidate_names"))) == 1
+        ]
+        all_missing = as_list(decision.get("missing_reference_terminals"))
+        if not terminals or len(terminals) != len(all_missing):
+            continue
+        operation_ids_by_terminal = [
+            reference_repairs.get(
+                (
+                    str(
+                        terminal.get("source_object_key")
+                        or next(
+                            iter(as_list(decision.get("source_object_keys"))),
+                            "",
+                        )
+                    ),
+                    str(terminal.get("reference") or ""),
+                ),
+                set(),
+            )
+            for terminal in terminals
+        ]
+        if not all(operation_ids_by_terminal):
+            continue
+        operation_ids = sorted(set().union(*operation_ids_by_terminal))
+        decision["source_disposition"] = str(decision.get("disposition") or "")
+        decision["source_owner_question"] = str(
+            decision.get("owner_question") or ""
+        )
+        decision["disposition"] = "cleanup_operation"
+        decision["owner_question"] = ""
+        decision["recommended_action"] = ""
+        decision["reconciliation_status"] = (
+            "resolved_by_upstream_reference_repair"
+        )
+        decision["reconciliation_basis"] = (
+            "Every missing terminal reference in this decision is repaired by an "
+            "exact Unicode/whitespace-only change at its source object. This "
+            "consumer receives no independent mutation and therefore needs no "
+            "second owner choice."
+        )
+        decision["compiled_operation_ids"] = operation_ids
+        decision["operation_keys"] = sorted(
+            {
+                str(packet_by_id[operation_id].get("operation_key") or "")
+                for operation_id in operation_ids
+                if operation_id in packet_by_id
+                and str(packet_by_id[operation_id].get("operation_key") or "")
+            }
+        )
+        decision["execution_selection"] = ["proposed"]
+
+    reconcile_duplicate_owner_authority(rows, packet_by_id)
+    return rows, errors
+
+
+def runtime_qa_handoff(
+    ledger: list[dict[str, Any]],
+    configuration: dict[str, Any],
+    packets: list[dict[str, Any]] | None = None,
+    *,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Build optional external-verification handoffs outside the audit scope."""
+
+    if not enabled:
+        return {
+            "scope": (
+                "Runtime verification is outside this container-only audit skill. "
+                "No Preview, browser, network, CMP, or vendor test contract was created."
+            ),
+            "item_count": 0,
+            "items": [],
+        }
+
+    def classify(text: str) -> tuple[str, str, str] | None:
+        lowered = text.lower()
+        mappings = (
+            (
+                r"selector|dom|page invokes|page effect|page state",
+                "page_dom",
+                "GTM Preview plus browser console/DOM evidence on every affected route",
+                "Verify selector presence, handler count, and the intended page effect.",
+            ),
+            (
+                r"datalayer|data layer|runtime value|value type|availability",
+                "data_layer",
+                "raw dataLayer.push payloads and resolved GTM variable values in Preview",
+                "Compare event-time values, types, cardinality, and fallbacks with the contract.",
+            ),
+            (
+                r"cmp|consent|storage",
+                "cmp_consent",
+                "CMP state transitions, Consent Overview, and before/after-consent requests",
+                "Verify default/update timing and that each vendor route is blocked or allowed as approved.",
+            ),
+            (
+                r"server|downstream|receiving container",
+                "server_route",
+                "the receiving server-container export plus request/forwarding evidence",
+                "Audit consent forwarding, transformations, destinations, and deduplication on the receiving route.",
+            ),
+            (
+                r"ga4|analytics property|report|debugview",
+                "analytics_property",
+                "GA4 DebugView/Realtime and the intended property or data-stream configuration",
+                "Verify the event, parameters, property destination, and reporting availability.",
+            ),
+            (
+                r"vendor|endpoint|network|script delivery|acceptance|response",
+                "vendor_delivery",
+                "browser network evidence and the vendor platform's test/event diagnostics",
+                "Verify one expected request, accepted payload fields, response, and deduplication.",
+            ),
+        )
+        for pattern, category, evidence, action in mappings:
+            if re.search(pattern, lowered):
+                return category, evidence, action
+        return None
+
+    evidence_by_category = {
+        "page_dom": "GTM Preview plus browser console and DOM evidence on each affected route",
+        "data_layer": "raw dataLayer.push payloads and resolved GTM variable values in Preview",
+        "cmp_consent": "CMP state transitions, Consent Overview, and before/after-consent requests",
+        "server_route": "the receiving server-container export plus request and forwarding evidence",
+        "analytics_property": "GA4 DebugView or Realtime and the intended property/data-stream configuration",
+        "vendor_delivery": "browser network evidence and the vendor platform test diagnostics",
+        "live_runtime": "GTM Preview and network evidence for the exact affected route",
+    }
+    verification_recipes = {
+        "page_dom": {
+            "preconditions": "affected page route and material DOM variant are reachable",
+            "test_steps": [
+                "open the exact route in GTM Preview",
+                "exercise the affected state once in a controlled action window",
+                "inspect selector resolution, handler count, and resulting DOM effect",
+            ],
+            "pass_criteria": "the intended effect occurs once and no unrelated route or variant is affected",
+            "fail_criteria": "missing selector/effect, duplicate handler/effect, or out-of-scope mutation",
+            "evidence_capture": "Preview event trace plus before/after DOM or console evidence",
+        },
+        "data_layer": {
+            "preconditions": "the business action can be isolated in one controlled action window",
+            "test_steps": [
+                "capture every raw dataLayer.push in the action window",
+                "resolve the affected GTM variables at the consuming event",
+                "compare names, values, types, cardinality, and fallbacks with the approved contract",
+            ],
+            "pass_criteria": "one intended business occurrence has complete, correctly typed event-time values",
+            "fail_criteria": "missing, duplicate, stale, mistyped, or wrong-context values",
+            "evidence_capture": "ordered dataLayer pushes and Preview variable snapshots",
+        },
+        "cmp_consent": {
+            "preconditions": "testable deny, grant, update, and revisit states are available",
+            "test_steps": [
+                "capture consent defaults before ordinary tags",
+                "exercise each material CMP transition",
+                "compare tag eligibility and requests before and after the transition",
+            ],
+            "pass_criteria": "approved defaults and updates occur in order and every affected route obeys them",
+            "fail_criteria": "late/missing update, pre-consent delivery, or approved delivery remaining blocked",
+            "evidence_capture": "Consent Overview, Preview timeline, CMP state, and request evidence",
+        },
+        "server_route": {
+            "preconditions": "receiving server-container evidence and an observable request path are available",
+            "test_steps": [
+                "trace the browser request to the configured host",
+                "inspect the receiving client, transformations, consent fields, and destinations",
+                "reconcile browser/server identifiers and deduplication for the affected event",
+            ],
+            "pass_criteria": "the intended route receives and forwards one contract-compliant occurrence",
+            "fail_criteria": "wrong host, dropped/altered consent, unexpected destination, or duplicate delivery",
+            "evidence_capture": "browser request plus receiving-container and downstream request traces",
+        },
+        "analytics_property": {
+            "preconditions": "the intended GA4 property/stream is identified and test traffic is permitted",
+            "test_steps": [
+                "execute the exact affected event once",
+                "verify destination, event name, parameters, and item scope in transport evidence",
+                "reconcile the occurrence in DebugView or Realtime",
+            ],
+            "pass_criteria": "one correctly scoped occurrence reaches the intended property with approved values",
+            "fail_criteria": "missing, duplicate, wrong-property, wrong-name, or malformed parameter delivery",
+            "evidence_capture": "Preview and network trace plus DebugView/Realtime occurrence",
+        },
+        "vendor_delivery": {
+            "preconditions": "vendor test diagnostics and a consent-valid test state are available",
+            "test_steps": [
+                "execute the affected event once",
+                "inspect the exact vendor request and response",
+                "reconcile payload, route, acceptance, and any browser/server event identifier",
+            ],
+            "pass_criteria": "one accepted occurrence carries the approved identity and payload",
+            "fail_criteria": "missing, duplicate, rejected, wrong-account, or malformed delivery",
+            "evidence_capture": "Preview trace, request/response, and vendor test-event diagnostics",
+        },
+        "live_runtime": {
+            "preconditions": "the exact affected route and action are testable",
+            "test_steps": [
+                "reproduce the affected action once in GTM Preview",
+                "capture the relevant resolved configuration and outbound behavior",
+                "compare the result with the approved operation and measurement contract",
+            ],
+            "pass_criteria": "the approved behavior occurs once with no material side effect",
+            "fail_criteria": "missing, duplicate, mistimed, wrong-context, or unexpected behavior",
+            "evidence_capture": "Preview trace and the smallest decisive browser/runtime evidence",
+        },
+    }
+
+    deleted_keys = {
+        str(deletion.get("object_key") or "")
+        for packet in as_list(packets)
+        for deletion in as_list(packet.get("deletions"))
+        if str(deletion.get("object_key") or "")
+    }
+    candidates: list[dict[str, Any]] = []
+    for decision in ledger:
+        disposition = str(decision.get("disposition") or "")
+        explicit_handoff = (
+            str(decision.get("external_evidence_status") or "")
+            == "runtime_handoff_required"
+        )
+        text = " ".join(
+            str(decision.get(field) or "")
+            for field in (
+                "external_evidence_summary",
+                "external_evidence_next_action",
+                "summary",
+                "owner_question",
+                "recommended_action",
+            )
+        )
+        classified = classify(text)
+        if not explicit_handoff and disposition != "container_evidence_limit":
+            continue
+        classified = classified or (
+            "live_runtime",
+            evidence_by_category["live_runtime"],
+            "Test the unresolved live behavior and create a corrective operation only if it fails.",
+        )
+        category, default_evidence, default_action = classified
+        evidence_object_keys = sorted(
+            {
+                str(value)
+                for value in as_list(decision.get("source_object_keys"))
+                if str(value)
+            }
+        )
+        surviving_evidence_keys = [
+            key for key in evidence_object_keys if key not in deleted_keys
+        ]
+        if evidence_object_keys and not surviving_evidence_keys:
+            continue
+        consumer_keys = sorted(
+            {
+                str(value)
+                for value in as_list(decision.get("consumer_object_keys"))
+                if str(value) and str(value) not in deleted_keys
+            }
+        )
+        tag_consumers = [key for key in consumer_keys if key.startswith("tag:")]
+        test_object_keys = (
+            tag_consumers
+            or consumer_keys
+            or surviving_evidence_keys
+        )
+        required_evidence = default_evidence
+        next_action = str(
+            decision.get("external_evidence_next_action") or default_action
+        )
+        boundary = str(
+            decision.get("external_evidence_summary")
+            or decision.get("summary")
+            or decision.get("owner_question")
+            or "Live outcome is not proven by the container export."
+        )
+        candidates.append(
+            {
+                "source_reference": str(decision.get("decision_id") or ""),
+                "source_run": str(decision.get("source_run") or ""),
+                "affected_object_keys": surviving_evidence_keys,
+                "test_object_keys": test_object_keys,
+                "category": category,
+                "vendor": str(decision.get("detected_vendor") or ""),
+                "route_hosts": sorted(
+                    {
+                        str(value)
+                        for value in as_list(decision.get("server_routing_hosts"))
+                        if str(value)
+                    }
+                ),
+                "configured_events": sorted(
+                    {
+                        str(value)
+                        for value in as_list(decision.get("configured_event_values"))
+                        if str(value)
+                    }
+                ),
+                "unproven_boundary": boundary,
+                "required_evidence": required_evidence,
+                "next_action": next_action,
+                "blocking_scope": "nonblocking_for_unrelated_cleanup",
+            }
+        )
+
+    # The configuration rows are already represented in the decision ledger.
+    # Keeping this assertion close to compilation prevents a future refactor
+    # from silently dropping explicit handoffs before grouping.
+    explicit_configuration_refs = {
+        str(row.get("review_id") or row.get("object_key") or "")
+        for row in as_list(configuration.get("rows"))
+        if row.get("external_evidence_status") == "runtime_handoff_required"
+    }
+    candidate_refs = {
+        str(candidate.get("source_reference") or "") for candidate in candidates
+    }
+    missing_configuration_refs = explicit_configuration_refs - candidate_refs
+    for source_reference in sorted(missing_configuration_refs):
+        row = next(
+            (
+                item
+                for item in as_list(configuration.get("rows"))
+                if str(item.get("review_id") or item.get("object_key") or "")
+                == source_reference
+            ),
+            {},
+        )
+        object_key = str(row.get("object_key") or "")
+        if object_key and object_key in deleted_keys:
+            continue
+        text = " ".join(
+            str(row.get(field) or "")
+            for field in (
+                "external_evidence_summary",
+                "external_evidence_next_action",
+            )
+        )
+        category, required_evidence, default_action = classify(text) or (
+            "live_runtime",
+            evidence_by_category["live_runtime"],
+            "Test the unresolved live behavior and create a corrective operation only if it fails.",
+        )
+        candidates.append(
+            {
+                "source_reference": source_reference,
+                "source_run": "configuration_correctness",
+                "affected_object_keys": [object_key] if object_key else [],
+                "test_object_keys": sorted(
+                    {
+                        str(item.get("consumer_key") or "")
+                        for item in as_list(row.get("export_consumers"))
+                        if isinstance(item, dict)
+                        and str(item.get("consumer_key") or "").startswith("tag:")
+                        and str(item.get("consumer_key") or "") not in deleted_keys
+                    }
+                )
+                or ([object_key] if object_key else []),
+                "category": category,
+                "vendor": str(row.get("detected_vendor") or ""),
+                "route_hosts": sorted(
+                    {
+                        str(value)
+                        for value in as_list(
+                            (row.get("effective_consent_route_facts") or {}).get(
+                                "server_routing_hosts"
+                            )
+                        )
+                        if str(value)
+                    }
+                ),
+                "configured_events": sorted(
+                    {
+                        str(value)
+                        for topic in as_list(row.get("required_contract_topics"))
+                        for value in as_list(topic.get("configured_event_values"))
+                        if str(value)
+                    }
+                ),
+                "unproven_boundary": str(
+                    row.get("external_evidence_summary")
+                    or "Live outcome is not proven by the container export."
+                ),
+                "required_evidence": required_evidence,
+                "next_action": str(
+                    row.get("external_evidence_next_action") or default_action
+                ),
+                "blocking_scope": "nonblocking_for_unrelated_cleanup",
+            }
+        )
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for candidate in candidates:
+        key = stable_hash(
+            {
+                "category": candidate["category"],
+                "vendor": candidate["vendor"],
+                "route_hosts": candidate["route_hosts"],
+                "configured_events": candidate["configured_events"],
+                "required_evidence": candidate["required_evidence"],
+                "next_action": candidate["next_action"],
+            },
+            24,
+        )
+        grouped[key].append(candidate)
+
+    items = []
+    for index, key in enumerate(sorted(grouped), start=1):
+        members = grouped[key]
+        source_references = sorted(
+            {
+                str(member.get("source_reference") or "")
+                for member in members
+                if str(member.get("source_reference") or "")
+            }
+        )
+        source_runs = sorted(
+            {
+                str(member.get("source_run") or "")
+                for member in members
+                if str(member.get("source_run") or "")
+            }
+        )
+        affected_keys = sorted(
+            {
+                str(value)
+                for member in members
+                for value in as_list(member.get("affected_object_keys"))
+                if str(value)
+            }
+        )
+        test_keys = sorted(
+            {
+                str(value)
+                for member in members
+                for value in as_list(member.get("test_object_keys"))
+                if str(value)
+            }
+        )
+        boundaries = list(
+            dict.fromkeys(
+                str(member.get("unproven_boundary") or "")
+                for member in members
+                if str(member.get("unproven_boundary") or "")
+            )
+        )
+        first = members[0]
+        route_contract = "; ".join(
+            value
+            for value in (
+                f"vendor={first['vendor']}" if first["vendor"] else "",
+                (
+                    "route=" + ",".join(first["route_hosts"])
+                    if first["route_hosts"]
+                    else ""
+                ),
+                (
+                    "events=" + ",".join(first["configured_events"])
+                    if first["configured_events"]
+                    else ""
+                ),
+            )
+            if value
+        ) or "affected container-visible route(s)"
+        items.append(
+            {
+                "handoff_id": f"RUNTIME-QA-{index:04d}",
+                "test_contract_id": f"TEST-{key.upper()}",
+                "source_reference": source_references[0] if source_references else "",
+                "source_references": source_references,
+                "source_run": ", ".join(source_runs),
+                "source_runs": source_runs,
+                "affected_object_keys": affected_keys,
+                "test_object_keys": test_keys,
+                "category": first["category"],
+                "vendor": first["vendor"],
+                "route_hosts": first["route_hosts"],
+                "configured_events": first["configured_events"],
+                "route_contract": route_contract,
+                "unproven_boundary": " | ".join(boundaries),
+                "unproven_boundaries": boundaries,
+                "required_evidence": first["required_evidence"],
+                "next_action": first["next_action"],
+                "verification_owner_skill": "gtm-preview-recette",
+                **verification_recipes[first["category"]],
+                "blocking_scope": "nonblocking_for_unrelated_cleanup",
+                "affected_publication_gate": "required_before_publication",
+            }
+        )
+    return {
+        "scope": (
+            "Optional runtime acceptance work that the container export cannot prove. "
+            "These items do not relabel a container-visible defect and do not block "
+            "unrelated approved cleanup. Route them to gtm-preview-recette when runtime "
+            "acceptance is authorised."
+        ),
+        "item_count": len(items),
+        "items": items,
+    }
+
+
+def target_organization_summary(
+    operational: dict[str, Any],
+    packets: list[dict[str, Any]],
+    catalog: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Describe the actual proposed organization without inventing folder moves."""
+
+    findings = as_list(operational.get("findings"))
+    naming_findings = [
+        row
+        for row in findings
+        if row.get("module_name") == "naming_architecture_standardization"
+    ]
+    naming_policies = sorted(
+        {
+            str(row.get("selected_naming_policy") or "")
+            for row in naming_findings
+            if str(row.get("selected_naming_policy") or "")
+        }
+    )
+    naming_patterns = sorted(
+        {
+            str(row.get("target_naming_pattern") or "")
+            for row in naming_findings
+            if str(row.get("target_naming_pattern") or "")
+            and "unresolved" not in str(row.get("target_naming_pattern") or "").lower()
+        }
+    )
+    naming_confirmation_ids = sorted(
+        {
+            str(row.get("finding_id") or "")
+            for row in naming_findings
+            if row.get("finding_type") == "naming_policy_confirmation_required"
+            or row.get("disposition") == "owner_decision_needed"
+        }
+    )
+
+    exact_renames = []
+    exact_folder_actions = []
+    deleted_keys: set[str] = set()
+    for packet in packets:
+        operation_id = str(packet.get("operation_id") or "")
+        for rename in as_list(packet.get("renames")):
+            key = str(rename.get("object_key") or "")
+            exact_renames.append(
+                {
+                    "operation_id": operation_id,
+                    "object_key": key,
+                    "before": str(rename.get("before") or ""),
+                    "after": str(rename.get("after") or ""),
+                }
+            )
+            if key.startswith("folder:"):
+                exact_folder_actions.append(
+                    {
+                        "operation_id": operation_id,
+                        "action": "rename_folder",
+                        "object_key": key,
+                        "before": str(rename.get("before") or ""),
+                        "after": str(rename.get("after") or ""),
+                    }
+                )
+        for deletion in as_list(packet.get("deletions")):
+            key = str(deletion.get("object_key") or "")
+            deleted_keys.add(key)
+            if key.startswith("folder:"):
+                exact_folder_actions.append(
+                    {
+                        "operation_id": operation_id,
+                        "action": "delete_folder",
+                        "object_key": key,
+                        "reason": str(deletion.get("reason") or ""),
+                    }
+                )
+        for change in as_list(packet.get("changes")):
+            path = str(change.get("json_path") or "")
+            if path.endswith(".parentFolderId"):
+                exact_folder_actions.append(
+                    {
+                        "operation_id": operation_id,
+                        "action": "move_object",
+                        "object_key": str(change.get("object_key") or ""),
+                        "before_folder_id": str(change.get("before") or ""),
+                        "after_folder_id": str(change.get("after") or ""),
+                    }
+                )
+        for remap in as_list(packet.get("remaps")):
+            if str(remap.get("from_object_key") or "").startswith("folder:"):
+                exact_folder_actions.append(
+                    {
+                        "operation_id": operation_id,
+                        "action": "move_folder_members",
+                        "from_folder_key": str(remap.get("from_object_key") or ""),
+                        "to_folder_key": str(remap.get("to_object_key") or ""),
+                        "object_keys": [
+                            str(value)
+                            for value in as_list(remap.get("consumer_object_keys"))
+                            if str(value)
+                        ],
+                    }
+                )
+
+    folder_findings = [
+        row
+        for row in findings
+        if row.get("module_name")
+        in {
+            "unfiled_objects",
+            "unused_folders",
+            "singleton_folders",
+            "overloaded_folders",
+            "folder_topology",
+        }
+    ]
+    unresolved_folder_ids = sorted(
+        {
+            str(row.get("finding_id") or "")
+            for row in folder_findings
+            if row.get("disposition")
+            in {"owner_decision_needed", "container_evidence_limit"}
+        }
+    )
+    paused_keys = sorted(
+        key
+        for key, item in catalog.items()
+        if key.startswith("tag:") and bool(item.get("paused"))
+    )
+    retired_paused_keys = sorted(set(paused_keys) & deleted_keys)
+    retained_paused_keys = sorted(set(paused_keys) - deleted_keys)
+
+    if naming_confirmation_ids or unresolved_folder_ids:
+        status = "policy_confirmation_required_for_listed_metadata_only"
+    elif exact_renames or exact_folder_actions or retired_paused_keys:
+        status = "concrete_target_organization_proposed"
+    else:
+        status = "no_organization_change_justified"
+    return {
+        "status": status,
+        "scope": (
+            "Container-visible naming, folders, and paused-object lifecycle only. "
+            "Every listed move or rename is an exact approved-operation candidate; "
+            "no folder placement is invented from an arbitrary quota."
+        ),
+        "naming": {
+            "selected_policy": ", ".join(naming_policies)
+            or "No reliable container-local convention inferred",
+            "target_patterns": naming_patterns,
+            "exact_renames": exact_renames,
+            "confirmation_decision_ids": naming_confirmation_ids,
+        },
+        "folders": {
+            "exact_actions": exact_folder_actions,
+            "unresolved_decision_ids": unresolved_folder_ids,
+        },
+        "paused_lifecycle": {
+            "source_paused_tag_keys": paused_keys,
+            "proposed_retirement_keys": retired_paused_keys,
+            "retained_pending_or_necessary_keys": retained_paused_keys,
+        },
+    }
+
+
 def compile_operations(
     operational: dict[str, Any],
     configuration: dict[str, Any],
@@ -1611,11 +3577,18 @@ def compile_operations(
         catalog,
     )
     link_ledger_packets(ledger, packets)
-    action_completeness = action_completeness_report(ledger)
+    reconciled_ledger, reconciliation_errors = reconcile_ledger_resolutions(
+        ledger, packets
+    )
+    errors.extend(reconciliation_errors)
     if errors:
         packets = []
-        link_ledger_packets(ledger, packets)
-        action_completeness = action_completeness_report(ledger)
+        reconciled_ledger = decision_ledger(
+            operational, configuration, architecture
+        )
+        link_ledger_packets(reconciled_ledger, packets)
+    action_completeness = action_completeness_report(reconciled_ledger)
+    if errors:
         action_completeness["status"] = "incomplete"
         action_completeness["errors"].append(
             "operation compilation has unresolved validation errors"
@@ -1624,6 +3597,15 @@ def compile_operations(
         architecture, packets
     )
     annotate_operation_preservation(packets, measurement_preservation)
+    # This skill is intentionally container-only. A separate explicitly invoked
+    # recette workflow may consume the audit later, but audit compilation must
+    # not turn every export-visible limitation into a runtime-test workload.
+    runtime_handoff = runtime_qa_handoff(
+        reconciled_ledger, configuration, packets, enabled=False
+    )
+    target_organization = target_organization_summary(
+        operational, packets, catalog
+    )
     return {
         "kind": "gtm_reconciled_operations",
         "schema_version": 3,
@@ -1641,9 +3623,19 @@ def compile_operations(
             "complete" if action_completeness["status"] == "pass" else "incomplete_actions"
         ),
         "action_completeness": action_completeness,
+        "object_catalog": {
+            key: {
+                "layer": str(value.get("layer") or ""),
+                "object_name": str(value.get("object_name") or ""),
+                "reachability": str(value.get("reachability") or ""),
+            }
+            for key, value in sorted(catalog.items())
+        },
         "projected_object_counts": projected_object_counts(catalog, packets),
         "measurement_preservation": measurement_preservation,
-        "decision_ledger": ledger,
+        "target_organization": target_organization,
+        "runtime_qa_handoff": runtime_handoff,
+        "decision_ledger": reconciled_ledger,
         "operations": packets,
     }, errors
 

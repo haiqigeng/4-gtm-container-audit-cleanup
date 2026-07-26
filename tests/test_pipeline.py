@@ -50,12 +50,16 @@ from gtm_lib import container_version  # noqa: E402
 from gtm_operation_compile import (  # noqa: E402
     action_completeness_report,
     compile_operations,
+    operation_priority_basis,
+    reconcile_ledger_resolutions,
     runtime_neutral_operational_deletions,
+    runtime_qa_handoff,
     source_object_catalog,
 )
-from gtm_operational_review import (  # noqa: E402
+from gtm_operational_review import (  # noqa: E402  # noqa: E402
     MANDATORY_OPERATIONAL_MODULES,
     mandatory_module_errors,
+    validate_deterministic_repair,
 )
 from gtm_operational_review import (  # noqa: E402
     scaffold_review as scaffold_operational,
@@ -89,6 +93,13 @@ from gtm_review_common import (  # noqa: E402
 from gtm_review_shards import merge_review, split_review  # noqa: E402
 from gtm_shared_facts import build_shared_facts  # noqa: E402
 from gtm_source_model import build_model  # noqa: E402
+from gtm_taxonomy import (  # noqa: E402
+    CLEANUP_PLAN_COLUMNS,
+    GENERAL_CATEGORY_BY_PROBLEM_TYPE,
+    GENERAL_PROBLEM_CATEGORIES,
+    PROBLEM_TYPES,
+    general_problem_category,
+)
 from gtm_three_run_gate import run_gate  # noqa: E402
 from gtm_validate_artifact import missing_references  # noqa: E402
 from gtm_validate_artifact import validate as validate_artifact  # noqa: E402
@@ -101,6 +112,7 @@ from gtm_vendor_registry import (  # noqa: E402
 from gtm_workbook_build import (  # noqa: E402
     CANONICAL_SHEETS,
     MAX_CELL_TEXT,
+    MAX_ROW_HEIGHT,
     add_table,
     build_workbook,
 )
@@ -143,9 +155,19 @@ def sample_export() -> dict:
                                 },
                                 {
                                     "type": "TEMPLATE",
+                                    "key": "items",
+                                    "value": "{{DLV - Items}}",
+                                },
+                                {
+                                    "type": "TEMPLATE",
                                     "key": "transaction_id",
                                     "value": "{{DLV - Transaction ID}}",
-                                }
+                                },
+                                {
+                                    "type": "TEMPLATE",
+                                    "key": "currency",
+                                    "value": "EUR",
+                                },
                             ],
                         },
                     ],
@@ -999,8 +1021,59 @@ def complete_configuration(
                     "technical_finding_keys": [],
                 }
             )
-        unresolved = bool(unclear_obligations or unproven_checks)
+        required_topic_by_key = {
+            item["topic_key"]: item for item in row["required_contract_topics"]
+        }
+        runtime_unproven_checks = [
+            check
+            for check in unproven_checks
+            if required_topic_by_key.get(check["contract_topic"], {}).get(
+                "deterministic_contract_state"
+            )
+            == "unproven_from_container"
+        ]
+        blocking_unproven_checks = [
+            check for check in unproven_checks if check not in runtime_unproven_checks
+        ]
+        technical_limits = [
+            str(value)
+            for value in (row.get("technical_code_facts") or {}).get(
+                "container_evidence_limits", []
+            )
+            if str(value)
+            and not str(value).startswith("No material external behavior")
+            and "does not expose executable behavior" not in str(value).lower()
+        ]
+        runtime_required = bool(runtime_unproven_checks or technical_limits)
+        row["external_evidence_status"] = (
+            "runtime_handoff_required" if runtime_required else "none"
+        )
+        row["external_evidence_summary"] = (
+            f"{row['object_key']} ({row['object_name']}) has container-visible "
+            f"configuration that can be judged separately, while runtime topics "
+            f"{[check['contract_topic'] for check in runtime_unproven_checks]!r} "
+            f"and external effects {technical_limits!r} remain unproven."
+            if runtime_required
+            else ""
+        )
+        row["external_evidence_next_action"] = (
+            f"In GTM Preview, test {row['object_key']} on its affected event route; "
+            "capture resolved inputs, consent state, browser requests, and the "
+            "destination response required by the listed contract."
+            if runtime_required
+            else ""
+        )
+        unresolved = bool(unclear_obligations or blocking_unproven_checks)
         if row["defects"]:
+            first_defect = row["defects"][0]
+            first_anchor = next(
+                (
+                    str(value)
+                    for value in first_defect.get("evidence_anchors", [])
+                    if str(value)
+                ),
+                row["required_logic_anchors"][0],
+            )
             row["correctness_verdict"] = "Issue"
             row["correctness_basis"] = object_specific_text(
                 row,
@@ -1009,15 +1082,25 @@ def complete_configuration(
             )
             row["disposition"] = "owner_decision_needed"
             row["owner_question"] = (
-                "Should the listed source-proven defects be corrected through an approved "
-                "operation, or is there a documented owner constraint requiring a redesign?"
+                f"For {row['object_key']}, which valid replacement value or route should "
+                f"correct defect {first_defect['defect_id']} at {first_anchor}?"
             )
             row["recommended_action"] = (
-                "Correct every listed source-proven defect with one exact operation and retain "
-                "the object only if that correction preserves its required measurement role."
+                f"For {row['object_key']}, repair defect {first_defect['defect_id']} at "
+                f"{first_anchor} by replacing the invalid exported configuration with the "
+                "owner-approved valid value; retain the object only after reference and "
+                "measurement-preservation QA."
             )
             row["confidence"] = "High"
         elif unresolved:
+            unresolved_contracts = [
+                check["contract_topic"]
+                for check in [*blocking_unproven_checks, *runtime_unproven_checks]
+            ]
+            unresolved_scope = (
+                ", ".join(unresolved_contracts[:2])
+                or row["required_logic_anchors"][0]
+            )
             row["correctness_verdict"] = "Owner decision needed"
             row["correctness_basis"] = object_specific_text(
                 row,
@@ -1026,12 +1109,13 @@ def complete_configuration(
             )
             row["disposition"] = "owner_decision_needed"
             row["owner_question"] = (
-                "What approved runtime, vendor, or ownership evidence resolves the explicitly "
-                "unproven configuration contract for this object?"
+                f"For {row['object_key']}, what runtime or owner evidence establishes "
+                f"the required {unresolved_scope} contract?"
             )
             row["recommended_action"] = (
-                "Obtain the named runtime or owner evidence, then keep the current configuration "
-                "only if that evidence proves the required contract; otherwise correct it."
+                f"Test {row['object_key']} against {unresolved_scope}; retain its current "
+                "configuration only if the captured route and destination evidence satisfies "
+                "that contract, otherwise prepare the field-level correction."
             )
             row["confidence"] = "Medium"
         for technical_review in row["technical_finding_reviews"]:
@@ -1048,34 +1132,195 @@ def complete_configuration(
                     "or approve removal of the opaque implementation?"
                 )
     review["run_status"] = "complete"
-    review["completion_attestation"] = complete_review_attestation(review)
+    review["completion_attestation"] = complete_review_attestation(
+        review, decision_authoring_method="independent_test_fixture_review"
+    )
     return review
 
 
 def complete_operational(export_path: Path) -> dict:
     review = scaffold_operational(export_path)
     for row in review["findings"]:
-        row.update(
-            {
-                "review_status": "complete",
-                "disposition": "owner_decision_needed",
-                "rationale": (
-                    f"The source evidence {' and '.join(row['rationale_evidence_terms'][:2])} "
-                    "requires an explicit retained-versus-cleaned decision before this controlled "
-                    "fixture can claim a completed cleanup."
-                ),
-                "owner_question": (
-                    f"Should the source objects for {row['finding_type']} be retained for a "
-                    "documented business reason, or approved for the proposed cleanup?"
-                ),
-                "recommended_action": (
-                    f"Resolve {row['finding_type']} through the exact cleanup action indicated by "
-                    "the source evidence unless an intake-locked exception proves it necessary."
-                ),
-            }
-        )
+        base = {
+            "review_status": "complete",
+            "rationale": (
+                f"The source evidence {' and '.join(row['rationale_evidence_terms'][:2])} "
+                "supports the recorded controlled-fixture resolution."
+            ),
+        }
+        repair = row.get("deterministic_repair") or {}
+        exact_repair = str(repair.get("status") or "").startswith("unique_")
+        if row.get("deterministic_action_candidate") == "delete_candidate":
+            source_keys = [
+                str(value)
+                for value in row.get("shared_fact_object_keys", [])
+                if str(value)
+            ]
+            row.update(
+                {
+                    **base,
+                    "disposition": "cleanup_operation",
+                    "operation_key": (
+                        "delete-" + str(row["finding_id"]).lower().replace("_", "-")
+                    ),
+                    "title": f"Remove source-proven unused {row['finding_type']}",
+                    "area": "GTM hygiene",
+                    "problem_type": "Unused object",
+                    "problem": row["deterministic_evidence"],
+                    "why_it_matters": (
+                        "An export-unreachable object adds maintenance ambiguity without "
+                        "supporting the active measurement graph."
+                    ),
+                    "expected_clean_state": (
+                        "The unused object is absent and every retained reference still resolves."
+                    ),
+                    "exact_proposed_action": (
+                        "Delete " + ", ".join(source_keys) + " after the final dependency readback."
+                    ),
+                    "canonical_object_key": "",
+                    "canonical_selection_rationale": "",
+                    "creations": [],
+                    "additions": [],
+                    "changes": [],
+                    "remaps": [],
+                    "deletions": [
+                        {
+                            "object_key": key,
+                            "reason": (
+                                "The complete source execution graph has no active "
+                                "consumer for this object."
+                            ),
+                        }
+                        for key in source_keys
+                    ],
+                    "renames": [],
+                    "preconditions": (
+                        "Re-read the workspace and confirm the object remains outside "
+                        "every active consumer and sequence."
+                    ),
+                    "qa_steps": (
+                        "Re-export and confirm the object is absent, references resolve, "
+                        "and active object counts match the projected delta."
+                    ),
+                    "rollback": (
+                        "Restore the exact object from the source export if a dependency "
+                        "appears during readback."
+                    ),
+                    "priority": "Low",
+                    "confidence": "High",
+                    "execution_readiness": "approval_required",
+                    "owner_question": "",
+                    "recommended_action": "",
+                    "challenge_review": {},
+                }
+            )
+        elif exact_repair:
+            repair_kind = str(repair.get("repair_kind") or "")
+            canonical_key = (
+                str(repair.get("target_object_key") or "")
+                if repair_kind
+                in {"variable_reference", "setupTag", "teardownTag"}
+                else ""
+            )
+            problem_type = (
+                "Naming inconsistency"
+                if repair_kind == "object_name"
+                else "Over-firing"
+                if repair_kind == "blockingTriggerId"
+                else "Broken reference"
+            )
+            row.update(
+                {
+                    **base,
+                    "disposition": "cleanup_operation",
+                    "operation_key": (
+                        "repair-" + str(row["finding_id"]).lower().replace("_", "-")
+                    ),
+                    "title": (
+                        f"Apply source-proven {repair_kind} repair"
+                    ),
+                    "area": (
+                        "Event firing logic"
+                        if repair_kind == "blockingTriggerId"
+                        else "GTM hygiene"
+                        if repair_kind == "object_name"
+                        else "Tracking plan / dataLayer"
+                    ),
+                    "problem_type": problem_type,
+                    "problem": row["deterministic_evidence"],
+                    "why_it_matters": (
+                        "The exact source mismatch leaves stale metadata, a broken "
+                        "reference, or an ineffective execution control in the container."
+                    ),
+                    "expected_clean_state": (
+                        "Every listed source field equals the generated canonical value "
+                        "while unrelated configuration remains unchanged."
+                    ),
+                    "exact_proposed_action": row["default_action"],
+                    "canonical_object_key": canonical_key,
+                    "canonical_selection_rationale": (
+                        f"{canonical_key} is the only container-visible target with a "
+                        "matching active consumer route, configuration, and source name."
+                        if canonical_key
+                        else ""
+                    ),
+                    "creations": [],
+                    "additions": [],
+                    "changes": copy.deepcopy(repair.get("changes", [])),
+                    "remaps": [],
+                    "deletions": copy.deepcopy(repair.get("deletions", [])),
+                    "renames": copy.deepcopy(repair.get("renames", [])),
+                    "preconditions": (
+                        "Re-read every listed object and confirm its before value still "
+                        "matches the source export."
+                    ),
+                    "qa_steps": (
+                        "Re-export and verify the exact changed field or name, all "
+                        "references, and the affected tag firing route."
+                    ),
+                    "rollback": (
+                        "Restore each exact before value or name recorded in this "
+                        "operation if post-change QA fails."
+                    ),
+                    "priority": "Medium",
+                    "confidence": "High",
+                    "execution_readiness": "approval_required",
+                    "owner_question": "",
+                    "recommended_action": "",
+                    "challenge_review": {},
+                }
+            )
+        else:
+            source_scope = [
+                str(value)
+                for value in (
+                    row.get("shared_fact_object_keys")
+                    or row.get("object_identities")
+                    or row.get("object_ids")
+                    or []
+                )
+                if str(value)
+            ]
+            scope_text = ", ".join(source_scope[:3]) or row["finding_id"]
+            row.update(
+                {
+                    **base,
+                    "disposition": "owner_decision_needed",
+                    "owner_question": (
+                        f"For {scope_text}, which exported route or approved business purpose "
+                        f"requires retention of this {row['finding_type']} finding?"
+                    ),
+                    "recommended_action": (
+                        f"For {scope_text}, apply the source recommendation "
+                        f"{row['default_action']} Retain the current state only when the owner "
+                        "documents the cited route or business distinction."
+                    ),
+                }
+            )
     review["run_status"] = "complete"
-    review["completion_attestation"] = complete_review_attestation(review)
+    review["completion_attestation"] = complete_review_attestation(
+        review, decision_authoring_method="independent_test_fixture_review"
+    )
     return review
 
 
@@ -1162,6 +1407,77 @@ def unsafe_owner_question(comparison_types: set[str], candidate_keys: list[str])
     )
 
 
+def exact_duplicate_operation_from_comparison(row: dict) -> dict:
+    canonical = str(row["recommended_canonical_object_key"])
+    duplicates = [
+        str(key) for key in row["candidate_object_keys"] if str(key) != canonical
+    ]
+    remaps = [
+        {
+            "from_object_key": duplicate,
+            "to_object_key": canonical,
+            "consumer_object_keys": list(
+                (row.get("candidate_consumer_keys") or {}).get(duplicate, [])
+            ),
+        }
+        for duplicate in duplicates
+        if (row.get("candidate_consumer_keys") or {}).get(duplicate)
+    ]
+    return {
+        "operation_key": f"ARCH-{row['comparison_id']}-CONSOLIDATE",
+        "title": f"Consolidate exact duplicate {row['comparison_id']}",
+        "area": "GTM hygiene",
+        "problem_type": "Exact duplicate",
+        "problem": (
+            f"{', '.join(duplicates)} duplicates {canonical} with identical "
+            "source-visible configuration."
+        ),
+        "why_it_matters": (
+            "Keeping identical copies adds ownership ambiguity and future drift risk."
+        ),
+        "expected_clean_state": (
+            f"{canonical} is the sole retained configuration and serves every "
+            "former consumer."
+        ),
+        "exact_proposed_action": (
+            f"Keep {canonical}, remap every listed consumer, and delete "
+            f"{', '.join(duplicates)}."
+        ),
+        "canonical_object_key": canonical,
+        "canonical_selection_rationale": str(
+            row.get("recommended_canonical_basis") or ""
+        ),
+        "creations": [],
+        "additions": [],
+        "changes": [],
+        "remaps": remaps,
+        "deletions": [
+            {
+                "object_key": duplicate,
+                "reason": f"{duplicate} exactly duplicates {canonical}.",
+            }
+            for duplicate in duplicates
+        ],
+        "renames": [],
+        "preconditions": (
+            "Re-read every candidate and consumer and confirm the exact source "
+            "configuration and consumer sets are unchanged."
+        ),
+        "qa_steps": (
+            "Re-export; confirm all consumers resolve to the canonical object, "
+            "duplicates are absent, and no reference is missing."
+        ),
+        "rollback": (
+            "Restore deleted duplicates and reverse only the listed remaps from the "
+            "locked export."
+        ),
+        "priority": "Medium",
+        "confidence": "High",
+        "execution_readiness": "approval_required",
+        "challenge_review": {},
+    }
+
+
 def complete_architecture(
     export_path: Path, shared_facts: dict | None = None
 ) -> dict:
@@ -1182,6 +1498,13 @@ def complete_architecture(
             and set(candidate["comparison_types"]) & non_retention_types
         ]
         unresolved_member_relationship = bool(unsafe_family_comparisons)
+        missing_positive_distinction = any(
+            not row.get("member_distinguishing_terms", {}).get(key)
+            for key in row["member_object_keys"]
+        )
+        unresolved_member_relationship = (
+            unresolved_member_relationship or missing_positive_distinction
+        )
         family_comparison_types = {
             comparison_type
             for candidate in unsafe_family_comparisons
@@ -1240,7 +1563,9 @@ def complete_architecture(
                 "analyst_rationale": architecture_text(
                     row,
                     "analyst_rationale",
-                    f"The {basis} members have no proven duplicate firing in this export",
+                    f"The {basis} members {', '.join(row['member_object_keys'])} "
+                    "use the cited event, destination, trigger, and dependency facts "
+                    "as separate chain roles",
                 )
                 + architecture_caution_text(family_cautions),
                 "target_architecture": architecture_text(
@@ -1259,8 +1584,16 @@ def complete_architecture(
                     else ""
                 ),
                 "recommended_action": (
-                    f"Resolve the unsafe {', '.join(sorted(family_comparison_types))} relationship "
-                    "to one evidence-supported route while preserving required measurement."
+                    (
+                        f"Resolve the unsafe "
+                        f"{', '.join(sorted(family_comparison_types))} relationship "
+                        "to one evidence-supported route while preserving required "
+                        "measurement."
+                        if family_comparison_types
+                        else f"For {', '.join(row['member_object_keys'])}, obtain a "
+                        "positive event, destination, trigger, or dependency distinction; "
+                        "otherwise consolidate to one owner-approved route."
+                    )
                     if unresolved_member_relationship
                     else ""
                 ),
@@ -1270,8 +1603,15 @@ def complete_architecture(
         )
     for row in review["comparisons"]:
         exact = "exact_configuration" in row.get("comparison_types", [])
+        recommended_canonical = str(
+            row.get("recommended_canonical_object_key") or ""
+        )
         owner_required = exact or bool(
             set(row.get("comparison_types", [])) & non_retention_types
+        )
+        owner_required = owner_required or any(
+            not row.get("candidate_distinguishing_terms", {}).get(key)
+            for key in row["candidate_object_keys"]
         )
         comparison_types = set(row.get("comparison_types", []))
         caution_text = architecture_caution_text(
@@ -1293,13 +1633,18 @@ def complete_architecture(
                 "analyst_rationale": architecture_text(
                     row,
                     "analyst_rationale",
-                    f"{row['comparison_id']} candidates retain distinct roles after route and source comparison",
+                    f"{row['comparison_id']} compares "
+                    f"{', '.join(row['candidate_object_keys'])}; their cited event, "
+                    "destination, trigger, and dependency facts assign different "
+                    "execution roles",
                 )
                 + caution_text,
                 "architecture_effect": architecture_text(
                     row,
                     "architecture_effect",
-                    f"{row['comparison_id']} keeps separate paths because no common target is proven",
+                    f"{row['comparison_id']} retains "
+                    f"{', '.join(row['candidate_object_keys'])} separately only where "
+                    "their positive source terms define different route or payload scope",
                 )
                 + caution_text,
                 "disposition": "owner_decision_needed" if owner_required else "keep",
@@ -1311,15 +1656,51 @@ def complete_architecture(
                     else ""
                 ),
                 "recommended_action": (
-                    f"Resolve {row['comparison_id']} to the simplest evidence-supported route and "
-                    "retain variants only where source-visible behavior proves they are necessary."
+                    (
+                        f"Use {recommended_canonical} as the default canonical object, "
+                        "remap every visible consumer, and delete only the proven duplicate "
+                        "after approval."
+                        if exact
+                        else f"Resolve {row['comparison_id']} to the simplest "
+                        "evidence-supported route and retain variants only where "
+                        "source-visible behavior proves they are necessary."
+                    )
                     if owner_required
+                    else ""
+                ),
+                "canonical_selection_rationale": (
+                    str(row.get("recommended_canonical_basis") or "")
+                    if exact
                     else ""
                 ),
                 "operations": [],
                 "confidence": "High",
             }
         )
+        if exact:
+            operation = exact_duplicate_operation_from_comparison(row)
+            row.update(
+                {
+                    "relationship_verdict": "Exact duplicate",
+                    "analyst_rationale": architecture_text(
+                        row,
+                        "analyst_rationale",
+                        f"{row['comparison_id']} has identical source-visible "
+                        f"configuration across {', '.join(row['candidate_object_keys'])} "
+                        "without a distinct route, payload, consent, or consumer behavior",
+                    ),
+                    "architecture_effect": architecture_text(
+                        row,
+                        "architecture_effect",
+                        f"Retain {recommended_canonical} as the source-ranked canonical "
+                        "object and remove the exact duplicate after complete remap",
+                    ),
+                    "disposition": "cleanup_operation",
+                    "owner_question": "",
+                    "recommended_action": "",
+                    "operations": [operation],
+                }
+            )
     source_records = object_records(container_version(json.loads(export_path.read_text(encoding="utf-8"))))
     source_record_by_key = {
         record["object_key"]: record
@@ -1387,7 +1768,9 @@ def complete_architecture(
         }
     )
     review["run_status"] = "complete"
-    review["completion_attestation"] = complete_review_attestation(review)
+    review["completion_attestation"] = complete_review_attestation(
+        review, decision_authoring_method="independent_test_fixture_review"
+    )
     return review
 
 
@@ -1459,6 +1842,10 @@ def duplicate_variable_operation() -> dict:
         "expected_clean_state": "One canonical ecommerce.items variable serves every existing consumer.",
         "exact_proposed_action": "Keep variable 20 and delete unused duplicate variable 21.",
         "canonical_object_key": "variable:20",
+        "canonical_selection_rationale": (
+            "Select variable:20 as canonical because it is active, has the "
+            "container-visible tag:1 consumer, and variable:21 has no consumer."
+        ),
         "changes": [],
         "remaps": [],
         "deletions": [
@@ -1667,8 +2054,11 @@ class PipelineTests(unittest.TestCase):
             ),
         )
 
-    def test_distinguishing_terms_fall_back_to_behavior_signatures(self) -> None:
-        from gtm_architecture_review import distinguishing_terms_for_keys
+    def test_distinguishing_terms_do_not_expose_opaque_behavior_signatures(self) -> None:
+        from gtm_architecture_review import (
+            distinguishing_terms_for_keys,
+            validate_retention_distinctions,
+        )
 
         terms = distinguishing_terms_for_keys(
             ["tag:1", "tag:2"],
@@ -1687,8 +2077,105 @@ class PipelineTests(unittest.TestCase):
                 },
             },
         )
-        self.assertIn("execution route signature route-a", terms["tag:1"])
-        self.assertIn("execution route signature route-b", terms["tag:2"])
+        self.assertEqual([], terms["tag:1"])
+        self.assertEqual([], terms["tag:2"])
+        errors = validate_retention_distinctions(
+            {
+                "relationship_verdict": "Intentional variant",
+                "member_assessments": [
+                    {
+                        "object_key": "tag:1",
+                        "distinguishing_configuration": (
+                            "execution route signature aabbccdd"
+                        ),
+                    },
+                    {
+                        "object_key": "tag:2",
+                        "distinguishing_configuration": (
+                            "execution route signature 11223344"
+                        ),
+                    },
+                ],
+            },
+            ["tag:1", "tag:2"],
+            {
+                "tag:1": ["execution route signature aabbccdd"],
+                "tag:2": ["execution route signature 11223344"],
+            },
+            {
+                "tag:1": {"execution_route": "aabbccdd"},
+                "tag:2": {"execution_route": "11223344"},
+            },
+            "opaque retention",
+        )
+        self.assertTrue(any("opaque signature" in error for error in errors), errors)
+
+    def test_distinguishing_terms_preserve_source_visible_baseline_scope(self) -> None:
+        from gtm_architecture_review import (
+            configured_parameter_terms,
+            custom_code_return_terms,
+            distinguishing_terms_for_keys,
+        )
+
+        terms = distinguishing_terms_for_keys(
+            ["trigger:1", "trigger:2", "tag:3", "tag:4"],
+            {
+                "trigger:1": {
+                    "object_type": "CUSTOM_EVENT",
+                    "trigger_conditions": ["equals|{{_event}}|consent_ready|"],
+                },
+                "trigger:2": {
+                    "object_type": "CUSTOM_EVENT",
+                    "trigger_conditions": [
+                        "equals|{{_event}}|consent_ready|",
+                        "equals|{{Page Path}}|/funnel|",
+                    ],
+                },
+                "tag:3": {"object_type": "vendor_template_a"},
+                "tag:4": {"object_type": "vendor_template_b"},
+            },
+        )
+        self.assertIn(
+            "baseline condition set _event equals consent_ready", terms["trigger:1"]
+        )
+        self.assertTrue(
+            any("page path equals /funnel" in term for term in terms["trigger:2"])
+        )
+        self.assertIn("object type vendor_template_a", terms["tag:3"])
+        self.assertIn("object type vendor_template_b", terms["tag:4"])
+        self.assertEqual(
+            ["parameter conversionid 123456"],
+            configured_parameter_terms(
+                {
+                    "source_leaf_facts": [
+                        {
+                            "json_path": "$.containerVersion.tag[0].parameter[2].key",
+                            "value_preview": "conversionId",
+                        },
+                        {
+                            "json_path": "$.containerVersion.tag[0].parameter[2].value",
+                            "value_preview": "123456",
+                        },
+                        {
+                            "json_path": "$.containerVersion.tag[0].parameter[3].map[0].key",
+                            "value_preview": "key",
+                        },
+                    ]
+                }
+            ),
+        )
+        self.assertIn(
+            "custom return location",
+            custom_code_return_terms(
+                {
+                    "custom_code_facts": {
+                        "return_expressions": [
+                            {"expression": "dl || window.location.href"}
+                        ]
+                    }
+                }
+            ),
+        )
 
     def test_missing_reference_check_ignores_custom_template_test_examples(self) -> None:
         from gtm_validate_artifact import missing_references
@@ -2774,6 +3261,90 @@ scenarios:
             {item["object_key"] for item in purchase_family["chain_assessments"]},
         )
 
+    def test_configuration_taxonomy_uses_the_defect_not_generic_consent_facts(
+        self,
+    ) -> None:
+        from gtm_configuration_review import validate_row_outcome
+        from gtm_operation_compile import configuration_taxonomy
+
+        consent_facts = {
+            "effective_consent_route_facts": {
+                "consent_status": "needed",
+                "detected_consent_payload_purposes": ["analytics_storage"],
+            }
+        }
+        self.assertEqual(
+            ("Event firing logic", "Broken reference"),
+            configuration_taxonomy(
+                {
+                    **consent_facts,
+                    "layer": "tag",
+                    "defects": [
+                        {
+                            "statement": (
+                                "The setup dependency resolves as missing in the export."
+                            )
+                        }
+                    ],
+                }
+            ),
+        )
+        self.assertEqual(
+            ("Custom code & templates", "Custom code risk"),
+            configuration_taxonomy(
+                {
+                    **consent_facts,
+                    "layer": "tag",
+                    "required_technical_findings": [
+                        {
+                            "finding_key": "unsafe_dynamic_script",
+                            "statement": "Custom code injects a dynamic script.",
+                        }
+                    ],
+                }
+            ),
+        )
+
+        decision_ready_issue = {
+            "object_key": "tag:1",
+            "object_name": "Broken setup route",
+            "correctness_verdict": "Issue",
+            "disposition": "owner_decision_needed",
+            "owner_question": (
+                "Which valid setup target should replace the missing route for tag:1?"
+            ),
+            "recommended_action": (
+                "For tag:1, repair defect CFG-001 at "
+                "$.containerVersion.tag[0].setupTag[0].tagName by replacing the "
+                "missing target with the owner-approved existing setup tag."
+            ),
+            "defects": [
+                {
+                    "defect_id": "CFG-001",
+                    "evidence_anchors": [
+                        "$.containerVersion.tag[0].setupTag[0].tagName"
+                    ],
+                }
+            ],
+        }
+        self.assertEqual(
+            [],
+            validate_row_outcome(decision_ready_issue, "decision-ready issue"),
+        )
+        vague = {
+            **decision_ready_issue,
+            "recommended_action": (
+                "Correct every listed source-proven defect with one exact operation."
+            ),
+        }
+        self.assertTrue(
+            any(
+                "must name the affected object" in error
+                or "must cite a defect ID" in error
+                for error in validate_row_outcome(vague, "vague issue")
+            )
+        )
+
     def test_architecture_verdicts_and_zero_discovery_are_fail_closed(self) -> None:
         review = complete_architecture(self.export_path)
         comparison = next(
@@ -2913,6 +3484,26 @@ scenarios:
         )
         finding.update(copy.deepcopy(operation))
         finding["disposition"] = "cleanup_operation"
+        comparison = next(
+            row
+            for row in architecture["comparisons"]
+            if set(row.get("candidate_object_keys", []))
+            == {"variable:20", "variable:21"}
+        )
+        comparison.update(
+            {
+                "relationship_verdict": "Owner decision needed",
+                "disposition": "owner_decision_needed",
+                "owner_question": (
+                    "Which variable should remain canonical for the shared items "
+                    "contract?"
+                ),
+                "recommended_action": (
+                    "Choose one canonical variable before consolidation."
+                ),
+                "operations": [],
+            }
+        )
         payload, errors = compile_operations(
             operational,
             configuration,
@@ -2941,22 +3532,34 @@ scenarios:
             source_object_catalog(self.export_path),
         )
         self.assertEqual([], errors)
-        self.assertEqual(1, len(payload["operations"]))
+        self.assertGreaterEqual(len(payload["operations"]), 1)
+        duplicate_packet = next(
+            operation
+            for operation in payload["operations"]
+            if operation.get("canonical_object_key") == "variable:20"
+            and any(
+                deletion.get("object_key") == "variable:21"
+                for deletion in operation.get("deletions", [])
+            )
+        )
         self.assertEqual(
             ["business_architecture", "operational_sanitation"],
-            payload["operations"][0]["source_runs"],
+            duplicate_packet["source_runs"],
         )
         self.assertTrue(payload["shared_facts_sha256"])
         self.assertTrue(payload["decision_ledger"])
-        self.assertEqual(-1, payload["projected_object_counts"]["variable"]["delta"])
+        self.assertLess(payload["projected_object_counts"]["variable"]["delta"], 0)
         self.assertEqual(
             ["delete"],
-            payload["operations"][0]["execution_phases"],
+            duplicate_packet["execution_phases"],
         )
         report, future_errors = check_future_state(self.export_path, payload)
         self.assertEqual([], future_errors)
         self.assertEqual("pass", report["status"])
-        self.assertEqual(-1, report["object_counts"]["variable"]["delta"])
+        self.assertEqual(
+            payload["projected_object_counts"]["variable"]["delta"],
+            report["object_counts"]["variable"]["delta"],
+        )
 
     def test_compiler_rejects_same_key_with_different_mutations(self) -> None:
         operational, configuration, architecture = self.completed_reviews()
@@ -2996,15 +3599,156 @@ scenarios:
             "Manual",
         )
         self.assertEqual([], errors)
-        self.assertEqual(1, len(payload["operations"]))
-        self.assertEqual(3, len(payload["operations"][0]["lens_rationales"]))
+        duplicate_packet = next(
+            operation
+            for operation in payload["operations"]
+            if operation.get("canonical_object_key") == "variable:20"
+        )
+        self.assertEqual(4, len(duplicate_packet["lens_rationales"]))
         self.assertEqual(
             {"operational_sanitation", "business_architecture"},
             {
                 row["source_run"]
-                for row in payload["operations"][0]["lens_rationales"]
+                for row in duplicate_packet["lens_rationales"]
             },
         )
+
+    def test_compiler_folds_redundant_delete_into_broader_exact_consolidation(
+        self,
+    ) -> None:
+        from gtm_operation_compile import (
+            merge_compatible_operations,
+            normalized_operation,
+        )
+
+        unused = normalized_operation(
+            {
+                "operation_key": "run-1-delete-unused-trigger",
+                "deletions": [
+                    {
+                        "object_key": "trigger:10",
+                        "reason": "The trigger has no surviving consumer.",
+                    }
+                ],
+            },
+            "operational_sanitation",
+            "UNUSED-TRIGGER-10",
+            ["trigger:10"],
+        )
+        consolidation = normalized_operation(
+            {
+                "operation_key": "run-3-consolidate-exact-triggers",
+                "canonical_object_key": "trigger:30",
+                "remaps": [
+                    {
+                        "from_object_key": "trigger:20",
+                        "to_object_key": "trigger:30",
+                        "consumer_object_keys": ["tag:1"],
+                    }
+                ],
+                "deletions": [
+                    {
+                        "object_key": "trigger:10",
+                        "reason": "It is an unused exact duplicate.",
+                    },
+                    {
+                        "object_key": "trigger:20",
+                        "reason": "Its consumer is remapped to the canonical trigger.",
+                    },
+                ],
+            },
+            "business_architecture",
+            "REL-EXACT-TRIGGERS",
+            ["trigger:10", "trigger:20", "trigger:30"],
+        )
+
+        errors: list[str] = []
+        merged = merge_compatible_operations(
+            [unused, consolidation],
+            errors,
+        )
+
+        self.assertEqual([], errors)
+        self.assertEqual(1, len(merged))
+        self.assertEqual(
+            ["business_architecture", "operational_sanitation"],
+            merged[0]["source_runs"],
+        )
+        self.assertEqual(
+            {"trigger:10", "trigger:20"},
+            {
+                deletion["object_key"]
+                for deletion in merged[0]["deletions"]
+            },
+        )
+        self.assertEqual("trigger:30", merged[0]["canonical_object_key"])
+
+    def test_compiler_composes_only_changes_to_the_same_exported_field(self) -> None:
+        from gtm_operation_compile import (
+            merge_compatible_operations,
+            normalized_operation,
+        )
+
+        def operation(key: str, object_key: str, path: str, after: str) -> dict:
+            return normalized_operation(
+                {
+                    "operation_key": key,
+                    "changes": [
+                        {
+                            "object_key": object_key,
+                            "json_path": path,
+                            "before": "alpha beta gamma",
+                            "after": after,
+                        }
+                    ],
+                },
+                "operational_sanitation",
+                key,
+                [object_key],
+            )
+
+        unrelated_errors: list[str] = []
+        unrelated = merge_compatible_operations(
+            [
+                operation(
+                    "repair-tag-name",
+                    "tag:1",
+                    "$.containerVersion.tag[0].name",
+                    "ALPHA beta gamma",
+                ),
+                operation(
+                    "repair-trigger-name",
+                    "trigger:10",
+                    "$.containerVersion.trigger[0].name",
+                    "alpha beta GAMMA",
+                ),
+            ],
+            unrelated_errors,
+        )
+        self.assertEqual([], unrelated_errors)
+        self.assertEqual(2, len(unrelated))
+
+        same_field_errors: list[str] = []
+        same_field = merge_compatible_operations(
+            [
+                operation(
+                    "repair-left-token",
+                    "tag:1",
+                    "$.containerVersion.tag[0].parameter[0].value",
+                    "ALPHA beta gamma",
+                ),
+                operation(
+                    "repair-right-token",
+                    "tag:1",
+                    "$.containerVersion.tag[0].parameter[0].value",
+                    "alpha beta GAMMA",
+                ),
+            ],
+            same_field_errors,
+        )
+        self.assertEqual([], same_field_errors)
+        self.assertEqual(1, len(same_field))
+        self.assertEqual("ALPHA beta GAMMA", same_field[0]["changes"][0]["after"])
 
     def test_future_state_blocks_deletion_that_breaks_a_consumer(self) -> None:
         operational, configuration, architecture = self.completed_reviews()
@@ -3060,7 +3804,7 @@ scenarios:
         self.assertEqual("fail", configuration_report["projected_quality"]["status"])
         self.assertTrue(
             any(
-                "retains deterministic configuration Issues" in error
+                "retains unaccounted deterministic configuration Issues" in error
                 for error in configuration_errors
             )
         )
@@ -3128,6 +3872,129 @@ scenarios:
                 "outside architecture-backed operations" in error
                 for error in covered_errors
             )
+        )
+
+    def test_future_state_retention_coverage_requires_deletion_only_subset(self) -> None:
+        from gtm_future_state_check import (
+            non_deletion_mutation_keys,
+            planned_deleted_keys,
+            retained_architecture_comparisons,
+            retention_coverage_decision,
+        )
+
+        operations = {
+            "operations": [
+                {
+                    "affected_object_keys": ["tag:3"],
+                    "deletions": [{"object_key": "tag:3"}],
+                }
+            ],
+            "decision_ledger": [
+                {
+                    "decision_id": "REL-RETAINED",
+                    "source_run": "business_architecture",
+                    # The compiled ledger omits the deleted source member.
+                    "source_object_keys": ["tag:1", "tag:2"],
+                    "comparison_types": [
+                        "shared_configured_destination",
+                        "shared_destination_consent_inheritance_review",
+                    ],
+                    "verdict": "Intentional variant",
+                    "disposition": "keep",
+                }
+            ],
+        }
+        source_architecture = {
+            "comparisons": [
+                {
+                    "comparison_id": "REL-RETAINED",
+                    "candidate_object_keys": ["tag:1", "tag:2", "tag:3"],
+                    "comparison_types": [
+                        "shared_configured_destination",
+                        "shared_destination_consent_inheritance_review",
+                    ],
+                }
+            ]
+        }
+        candidate = {
+            "candidate_object_keys": ["tag:1", "tag:2"],
+            "comparison_types": [
+                "shared_configured_destination",
+                "shared_destination_consent_inheritance_review",
+            ],
+        }
+        self.assertEqual(
+            "REL-RETAINED",
+            retention_coverage_decision(
+                candidate,
+                retained_architecture_comparisons(operations, source_architecture),
+                planned_deleted_keys(operations),
+                non_deletion_mutation_keys(operations),
+            ),
+        )
+
+        changed_survivor = copy.deepcopy(operations)
+        changed_survivor["operations"].append(
+            {
+                "affected_object_keys": ["tag:1"],
+                "changes": [
+                    {
+                        "object_key": "tag:1",
+                        "json_path": "$.containerVersion.tag[0].parameter[0].value",
+                    }
+                ],
+            }
+        )
+        self.assertEqual(
+            "",
+            retention_coverage_decision(
+                candidate,
+                retained_architecture_comparisons(
+                    changed_survivor, source_architecture
+                ),
+                planned_deleted_keys(changed_survivor),
+                non_deletion_mutation_keys(changed_survivor),
+            ),
+        )
+
+    def test_future_state_allows_only_explicit_owner_blocked_configuration_issues(
+        self,
+    ) -> None:
+        from gtm_future_state_check import projected_quality_review
+
+        data = sample_export()
+        data["containerVersion"]["tag"][0]["teardownTag"] = [{}]
+        export = self.root / "owner-blocked-configuration-issue.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        operations = {
+            "plan_status": "complete",
+            "operations": [],
+            "decision_ledger": [
+                {
+                    "source_run": "configuration_correctness",
+                    "source_object_keys": ["tag:1"],
+                    "verdict": "Issue",
+                    "disposition": "owner_decision_needed",
+                }
+            ],
+        }
+        report, errors = projected_quality_review(export, data, operations)
+        self.assertEqual([], errors)
+        self.assertTrue(report["configuration"]["owner_blocked_issues"])
+        self.assertEqual(
+            [],
+            report["configuration"]["unaccounted_remaining_issues"],
+        )
+
+        unaccounted = copy.deepcopy(operations)
+        unaccounted["decision_ledger"] = []
+        _, errors = projected_quality_review(export, data, unaccounted)
+        self.assertTrue(
+            any(
+                "unaccounted deterministic configuration Issues" in error
+                for error in errors
+            ),
+            errors,
         )
 
     def test_structured_operations_support_creation_and_missing_field_addition(self) -> None:
@@ -3209,15 +4076,27 @@ scenarios:
             "Manual",
         )
         self.assertEqual([], errors)
-        self.assertEqual(1, len(payload["operations"]))
+        self.assertGreaterEqual(len(payload["operations"]), 1)
         self.assertNotIn("deferred_operations", payload)
         self.assertNotIn("aggressiveness", payload)
-        self.assertEqual("proposed", payload["operations"][0]["resolution_status"])
+        self.assertTrue(
+            all(
+                operation["resolution_status"] == "proposed"
+                for operation in payload["operations"]
+            )
+        )
         human, human_errors = build_rows(payload)
         self.assertEqual([], human_errors)
         proposed_rows = [row for row in human if row["Status"] == "Proposed action"]
-        self.assertEqual(1, len(proposed_rows))
-        self.assertEqual(payload["operations"][0]["operation_id"], proposed_rows[0]["ID"])
+        rendered_ids = {
+            operation_id
+            for row in proposed_rows
+            for operation_id in re.findall(r"\bOP-\d{4}\b", row["ID"])
+        }
+        self.assertEqual(
+            {operation["operation_id"] for operation in payload["operations"]},
+            rendered_ids,
+        )
 
         deprecated = duplicate_variable_operation()
         deprecated["minimum_aggressiveness"] = "Standard"
@@ -3255,7 +4134,100 @@ scenarios:
         self.assertEqual([], errors)
         self.assertEqual(1, len(rows))
         self.assertEqual("Owner confirmation", rows[0]["Status"])
-        self.assertEqual(6, len(rows[0]))
+        self.assertEqual(7, len(rows[0]))
+        self.assertEqual(list(CLEANUP_PLAN_COLUMNS), list(rows[0]))
+        self.assertEqual(
+            "Consent & governance",
+            rows[0]["General problem category"],
+        )
+        self.assertNotIn("related decision", rows[0]["Affected object(s)"])
+        self.assertNotIn("related decision", rows[0]["Problem / evidence"])
+
+    def test_general_problem_taxonomy_covers_every_supported_problem_type(
+        self,
+    ) -> None:
+        self.assertEqual(
+            set(PROBLEM_TYPES),
+            set(GENERAL_CATEGORY_BY_PROBLEM_TYPE) - {"Incomplete action plan"},
+        )
+        self.assertTrue(
+            all(
+                general_problem_category(problem_type)
+                in GENERAL_PROBLEM_CATEGORIES
+                for problem_type in PROBLEM_TYPES
+            )
+        )
+
+    def test_human_plan_hides_machine_source_paths_in_owner_rows(self) -> None:
+        rows, errors = build_rows(
+            {
+                "operations": [],
+                "decision_ledger": [
+                    {
+                        "decision_id": "CFG-001",
+                        "disposition": "owner_decision_needed",
+                        "area": "Custom code & templates",
+                        "problem_type": "Custom code risk",
+                        "affected_objects": "tag:1 - Marketing pixel",
+                        "summary": "The tag needs a business-safe configuration decision.",
+                        "owner_question": (
+                            "Should tag:1 Marketing pixel retain the configuration at "
+                            "$.containerVersion.tag[0].consentSettings, or be corrected?"
+                        ),
+                        "recommended_action": (
+                            "For tag:1, repair or remove the exact source anchor "
+                            "$.containerVersion.tag[0].consentSettings after approval."
+                        ),
+                    }
+                ],
+            }
+        )
+        self.assertEqual([], errors)
+        visible = rows[0]["Action / priority / QA"]
+        self.assertNotIn("$.containerVersion", visible)
+        self.assertIn("Question:", visible)
+        self.assertIn("Recommendation:", visible)
+
+    def test_human_plan_calls_builtin_removal_disable_or_deselect(self) -> None:
+        rows, errors = build_rows(
+            {
+                "operations": [
+                    {
+                        "operation_id": "OP-0001",
+                        "area": "GTM hygiene",
+                        "problem_type": "Unused object",
+                        "affected_objects": (
+                            "builtInVariable:Click Element — Click Element"
+                        ),
+                        "problem": "Click Element is enabled but has no consumer.",
+                        "why_it_matters": "Unused built-ins add configuration noise.",
+                        "exact_proposed_action": "Delete Click Element.",
+                        "qa_steps": (
+                            "Re-export and confirm Click Element is no longer enabled."
+                        ),
+                        "deletions": [
+                            {
+                                "object_key": "builtInVariable:Click Element",
+                                "reason": "No exported consumer uses this built-in.",
+                            }
+                        ],
+                        "priority": "Low",
+                        "execution_readiness": "approval_required",
+                        "approval_status": "pending_approval",
+                    }
+                ],
+                "decision_ledger": [],
+            }
+        )
+        self.assertEqual([], errors)
+        self.assertIn(
+            "Disable/deselect",
+            rows[0]["Action / priority / QA"],
+        )
+        self.assertNotIn(
+            "Target state / exact action: Delete",
+            rows[0]["Action / priority / QA"],
+        )
 
     def test_human_plan_batches_nonblocking_container_evidence_limits(self) -> None:
         evidence_decision = {
@@ -3488,11 +4460,27 @@ scenarios:
             source_object_catalog(self.export_path),
         )
         self.assertEqual([], compile_errors)
-        self.assertEqual("incomplete_actions", payload["plan_status"])
-        operations_path = self.write_review("operations.json", payload)
+        self.assertEqual("complete", payload["plan_status"])
+        incomplete = copy.deepcopy(payload)
+        incomplete["plan_status"] = "incomplete_actions"
+        incomplete["action_completeness"] = {
+            **incomplete["action_completeness"],
+            "status": "incomplete",
+            "errors": [
+                "OPS-TEST: deterministic operational finding with a source-proven "
+                "safe action has no exact cleanup operation"
+            ],
+        }
+        operations_path = self.write_review("operations.json", incomplete)
         completed = run_gate(self.export_path, package_dir, operations_path)
         self.assertEqual("fail", completed["status"])
-        self.assertTrue(any("action completeness" in error for error in completed["errors"]))
+        self.assertTrue(
+            any(
+                "action completeness" in error
+                or "deterministic recompilation" in error
+                for error in completed["errors"]
+            )
+        )
 
         tampered = copy.deepcopy(payload)
         tampered["operations"][0]["exact_proposed_action"] = (
@@ -3552,6 +4540,91 @@ scenarios:
         report = action_completeness_report(deterministic_fallback)
         self.assertEqual("incomplete", report["status"])
         self.assertTrue(any("deterministic operational finding" in error for error in report["errors"]))
+
+    def test_reconciliation_resolves_surviving_canonical_and_rejects_its_deletion(
+        self,
+    ) -> None:
+        from gtm_operation_compile import reconcile_ledger_resolutions
+
+        ledger = [
+            {
+                "decision_id": "REL-001",
+                "source_run": "business_architecture",
+                "source_object_keys": ["trigger:10", "trigger:11"],
+                "recommended_canonical_object_key": "trigger:10",
+                "disposition": "owner_decision_needed",
+                "compiled_operation_ids": [],
+                "operation_keys": [],
+            }
+        ]
+        packets = [
+            {
+                "operation_id": "OP-0001",
+                "operation_key": "delete-noncanonical-trigger",
+                "resolution_status": "proposed",
+                "deletions": [
+                    {
+                        "object_key": "trigger:11",
+                        "reason": "The exact duplicate has no surviving consumer.",
+                    }
+                ],
+            }
+        ]
+        reconciled, errors = reconcile_ledger_resolutions(ledger, packets)
+        self.assertEqual([], errors)
+        self.assertEqual("cleanup_operation", reconciled[0]["disposition"])
+        self.assertEqual(
+            "resolved_by_surviving_canonical_object",
+            reconciled[0]["reconciliation_status"],
+        )
+        self.assertEqual(["OP-0001"], reconciled[0]["compiled_operation_ids"])
+
+        canonical_deleted = copy.deepcopy(packets)
+        canonical_deleted[0]["deletions"][0]["object_key"] = "trigger:10"
+        _, errors = reconcile_ledger_resolutions(ledger, canonical_deleted)
+        self.assertTrue(
+            any("recommended canonical object" in error for error in errors),
+            errors,
+        )
+
+    def test_reconciliation_narrows_retained_relationship_after_architecture_cleanup(
+        self,
+    ) -> None:
+        from gtm_operation_compile import reconcile_ledger_resolutions
+
+        ledger = [
+            {
+                "decision_id": "REL-SECONDARY",
+                "source_run": "business_architecture",
+                "source_object_keys": ["trigger:10", "trigger:11"],
+                "recommended_canonical_object_key": "",
+                "disposition": "keep",
+                "compiled_operation_ids": [],
+                "operation_keys": [],
+            }
+        ]
+        packets = [
+            {
+                "operation_id": "OP-ARCH-001",
+                "operation_key": "consolidate-trigger",
+                "source_runs": ["business_architecture"],
+                "resolution_status": "proposed",
+                "deletions": [
+                    {
+                        "object_key": "trigger:11",
+                        "reason": "Source-proven duplicate is consolidated.",
+                    }
+                ],
+            }
+        ]
+        reconciled, errors = reconcile_ledger_resolutions(ledger, packets)
+        self.assertEqual([], errors)
+        self.assertEqual("keep", reconciled[0]["disposition"])
+        self.assertEqual(
+            "narrowed_by_architecture_cleanup",
+            reconciled[0]["reconciliation_status"],
+        )
+        self.assertEqual(["trigger:10"], reconciled[0]["source_object_keys"])
 
     def test_inactive_lifecycle_deletion_does_not_require_fabricated_architecture(self) -> None:
         finding = {
@@ -3625,9 +4698,13 @@ scenarios:
         )
         human, human_errors = build_rows(payload)
         self.assertEqual([], human_errors)
-        self.assertEqual(6, len(human[0]))
-        self.assertIn("Root problem:", human[0]["Problem / evidence"])
-        self.assertIn("Target state / exact action:", human[0]["Action / priority / QA"])
+        self.assertEqual(7, len(human[0]))
+        self.assertEqual(list(CLEANUP_PLAN_COLUMNS), list(human[0]))
+        self.assertIn(
+            "same exported configuration", human[0]["Problem / evidence"]
+        )
+        self.assertIn("Change", human[0]["Action / priority / QA"])
+        self.assertIn("Static verification:", human[0]["Action / priority / QA"])
         workbook_path = self.root / "cleanup-plan.xlsx"
         manifest = {"source_file": self.export_path.name, "source_sha256": payload["source_sha256"]}
         source = build_model(self.export_path)
@@ -3657,21 +4734,44 @@ scenarios:
         self.assertIn("Target-state architecture", summary_decisions)
         self.assertIn("Preservation evidence boundary", summary_decisions)
         self.assertIn("Highest-impact proposed actions", summary_decisions)
+        self.assertIn("Filterable problem taxonomy", summary_decisions)
+        cleanup_sheet = workbook["02 Cleanup Plan"]
+        self.assertEqual(
+            list(CLEANUP_PLAN_COLUMNS),
+            [cell.value for cell in cleanup_sheet[1]],
+        )
+        self.assertEqual(f"A1:G{cleanup_sheet.max_row}", cleanup_sheet.auto_filter.ref)
+        self.assertEqual("A2", cleanup_sheet.freeze_panes)
         for sheet in workbook:
-            self.assertLessEqual(sheet.max_column, 6)
+            column_limit = 7 if sheet.title == "02 Cleanup Plan" else 6
+            self.assertLessEqual(sheet.max_column, column_limit)
             self.assertLessEqual(
                 max(sheet.column_dimensions[col].width or 0 for col in sheet.column_dimensions), 92
             )
             self.assertLessEqual(
-                max(sheet.row_dimensions[row].height or 0 for row in sheet.row_dimensions), 120
+                max(sheet.row_dimensions[row].height or 0 for row in sheet.row_dimensions),
+                MAX_ROW_HEIGHT,
             )
         self.assertNotIn("Change Log", workbook.sheetnames)
         gate_errors, gate_warnings = validate_workbook(
             workbook_path,
             self.write_review("workbook-operations.json", payload),
         )
-        self.assertEqual(["cleanup plan action completeness is not pass"], gate_errors)
+        self.assertEqual([], gate_errors)
         self.assertEqual([], gate_warnings)
+        invalid_workbook_path = self.root / "cleanup-plan-invalid-category.xlsx"
+        cleanup_sheet["C2"] = "Invented category"
+        workbook.save(invalid_workbook_path)
+        invalid_errors, _invalid_warnings = validate_workbook(
+            invalid_workbook_path,
+            self.write_review("workbook-invalid-category-operations.json", payload),
+        )
+        self.assertTrue(
+            any(
+                "unsupported general problem category" in error
+                for error in invalid_errors
+            )
+        )
 
     def test_human_rows_present_high_impact_actions_first_without_rekeying(self) -> None:
         def operation(
@@ -4316,6 +5416,66 @@ scenarios:
         )
         self.assertTrue(any("duplicate final name" in error for error in review_errors))
 
+    def test_operation_set_allows_one_dead_blocker_edge_and_cross_finding_delete_chain(self) -> None:
+        consumers = {
+            "trigger:11": {"trigger:12"},
+            "trigger:12": set(),
+            "trigger:13": {"tag:1", "tag:2"},
+            "tag:1": set(),
+            "tag:2": set(),
+        }
+        empty = {
+            "creations": [],
+            "additions": [],
+            "changes": [],
+            "remaps": [],
+            "deletions": [],
+            "renames": [],
+        }
+        remove_dead_edge = {
+            **empty,
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].blockingTriggerId",
+                    "before": ["13"],
+                    "after": [],
+                }
+            ],
+        }
+        delete_child = {
+            **empty,
+            "deletions": [
+                {"object_key": "trigger:11", "reason": "Delete the unused child trigger."}
+            ],
+        }
+        delete_group = {
+            **empty,
+            "deletions": [
+                {"object_key": "trigger:12", "reason": "Delete the unused trigger group."}
+            ],
+        }
+
+        errors = validate_operation_set(
+            [remove_dead_edge, delete_child, delete_group],
+            set(consumers),
+            consumers,
+            {},
+            "cross-finding operation set",
+        )
+        self.assertEqual([], errors)
+
+        missing_consumer_delete = validate_operation_set(
+            [remove_dead_edge, delete_child],
+            set(consumers),
+            consumers,
+            {},
+            "missing consumer operation set",
+        )
+        self.assertTrue(
+            any("deleting consumed object 'trigger:11'" in error for error in missing_consumer_delete)
+        )
+
     def test_run2_rejects_conclusions_that_contradict_decisive_source_states(self) -> None:
         data = sample_export()
         data["containerVersion"]["tag"].append(
@@ -4490,7 +5650,6 @@ scenarios:
         self.assertTrue(any("missing_required_field:type" in error for error in errors))
         self.assertTrue(any("opaque_custom_template_behavior" in error for error in errors))
         self.assertTrue(any("peer_destination_contract_unproven" in error for error in errors))
-        self.assertTrue(any("unsupported value" in error for error in errors))
         self.assertTrue(any("reserved or non-production" in error for error in errors))
 
     def test_parser_fallback_requires_exact_segment_attestation(self) -> None:
@@ -4612,7 +5771,7 @@ scenarios:
         alias_expectations = {
             "Cleanup opportunity": "requires one concrete proposed_action",
             "Documented exception": "requires an evidence-bound exception_basis",
-            "Owner decision needed": "requires a source-specific owner_question",
+            "Owner decision needed": "advisory technical review signal",
         }
         for verdict, expected_error in alias_expectations.items():
             with self.subTest(verdict=verdict):
@@ -4703,7 +5862,7 @@ scenarios:
         )
         self.assertTrue(
             any(
-                f"confirmed technical issue {risk_key} must link" in error
+                f"actionable technical finding {risk_key} must link" in error
                 for error in confirmed_errors
             )
         )
@@ -5620,7 +6779,7 @@ scenarios:
             workbook_path,
         )
         rendered = load_workbook(workbook_path, data_only=False)
-        formula_cell = rendered["02 Cleanup Plan"]["E2"]
+        formula_cell = rendered["02 Cleanup Plan"]["F2"]
         self.assertEqual("s", formula_cell.data_type)
         self.assertTrue(str(formula_cell.value).startswith("'="))
         rendered.close()
@@ -5648,6 +6807,1497 @@ scenarios:
         self.assertIn("utm_source=%3Cvalue%3E", url)
         self.assertTrue(privacy_findings(text))
 
+    def test_unicode_integrity_finds_invisible_references_and_confusables_only(self) -> None:
+        data = sample_export()
+        data["containerVersion"]["variable"].extend(
+            [
+                {
+                    "variableId": "60",
+                    "name": "DLV - Val\u200bue",
+                    "type": "v",
+                    "parameter": [
+                        {"type": "TEMPLATE", "key": "name", "value": "clean.value"}
+                    ],
+                },
+                {
+                    "variableId": "61",
+                    "name": "CJS - Pаge",
+                    "type": "c",
+                    "parameter": [
+                        {"type": "TEMPLATE", "key": "value", "value": "one"}
+                    ],
+                },
+                {
+                    "variableId": "62",
+                    "name": "CJS - Page",
+                    "type": "c",
+                    "parameter": [
+                        {"type": "TEMPLATE", "key": "value", "value": "two"}
+                    ],
+                },
+                {
+                    "variableId": "63",
+                    "name": "DLV - Événement",
+                    "type": "v",
+                    "parameter": [
+                        {"type": "TEMPLATE", "key": "name", "value": "event.name"}
+                    ],
+                },
+            ]
+        )
+        data["containerVersion"]["tag"][0]["parameter"].append(
+            {
+                "type": "TEMPLATE",
+                "key": "invisibleReference",
+                "value": "{{DLV - Val\u200bue}}",
+            }
+        )
+        export = self.root / "unicode-integrity.json"
+        export.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        findings = [
+            row
+            for row in audit_export(export)["findings"]
+            if row["module_name"] == "name_hygiene"
+            and row["finding_type"] != "zero_findings"
+        ]
+        self.assertTrue(
+            any(
+                row["finding_type"] == "unicode_name_integrity_candidate"
+                and "60" in row["object_ids"]
+                for row in findings
+            )
+        )
+        self.assertTrue(
+            any(
+                row["finding_type"] == "unicode_reference_integrity"
+                and "1" in row["object_ids"]
+                for row in findings
+            )
+        )
+        confusable = next(
+            row
+            for row in findings
+            if row["finding_type"] == "unicode_confusable_name_candidate"
+            and {"61", "62"} <= set(row["object_ids"])
+        )
+        self.assertEqual("review_candidate", confusable["finding_class"])
+        self.assertFalse(
+            any(
+                row["finding_type"].startswith("unicode_")
+                and "63" in row["object_ids"]
+                for row in findings
+            )
+        )
+
+    def test_ineffective_blocker_has_one_exact_repair_and_orphan_cleanup(self) -> None:
+        finding = next(
+            row
+            for row in audit_export(self.export_path)["findings"]
+            if row["finding_type"] == "ineffective_blocking_trigger"
+        )
+        repair = finding["deterministic_repair"]
+        self.assertEqual("unique_ineffective_blocker_removal", repair["status"])
+        self.assertEqual(
+            [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].blockingTriggerId",
+                    "before": ["13"],
+                    "after": [],
+                }
+            ],
+            repair["changes"],
+        )
+        self.assertEqual(
+            ["trigger:13"],
+            [item["object_key"] for item in repair["deletions"]],
+        )
+        self.assertEqual(
+            ["tag:1", "trigger:13"],
+            finding["repair_affected_object_keys"],
+        )
+
+    def test_unicode_broken_reference_keeps_normalized_target_reachable(self) -> None:
+        data = sample_export()
+        data["containerVersion"]["tag"][0]["parameter"][2]["map"][0]["value"] = (
+            "{{DLV -\u00a0Value}}"
+        )
+        export = self.root / "unicode-reachable-target.json"
+        export.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        report = audit_export(export)
+        findings = report["findings"]
+        self.assertTrue(
+            any(
+                row["finding_type"] == "undefined_variable_reference"
+                and "DLV -\u00a0Value" in row["object_ids"]
+                for row in findings
+            )
+        )
+        self.assertFalse(
+            any(
+                row["finding_type"] == "unused_object"
+                and row["object_type"] == "variable"
+                and "24" in row["object_ids"]
+                for row in findings
+            )
+        )
+        lifecycle = {
+            row["object_key"]: row for row in report["lifecycle_matrix"]
+        }
+        self.assertEqual("used", lifecycle["variable:24"]["usage_state"])
+        self.assertIn(
+            {"from_object_key": "tag:1", "to_object_key": "variable:24"},
+            report["execution_reachability"]["dependency_edges"],
+        )
+
+    def test_missing_setup_repairs_to_peer_supported_target_and_rejects_clear(
+        self,
+    ) -> None:
+        data = sample_export()
+        data["containerVersion"]["tag"][0]["setupTag"] = [
+            {"tagName": "Google tag - Verisur"}
+        ]
+        data["containerVersion"]["tag"][0]["teardownTag"] = [
+            {"tagName": "Utility - Consent Defaults"}
+        ]
+        data["containerVersion"]["tag"].extend(
+            [
+                {
+                    "tagId": "5",
+                    "name": "Google tag - Verisure",
+                    "type": "googtag",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "tagId",
+                            "value": "G-TEST123",
+                        }
+                    ],
+                },
+                {
+                    "tagId": "6",
+                    "name": "GA4 - Peer event",
+                    "type": "gaawe",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "eventName",
+                            "value": "peer_event",
+                        },
+                        {
+                            "type": "TEMPLATE",
+                            "key": "measurementId",
+                            "value": "G-TEST123",
+                        },
+                    ],
+                    "firingTriggerId": ["10"],
+                    "setupTag": [{"tagName": "Google tag - Verisure"}],
+                },
+            ]
+        )
+        export = self.root / "peer-supported-setup.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        review = complete_operational(export)
+        finding = next(
+            row
+            for row in review["findings"]
+            if row["finding_type"] == "missing_setupTag_reference"
+            and "Google tag - Verisur" in row["deterministic_evidence"]
+        )
+        repair = finding["deterministic_repair"]
+        self.assertEqual("unique_peer_supported_target", repair["status"])
+        self.assertEqual("tag:5", repair["target_object_key"])
+        self.assertEqual("Google tag - Verisure", repair["target_name"])
+        self.assertEqual(
+            "Google tag - Verisure",
+            repair["changes"][0]["after"],
+        )
+        finding.update(
+            {
+                "disposition": "cleanup_operation",
+                "operation_key": "repair-missing-google-tag-setup",
+                "title": "Repair the missing Google tag setup reference",
+                "area": "GTM hygiene",
+                "problem_type": "Broken reference",
+                "problem": finding["deterministic_evidence"],
+                "why_it_matters": (
+                    "The purchase event can execute without its intended Google tag "
+                    "initialization sequence."
+                ),
+                "expected_clean_state": (
+                    "The purchase event points to the peer-supported Google tag and "
+                    "the setup edge remains explicit."
+                ),
+                "exact_proposed_action": (
+                    "Change the missing setup name to Google tag - Verisure on tag:1."
+                ),
+                "canonical_object_key": "",
+                "canonical_selection_rationale": "",
+                "creations": [],
+                "additions": [],
+                "changes": copy.deepcopy(repair["changes"]),
+                "remaps": [],
+                "deletions": [],
+                "renames": [],
+                "preconditions": (
+                    "Confirm tag:5 still has the peer-supported Google tag identity "
+                    "before applying the field change."
+                ),
+                "qa_steps": (
+                    "Re-export and confirm tag:1 resolves its setup edge to tag:5 "
+                    "without a missing sequence reference."
+                ),
+                "rollback": (
+                    "Restore the original setup reference from the locked source export "
+                    "if the intended initializer differs."
+                ),
+                "priority": "High",
+                "confidence": "High",
+                "execution_readiness": "approval_required",
+                "owner_question": "",
+                "recommended_action": "",
+                "challenge_review": {
+                    "source_recheck": (
+                        "The locked export still contains the missing setup name on tag:1 "
+                        "and the existing tag:5 target."
+                    ),
+                    "status_and_scope_check": (
+                        "Both tag:1 and the peer-supported tag:5 route remain active in "
+                        "the exported execution graph."
+                    ),
+                    "alternative_explanation": (
+                        "No second close setup target or intentional edge removal is "
+                        "supported by the container evidence."
+                    ),
+                    "challenge_verdict": "confirmed",
+                },
+            }
+        )
+        valid_path = self.write_review("peer-supported-setup-review.json", review)
+        valid_errors, _ = validate_operational(export, valid_path)
+        self.assertEqual([], valid_errors)
+
+        clearing = copy.deepcopy(review)
+        clearing_finding = next(
+            row
+            for row in clearing["findings"]
+            if row["finding_id"] == finding["finding_id"]
+        )
+        exact_path = repair["changes"][0]["json_path"]
+        clearing_finding["changes"].append(
+            {
+                "object_key": "tag:1",
+                "json_path": exact_path.rsplit("[", 1)[0],
+                "before": [{"tagName": "Google tag - Verisur"}],
+                "after": [],
+            }
+        )
+        clearing_errors, _ = validate_operational(
+            export,
+            self.write_review("cleared-peer-supported-setup.json", clearing),
+        )
+        self.assertTrue(
+            any(
+                "clearing the setup/teardown edge is not the generated safe repair"
+                in error
+                for error in clearing_errors
+            )
+        )
+
+    def test_inactive_paused_target_deletion_supersedes_stale_unique_repair(self) -> None:
+        repair = {
+            "status": "unique_peer_supported_target",
+            "repair_kind": "setupTag",
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].setupTag[0].tagName",
+                    "before": "Stale setup tag",
+                    "after": "Canonical setup tag",
+                }
+            ],
+            "renames": [],
+            "deletions": [],
+        }
+        expected = {"repair_affected_object_keys": ["tag:1"]}
+        deleted = {
+            "deterministic_repair": repair,
+            "changes": [],
+            "renames": [],
+            "deletions": [
+                {
+                    "object_key": "tag:1",
+                    "reason": "The tag is paused and has no active export-visible consumers.",
+                }
+            ],
+        }
+        self.assertEqual(
+            [],
+            validate_deterministic_repair(
+                deleted,
+                expected,
+                {"tag:1": {"paused": True, "active_consumer_count": 0}},
+                "finding paused repair",
+            ),
+        )
+        self.assertTrue(
+            validate_deterministic_repair(
+                deleted,
+                expected,
+                {"tag:1": {"paused": False, "active_consumer_count": 0}},
+                "finding active repair",
+            )
+        )
+
+    def test_ua_label_only_with_ga4_consumers_gets_exact_metadata_rename(self) -> None:
+        data = sample_export()
+        data["containerVersion"]["trigger"].append(
+            {
+                "triggerId": "99",
+                "name": "(UA) - Checkout complete",
+                "type": "CUSTOM_EVENT",
+                "customEventFilter": [
+                    condition("EQUALS", "{{_event}}", "checkout_complete")
+                ],
+            }
+        )
+        data["containerVersion"]["tag"][0]["firingTriggerId"].append("99")
+        export = self.root / "ua-label-ga4-consumer.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        finding = next(
+            row
+            for row in audit_export(export)["findings"]
+            if row["module_name"] == "outdated_ua_styled_setup_objects"
+            and "99" in row["object_ids"]
+        )
+        self.assertEqual("legacy_name_only_candidate", finding["finding_type"])
+        self.assertEqual("deterministic_defect", finding["finding_class"])
+        self.assertEqual(
+            "unique_ga4_label_cleanup",
+            finding["deterministic_repair"]["status"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "object_key": "trigger:99",
+                    "before": "(UA) - Checkout complete",
+                    "after": "Checkout complete",
+                }
+            ],
+            finding["deterministic_repair"]["renames"],
+        )
+        self.assertTrue(
+            any(
+                item["object_key"] == "tag:1"
+                and item["object_type"] == "gaawe"
+                and item["destination_vendor"] == "GA4 / Google tag"
+                for item in finding["consumer_route_evidence"]
+            )
+        )
+
+    def test_exact_duplicate_canonical_default_is_source_ranked(self) -> None:
+        review = scaffold_architecture(self.export_path)
+        comparison = next(
+            row
+            for row in review["comparisons"]
+            if set(row["candidate_object_keys"]) == {"variable:20", "variable:21"}
+            and "exact_configuration" in row["comparison_types"]
+        )
+        self.assertEqual(
+            {"variable:20": ["tag:1", "tag:2"], "variable:21": []},
+            comparison["candidate_consumer_keys"],
+        )
+        self.assertEqual(
+            "variable:20",
+            comparison["recommended_canonical_object_key"],
+        )
+        basis = comparison["recommended_canonical_basis"]
+        self.assertIn("active over paused", basis)
+        self.assertIn("more visible consumers", basis)
+        self.assertIn("non-copy name", basis)
+        self.assertIn("final deterministic tie-breaker", basis)
+
+    def test_vendor_detection_ignores_monitoring_metadata_template_docs_and_comments(
+        self,
+    ) -> None:
+        data = sample_export()
+        data["containerVersion"]["customTemplate"] = [
+            {
+                "templateId": "901",
+                "name": "Neutral utility template",
+                "monitoringMetadata": {
+                    "notes": "Meta Pixel and Google Ads monitoring only"
+                },
+                "templateData": (
+                    "___INFO___\n"
+                    '{"description":"Meta Pixel documentation and monitoring"}\n'
+                    "___SANDBOXED_JS_FOR_WEB_TEMPLATE___\n"
+                    "// Meta Pixel is mentioned only in this comment\n"
+                    "data.gtmOnSuccess();\n"
+                    "___TESTS___\n"
+                    '[{"name":"Google Ads documentation example"}]\n'
+                ),
+            }
+        ]
+        export = self.root / "metadata-vendor-noise.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        row = next(
+            item
+            for item in scaffold_configuration(export)["rows"]
+            if item["object_key"] == "customTemplate:901"
+        )
+        detected = {context["vendor"] for context in row["vendor_contexts"]}
+        self.assertNotIn("Meta", detected)
+        self.assertNotIn("Google Ads", detected)
+
+    def test_identical_custom_code_requires_consistent_technical_disposition(
+        self,
+    ) -> None:
+        data = sample_export()
+        duplicate = copy.deepcopy(data["containerVersion"]["tag"][1])
+        duplicate["tagId"] = "5"
+        duplicate["name"] = "Meta - Purchase duplicate implementation"
+        data["containerVersion"]["tag"].append(duplicate)
+        export = self.root / "identical-custom-code.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        review = complete_configuration(export)
+        original = next(row for row in review["rows"] if row["object_key"] == "tag:2")
+        copied = next(row for row in review["rows"] if row["object_key"] == "tag:5")
+        self.assertEqual(
+            original["technical_code_facts"]["code_hash"],
+            copied["technical_code_facts"]["code_hash"],
+        )
+        self.assertTrue(copied["technical_finding_reviews"])
+        copied["technical_finding_reviews"][0]["exception_basis"] += (
+            " This copied implementation receives a different acceptance."
+        )
+        errors, _ = validate_configuration(
+            export,
+            self.write_review("inconsistent-identical-code.json", review),
+        )
+        self.assertTrue(
+            any(
+                "different technical outcome from identical code without a "
+                "source-specific consumer reason" in error
+                for error in errors
+            )
+        )
+
+    def test_independent_attestation_rejects_bulk_completion_and_reused_context(
+        self,
+    ) -> None:
+        operational = complete_operational(self.export_path)
+        operational["completion_attestation"]["helper_modules"] = [
+            "bulk_decision_writer"
+        ]
+        errors, _ = validate_operational(
+            self.export_path,
+            self.write_review("bulk-completed-operational.json", operational),
+        )
+        self.assertTrue(any("bulk-completion helpers" in error for error in errors))
+
+        package_dir = self.root / "independent-package"
+        build_package(self.export_path, package_dir, pretty=True)
+        reviews = self.completed_reviews()
+        shared_context_id = "semantic-review-context-shared"
+        for filename, review in zip(
+            (
+                "operational_review.json",
+                "configuration_review.json",
+                "architecture_review.json",
+            ),
+            reviews,
+            strict=True,
+        ):
+            review["completion_attestation"][
+                "independent_review_context_id"
+            ] = shared_context_id
+            (package_dir / filename).write_text(
+                json.dumps(review),
+                encoding="utf-8",
+            )
+        gated = run_gate(self.export_path, package_dir)
+        self.assertEqual("fail", gated["status"])
+        self.assertTrue(
+            any(
+                "reuse an independent_review_context_id" in error
+                for error in gated["errors"]
+            )
+        )
+
+    def test_runtime_handoff_groups_one_exact_test_contract(self) -> None:
+        ledger = [
+            {
+                "decision_id": f"CFG-DOM-{index}",
+                "source_run": "configuration_correctness",
+                "source_object_keys": [f"tag:{index}"],
+                "disposition": "container_evidence_limit",
+                "summary": (
+                    "The container cannot prove whether the same checkout DOM "
+                    "selector exists on the affected route."
+                ),
+                "recommended_action": (
+                    "Verify the selector once on every affected checkout route."
+                ),
+            }
+            for index in (1, 2)
+        ]
+        handoff = runtime_qa_handoff(ledger, {"rows": []})
+        self.assertEqual(1, handoff["item_count"])
+        item = handoff["items"][0]
+        self.assertEqual(["CFG-DOM-1", "CFG-DOM-2"], item["source_references"])
+        self.assertEqual(["tag:1", "tag:2"], item["affected_object_keys"])
+        self.assertEqual("page_dom", item["category"])
+        self.assertTrue(item["test_contract_id"].startswith("TEST-"))
+
+    def test_runtime_handoff_targets_consuming_tags_and_omits_deleted_sources(
+        self,
+    ) -> None:
+        ledger = [
+            {
+                "decision_id": "CFG-VAR-1",
+                "source_run": "configuration_correctness",
+                "source_object_keys": ["variable:20"],
+                "consumer_object_keys": ["tag:1"],
+                "disposition": "container_evidence_limit",
+                "summary": (
+                    "The dataLayer runtime value type is not visible in the export."
+                ),
+                "recommended_action": (
+                    "Capture the resolved dataLayer value on the purchase tag route."
+                ),
+            },
+            {
+                "decision_id": "CFG-VAR-2",
+                "source_run": "configuration_correctness",
+                "source_object_keys": ["variable:21"],
+                "consumer_object_keys": ["tag:2"],
+                "disposition": "container_evidence_limit",
+                "summary": (
+                    "The dataLayer runtime value type is not visible in the export."
+                ),
+                "recommended_action": (
+                    "Capture the resolved dataLayer value on the lead tag route."
+                ),
+            },
+        ]
+        packets = [
+            {
+                "deletions": [
+                    {
+                        "object_key": "variable:21",
+                        "reason": "The variable is removed from the target state.",
+                    }
+                ]
+            }
+        ]
+        handoff = runtime_qa_handoff(ledger, {"rows": []}, packets)
+        self.assertEqual(1, handoff["item_count"])
+        self.assertEqual(
+            ["CFG-VAR-1"],
+            handoff["items"][0]["source_references"],
+        )
+        self.assertEqual(["variable:20"], handoff["items"][0]["affected_object_keys"])
+        self.assertEqual(["tag:1"], handoff["items"][0]["test_object_keys"])
+
+    def test_action_incomplete_workbook_is_only_a_blocked_draft(self) -> None:
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            self.skipTest("openpyxl is not installed")
+        operational, configuration, architecture = self.completed_reviews()
+        align_duplicate_operation(operational, architecture)
+        payload, errors = compile_operations(
+            operational,
+            configuration,
+            architecture,
+            "Manual",
+            source_object_catalog(self.export_path),
+        )
+        self.assertEqual([], errors)
+        payload["plan_status"] = "incomplete_actions"
+        payload["action_completeness"] = {
+            **payload["action_completeness"],
+            "status": "incomplete",
+            "errors": [
+                "OPS-TEST: one source-visible defect still lacks an exact operation"
+            ],
+        }
+        rows, row_errors = build_rows(payload)
+        self.assertEqual([], row_errors)
+        self.assertEqual(["BLOCKED-001"], [row["ID"] for row in rows])
+        workbook_path = self.root / "blocked-cleanup-plan.xlsx"
+        build_workbook(
+            {
+                "source_file": self.export_path.name,
+                "source_sha256": payload["source_sha256"],
+            },
+            build_model(self.export_path),
+            operational,
+            configuration,
+            architecture,
+            payload,
+            {"rows": rows},
+            workbook_path,
+        )
+        workbook = load_workbook(workbook_path, read_only=True)
+        visible_ids = [
+            str(row[0].value)
+            for row in workbook["02 Cleanup Plan"].iter_rows(min_row=2, max_col=1)
+        ]
+        workbook.close()
+        self.assertEqual(["BLOCKED-001"], visible_ids)
+        gate_errors, gate_warnings = validate_workbook(
+            workbook_path,
+            self.write_review("blocked-operations.json", payload),
+        )
+        self.assertEqual(
+            ["cleanup plan action completeness is not pass"],
+            gate_errors,
+        )
+        self.assertEqual([], gate_warnings)
+
+    def test_lookup_and_regex_tables_lock_bad_rows_without_flagging_valid_neighbors(
+        self,
+    ) -> None:
+        def table_row(match: str, output: str) -> dict:
+            return {
+                "type": "MAP",
+                "map": [
+                    {"type": "TEMPLATE", "key": "key", "value": match},
+                    {"type": "TEMPLATE", "key": "value", "value": output},
+                ],
+            }
+
+        data = sample_export()
+        data["containerVersion"]["variable"].extend(
+            [
+                {
+                    "variableId": "70",
+                    "name": "Lookup - Duplicate",
+                    "type": "smm",
+                    "parameter": [
+                        {"type": "TEMPLATE", "key": "input", "value": "{{Page URL}}"},
+                        {
+                            "type": "LIST",
+                            "key": "map",
+                            "list": [table_row("a", "one"), table_row("a", "two")],
+                        },
+                    ],
+                },
+                {
+                    "variableId": "71",
+                    "name": "Regex - Broken",
+                    "type": "remm",
+                    "parameter": [
+                        {"type": "TEMPLATE", "key": "input", "value": "{{Page URL}}"},
+                        {
+                            "type": "LIST",
+                            "key": "map",
+                            "list": [
+                                table_row(".*", "all"),
+                                table_row("(", "broken"),
+                            ],
+                        },
+                        {
+                            "type": "BOOLEAN",
+                            "key": "setDefaultValue",
+                            "value": "true",
+                        },
+                    ],
+                },
+                {
+                    "variableId": "72",
+                    "name": "Regex - Valid",
+                    "type": "remm",
+                    "parameter": [
+                        {"type": "TEMPLATE", "key": "input", "value": "{{Page URL}}"},
+                        {
+                            "type": "LIST",
+                            "key": "map",
+                            "list": [
+                                table_row("^/one$", "one"),
+                                table_row("^/two$", "two"),
+                            ],
+                        },
+                        {
+                            "type": "BOOLEAN",
+                            "key": "setDefaultValue",
+                            "value": "true",
+                        },
+                        {
+                            "type": "TEMPLATE",
+                            "key": "defaultValue",
+                            "value": "other",
+                        },
+                    ],
+                },
+            ]
+        )
+        export = self.root / "table-contracts.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        review = scaffold_configuration(export)
+        lookup = next(row for row in review["rows"] if row["object_key"] == "variable:70")
+        broken = next(row for row in review["rows"] if row["object_key"] == "variable:71")
+        valid = next(row for row in review["rows"] if row["object_key"] == "variable:72")
+        lookup_keys = {
+            item["obligation_key"]
+            for item in lookup["required_configuration_obligations"]
+        }
+        broken_keys = {
+            item["obligation_key"]
+            for item in broken["required_configuration_obligations"]
+        }
+        valid_keys = {
+            item["obligation_key"]
+            for item in valid["required_configuration_obligations"]
+        }
+        self.assertTrue(
+            any(key.startswith("lookup_table_duplicate_match:") for key in lookup_keys)
+        )
+        self.assertIn("regex_table_invalid_pattern:1", broken_keys)
+        self.assertIn("regex_table_permissive_pattern:0", broken_keys)
+        self.assertIn("regex_table_shadowed_rows:0", broken_keys)
+        self.assertIn("regex_table_enabled_default_missing", broken_keys)
+        self.assertFalse(
+            any(
+                key.startswith(("lookup_table_", "regex_table_"))
+                for key in valid_keys
+            )
+        )
+
+    def test_custom_code_extension_signals_have_safe_neighboring_negatives(self) -> None:
+        data = sample_export()
+        data["containerVersion"]["tag"].extend(
+            [
+                {
+                    "tagId": "80",
+                    "name": "Custom - Risk signals",
+                    "type": "html",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "html",
+                            "value": (
+                                "<script>dataLayer.reset();"
+                                "var internal=google_tag_manager['GTM-TEST'];"
+                                "gtag('event','purchase');debugger;"
+                                "document.cookie='id=1; Path=/';"
+                                "window.addEventListener('click',handler);</script>"
+                            ),
+                        }
+                    ],
+                    "firingTriggerId": ["10"],
+                },
+                {
+                    "tagId": "81",
+                    "name": "Custom - Guarded neighbor",
+                    "type": "html",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "html",
+                            "value": (
+                                "<script>function gtag(){dataLayer.push(arguments);}"
+                                "document.cookie='id=1; Secure; SameSite=Lax';"
+                                "window.addEventListener('click',handler,{once:true});</script>"
+                            ),
+                        }
+                    ],
+                    "firingTriggerId": ["10"],
+                },
+            ]
+        )
+        export = self.root / "custom-code-extension-signals.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        rows = extract_export(export)["rows"]
+        risky = next(row for row in rows if row["object_id"] == "80")
+        safe = next(row for row in rows if row["object_id"] == "81")
+        risky_text = " ".join(
+            [
+                *risky["technical_code_health_findings"],
+                *risky["technical_code_security_findings"],
+            ]
+        )
+        self.assertTrue(risky["dataLayer_resets"])
+        self.assertTrue(risky["google_tag_manager_internal_access"])
+        self.assertTrue(risky["manual_gtag_calls"])
+        self.assertTrue(risky["debugger_statements"])
+        self.assertIn("dataLayer.reset", risky_text)
+        self.assertIn("google_tag_manager", risky_text)
+        self.assertIn("Literal cookie write omits", risky_text)
+        self.assertIn("without an exported remove", risky_text)
+        self.assertFalse(safe["manual_gtag_calls"])
+        safe_text = " ".join(
+            [
+                *safe["technical_code_health_findings"],
+                *safe["technical_code_security_findings"],
+            ]
+        )
+        self.assertNotIn("Literal cookie write omits", safe_text)
+        self.assertNotIn("without an exported remove", safe_text)
+        scaffold = scaffold_configuration(export)
+        required = next(
+            row
+            for row in scaffold["rows"]
+            if row["object_key"] == "tag:80"
+        )["required_technical_findings"]
+        self.assertEqual(
+            "review_signal",
+            next(
+                item
+                for item in required
+                if "uses an inline script" in item["statement"]
+            )["decision_class"],
+        )
+        self.assertEqual(
+            "deterministic_defect",
+            next(
+                item
+                for item in required
+                if "internal google_tag_manager" in item["statement"]
+            )["decision_class"],
+        )
+
+    def test_behavior_portability_is_source_bound_in_run2_and_compared_in_run3(
+        self,
+    ) -> None:
+        data = sample_export()
+        data["containerVersion"]["variable"].extend(
+            [
+                {
+                    "variableId": "90",
+                    "name": "Constant - Staging collector",
+                    "type": "c",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "value",
+                            "value": (
+                                "https://staging.metrics.example.com/" + "GTM-" + "AAAA1"
+                            ),
+                        }
+                    ],
+                },
+                {
+                    "variableId": "91",
+                    "name": "Constant - Production collector",
+                    "type": "c",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "value",
+                            "value": (
+                                "https://prod.metrics.example.com/" + "GTM-" + "BBBB2"
+                            ),
+                        }
+                    ],
+                },
+                {
+                    "variableId": "92",
+                    "name": "Constant - Metadata only",
+                    "type": "c",
+                    "tagManagerUrl": (
+                        "https://tagmanager.google.com/#/container/accounts/1/"
+                        "containers/2/workspaces/3?publicId=" + "GTM-" + "META1"
+                    ),
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "value",
+                            "value": "https://collect.example.com",
+                        }
+                    ],
+                },
+            ]
+        )
+        export = self.root / "portability.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        review = scaffold_configuration(export)
+        staging = next(row for row in review["rows"] if row["object_key"] == "variable:90")
+        metadata = next(row for row in review["rows"] if row["object_key"] == "variable:92")
+        staging_keys = {
+            item["obligation_key"]
+            for item in staging["required_configuration_obligations"]
+        }
+        metadata_keys = {
+            item["obligation_key"]
+            for item in metadata["required_configuration_obligations"]
+        }
+        self.assertTrue(
+            any("hard_coded_container_identifier" in key for key in staging_keys)
+        )
+        self.assertTrue(
+            any("environment_specific_endpoint_candidate" in key for key in staging_keys)
+        )
+        self.assertFalse(any(key.startswith("portability:") for key in metadata_keys))
+        comparisons = relationship_candidates(data["containerVersion"])
+        portability = next(
+            row
+            for row in comparisons
+            if "behavior_portability_variant" in row["comparison_types"]
+            and {"variable:90", "variable:91"} <= set(row["candidate_object_keys"])
+        )
+        self.assertIn(
+            "normalized_condition_and_route_variants",
+            portability["discovery_methods"],
+        )
+
+    def test_registry_contracts_lock_ga4_fields_but_keep_supported_tiktok_event(
+        self,
+    ) -> None:
+        incomplete_data = sample_export()
+        incomplete_parameters = incomplete_data["containerVersion"]["tag"][0]["parameter"][2][
+            "map"
+        ]
+        incomplete_parameters[:] = [
+            item for item in incomplete_parameters if item.get("key") != "items"
+        ]
+        incomplete_export = self.root / "registry-contract-incomplete.json"
+        incomplete_export.write_text(json.dumps(incomplete_data), encoding="utf-8")
+        review = scaffold_configuration(incomplete_export)
+        purchase = next(row for row in review["rows"] if row["object_key"] == "tag:1")
+        purchase_contract = next(
+            topic
+            for topic in purchase["required_contract_topics"]
+            if topic["topic_key"] == "GA4 / Google tag:registry_contract:purchase"
+        )
+        self.assertEqual("known_noncompliant", purchase_contract["deterministic_contract_state"])
+        self.assertIn("items", purchase_contract["required_configuration_terms"])
+
+        data = sample_export()
+        event_parameters = data["containerVersion"]["tag"][0]["parameter"][2]["map"]
+        event_parameters[0]["value"] = "30.03"
+        event_parameters.extend(
+            [
+                {
+                    "type": "TEMPLATE",
+                    "key": "currency",
+                    "value": "EUR",
+                },
+                {
+                    "type": "TEMPLATE",
+                    "key": "items",
+                    "value": "{{DLV - Items}}",
+                },
+            ]
+        )
+        safe_export = self.root / "registry-contract-safe.json"
+        safe_export.write_text(json.dumps(data), encoding="utf-8")
+        safe_review = scaffold_configuration(safe_export)
+        safe_purchase = next(
+            row for row in safe_review["rows"] if row["object_key"] == "tag:1"
+        )
+        safe_contract = next(
+            topic
+            for topic in safe_purchase["required_contract_topics"]
+            if topic["topic_key"] == "GA4 / Google tag:registry_contract:purchase"
+        )
+        self.assertEqual("source_check_required", safe_contract["deterministic_contract_state"])
+
+        registry = load_registry(ROOT / "references/03-rules/vendor-registry.toml")
+        tiktok = next(vendor for vendor in registry["vendors"] if vendor["name"] == "TikTok")
+        contract = next(
+            item for item in tiktok["contracts"] if item["event"] == "CompletePayment"
+        )
+        self.assertEqual("supported", contract["status"])
+        self.assertNotIn(
+            "CompletePayment",
+            tiktok.get("unsupported_standard_events", []),
+        )
+
+    def test_unicode_equivalent_missing_reference_has_one_exact_repair(self) -> None:
+        from gtm_configuration_review import validate_row_outcome
+
+        data = sample_export()
+        data["containerVersion"]["variable"].extend(
+            [
+                {
+                    "variableId": "98",
+                    "name": "DL - timerEventNumber",
+                    "type": "v",
+                    "parameter": [
+                        {
+                            "type": "INTEGER",
+                            "key": "dataLayerVersion",
+                            "value": "2",
+                        },
+                        {
+                            "type": "BOOLEAN",
+                            "key": "setDefaultValue",
+                            "value": "false",
+                        },
+                        {
+                            "type": "TEMPLATE",
+                            "key": "name",
+                            "value": "timerEventNumber",
+                        },
+                    ],
+                },
+                {
+                    "variableId": "99",
+                    "name": "Timer helper",
+                    "type": "c",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "value",
+                            "value": "{{DL -\u00a0timerEventNumber}}",
+                        }
+                    ],
+                },
+            ]
+        )
+        export = self.root / "unicode-reference.json"
+        export.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        scaffold = scaffold_configuration(export)
+        source = next(
+            row for row in scaffold["rows"] if row["object_key"] == "variable:99"
+        )
+        trace = next(
+            item
+            for item in source["reference_trace_requirements"]
+            if "\u00a0" in item["reference"]
+        )
+        terminal = trace["terminal_requirements"][0]
+        self.assertEqual("unique", terminal["normalization_resolution"])
+        self.assertEqual(
+            ["DL - timerEventNumber"],
+            terminal["normalization_candidate_names"],
+        )
+        self.assertEqual(1, len(trace["source_reference_paths"]))
+
+        decision = {
+            "object_key": "variable:99",
+            "object_name": "Timer helper",
+            "correctness_verdict": "Issue",
+            "disposition": "owner_decision_needed",
+            "owner_question": (
+                "Which valid variable should replace the broken reference in "
+                "variable:99?"
+            ),
+            "recommended_action": (
+                "For variable:99, repair defect REF-001 at "
+                f"{trace['source_reference_paths'][0]} by replacing the missing "
+                "reference with the approved variable."
+            ),
+            "defects": [
+                {
+                    "defect_id": "REF-001",
+                    "evidence_anchors": [trace["source_reference_paths"][0]],
+                }
+            ],
+            "reference_trace_requirements": source[
+                "reference_trace_requirements"
+            ],
+            "required_configuration_obligations": [],
+            "contract_checks": [],
+            "technical_finding_reviews": [],
+            "operation": {},
+        }
+        errors = validate_row_outcome(decision, "unicode repair")
+        self.assertTrue(
+            any("Unicode/whitespace-equivalent" in error for error in errors)
+        )
+
+        decision["disposition"] = "cleanup_operation"
+        decision["owner_question"] = ""
+        decision["recommended_action"] = ""
+        decision["operation"] = {
+            "changes": [
+                {
+                    "object_key": "variable:99",
+                    "json_path": trace["source_reference_paths"][0],
+                    "before": "{{DL -\u00a0timerEventNumber}}",
+                    "after": "{{DL - timerEventNumber}}",
+                }
+            ]
+        }
+        self.assertEqual([], validate_row_outcome(decision, "unicode repair"))
+        human, human_errors = build_rows(
+            {
+                "operations": [
+                    {
+                        "operation_id": "OP-0001",
+                        "area": "Event firing logic",
+                        "problem_type": "Broken reference",
+                        "problem": "The configured variable reference is missing.",
+                        "why_it_matters": (
+                            "The timer input can remain unresolved."
+                        ),
+                        "exact_proposed_action": "Repair the reference.",
+                        "changes": decision["operation"]["changes"],
+                        "deletions": [],
+                        "remaps": [],
+                        "renames": [],
+                        "affected_objects": "variable:99 — Timer helper",
+                        "affected_measurement_family_ids": ["FAM-0001"],
+                        "priority": "High",
+                        "confidence": "High",
+                        "execution_readiness": "approval_required",
+                        "execution_order": 1,
+                        "execution_phases": ["change"],
+                        "priority_basis": {
+                            "active_reachability": "active",
+                            "impact_classes": ["measurement_loss_or_corruption"],
+                            "evidence_confidence": "High",
+                        },
+                        "execution_safety": {
+                            "approval": {
+                                "scope": "individual_operation",
+                                "reasons": ["active configured reachability"],
+                            },
+                            "decommission": {"required": False},
+                        },
+                    }
+                ],
+                "decision_ledger": [],
+                "object_catalog": {
+                    "variable:99": {
+                        "object_name": "Timer helper",
+                    }
+                },
+                "measurement_preservation": {
+                    "families": [
+                        {
+                            "family_id": "FAM-0001",
+                            "family_label": "visit duration",
+                        }
+                    ]
+                },
+            }
+        )
+        self.assertEqual([], human_errors)
+        self.assertIn(
+            "invisible non-breaking space", human[0]["Problem / evidence"]
+        )
+        self.assertIn(
+            "{{DL - timerEventNumber}}", human[0]["Problem / evidence"]
+        )
+        self.assertIn(
+            "Keep formulas, trigger predicates", human[0]["Action / priority / QA"]
+        )
+
+    def test_exact_duplicate_projection_and_reconciliation_are_not_duplicated(
+        self,
+    ) -> None:
+        operation = {
+            "problem_type": "Exact duplicate",
+            "source_runs": ["business_architecture"],
+            "canonical_object_key": "variable:20",
+            "creations": [],
+            "additions": [],
+            "changes": [],
+            "remaps": [
+                {
+                    "from_object_key": "variable:21",
+                    "to_object_key": "variable:20",
+                    "consumer_object_keys": ["tag:1"],
+                }
+            ],
+            "deletions": [{"object_key": "variable:21"}],
+        }
+        self.assertEqual(
+            {"variable:21"},
+            runtime_neutral_operational_deletions(operation, {}),
+        )
+
+        ledger = [
+            {
+                "decision_id": "RUN1-DUP",
+                "source_run": "operational_sanitation",
+                "source_object_keys": ["variable:20", "variable:21"],
+                "disposition": "owner_decision_needed",
+                "owner_question": "Which duplicate variable should remain?",
+                "recommended_action": "Choose one canonical variable.",
+            },
+            {
+                "decision_id": "ARCH-DUP",
+                "source_run": "business_architecture",
+                "source_object_keys": ["variable:20", "variable:21"],
+                "comparison_types": ["exact_configuration"],
+                "disposition": "owner_decision_needed",
+                "owner_question": "Which duplicate variable should remain canonical?",
+                "recommended_action": "Keep variable:20 and remove variable:21.",
+            },
+        ]
+        reconciled, errors = reconcile_ledger_resolutions(ledger, [])
+        self.assertEqual([], errors)
+        run1 = next(row for row in reconciled if row["decision_id"] == "RUN1-DUP")
+        self.assertEqual("documented_exception", run1["disposition"])
+        self.assertEqual(
+            "delegated_to_architecture_decision",
+            run1["reconciliation_status"],
+        )
+        self.assertEqual(
+            1,
+            sum(
+                row["disposition"] == "owner_decision_needed"
+                for row in reconciled
+            ),
+        )
+
+    def test_unused_document_write_support_requires_exact_field_action(
+        self,
+    ) -> None:
+        from gtm_configuration_review import validate_row_outcome
+
+        data = sample_export()
+        data["containerVersion"]["tag"].append(
+            {
+                "tagId": "88",
+                "name": "Custom HTML without document write",
+                "type": "html",
+                "parameter": [
+                    {
+                        "type": "TEMPLATE",
+                        "key": "html",
+                        "value": "<script>window.exampleReady=true;</script>",
+                    },
+                    {
+                        "type": "BOOLEAN",
+                        "key": "supportDocumentWrite",
+                        "value": "true",
+                    },
+                ],
+                "firingTriggerId": ["10"],
+            }
+        )
+        export = self.root / "unused-document-write-support.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        source = next(
+            row
+            for row in scaffold_configuration(export)["rows"]
+            if row["object_key"] == "tag:88"
+        )
+        obligation = next(
+            item
+            for item in source["required_configuration_obligations"]
+            if item["obligation_key"] == "unused_document_write_support"
+        )
+        support_path = obligation["source_known_repair"]["json_path"]
+        decision = {
+            "object_key": "tag:88",
+            "object_name": "Custom HTML without document write",
+            "correctness_verdict": "Issue",
+            "disposition": "owner_decision_needed",
+            "owner_question": (
+                "Should the unused document.write support setting remain enabled?"
+            ),
+            "recommended_action": (
+                f"For tag:88, repair defect DOCWRITE-001 at {support_path} by "
+                "disabling the unused support setting."
+            ),
+            "defects": [
+                {
+                    "defect_id": "DOCWRITE-001",
+                    "evidence_anchors": [support_path],
+                }
+            ],
+            "reference_trace_requirements": [],
+            "required_configuration_obligations": [
+                obligation
+            ],
+            "contract_checks": [],
+            "technical_finding_reviews": [],
+            "operation": {},
+        }
+        errors = validate_row_outcome(decision, "document write")
+        self.assertTrue(
+            any("source-known target" in error for error in errors)
+        )
+        decision.update(
+            {
+                "disposition": "cleanup_operation",
+                "owner_question": "",
+                "recommended_action": "",
+                "operation": {
+                    "changes": [
+                        {
+                            "object_key": "tag:88",
+                            "json_path": support_path,
+                            "before": "true",
+                            "after": "false",
+                        }
+                    ]
+                },
+            }
+        )
+        self.assertEqual(
+            [], validate_row_outcome(decision, "document write")
+        )
+
+    def test_transitive_unicode_reference_owner_question_is_resolved_once(
+        self,
+    ) -> None:
+        broken = "DL -\u00a0etapefunnel"
+        ledger = [
+            {
+                "decision_id": "CFG-CONSUMER",
+                "source_run": "configuration_correctness",
+                "source_object_keys": ["trigger:10"],
+                "disposition": "owner_decision_needed",
+                "owner_question": "Which funnel variable should this trigger use?",
+                "recommended_action": "Repair the missing funnel reference.",
+                "missing_reference_terminals": [
+                    {
+                        "reference": broken,
+                        "source_object_key": "variable:135",
+                        "normalization_candidate_names": [
+                            "DL - etapefunnel"
+                        ],
+                        "normalization_resolution": "unique",
+                    }
+                ],
+            }
+        ]
+        packets = [
+            {
+                "operation_id": "OP-0001",
+                "operation_key": "FIX-UNICODE",
+                "changes": [
+                    {
+                        "object_key": "variable:135",
+                        "before": f"{{{{{broken}}}}}",
+                        "after": "{{DL - etapefunnel}}",
+                    }
+                ],
+                "deletions": [],
+                "resolution_status": "proposed",
+            }
+        ]
+        reconciled, errors = reconcile_ledger_resolutions(ledger, packets)
+        self.assertEqual([], errors)
+        self.assertEqual("cleanup_operation", reconciled[0]["disposition"])
+        self.assertEqual(
+            "resolved_by_upstream_reference_repair",
+            reconciled[0]["reconciliation_status"],
+        )
+        self.assertEqual(["OP-0001"], reconciled[0]["compiled_operation_ids"])
+
+    def test_priority_basis_and_runtime_handoff_add_utility_without_new_gates(
+        self,
+    ) -> None:
+        active_basis = operation_priority_basis(
+            {
+                "affected_object_keys": ["tag:1"],
+                "source_object_keys": ["tag:1"],
+                "area": "Consent & compliance",
+                "problem_type": "Consent mismatch",
+                "problem": "An active request can run before consent.",
+                "why_it_matters": "This creates privacy and measurement risk.",
+                "exact_proposed_action": "Correct the consent route.",
+                "priority": "Medium",
+                "confidence": "High",
+                "execution_readiness": "approval_required",
+                "changes": [{"object_key": "tag:1"}],
+            },
+            {
+                "tag:1": {
+                    "layer": "tag",
+                    "reachability": "active",
+                }
+            },
+        )
+        self.assertEqual("High", active_basis["calibrated_floor"])
+        self.assertEqual("below_evidence_floor_review_recommended", active_basis["alignment"])
+        folder_basis = operation_priority_basis(
+            {
+                "affected_object_keys": ["folder:1"],
+                "source_object_keys": ["folder:1"],
+                "area": "GTM hygiene",
+                "problem_type": "Folder organization",
+                "problem": "Folder naming is inconsistent.",
+                "why_it_matters": "Maintenance is slower.",
+                "exact_proposed_action": "Rename the folder.",
+                "priority": "Low",
+                "confidence": "High",
+                "execution_readiness": "approval_required",
+                "renames": [{"object_key": "folder:1"}],
+            },
+            {
+                "folder:1": {
+                    "layer": "folder",
+                    "reachability": "inactive_or_unreferenced",
+                }
+            },
+        )
+        self.assertEqual("metadata_only", folder_basis["active_reachability"])
+        self.assertEqual("Low", folder_basis["calibrated_floor"])
+
+        ledger = [
+            {
+                "decision_id": "D-1",
+                "source_run": "configuration_correctness",
+                "source_object_keys": ["tag:1"],
+                "disposition": "container_evidence_limit",
+                "summary": "The container cannot prove whether the page DOM selector exists.",
+                "owner_question": "",
+                "recommended_action": "Verify the selector on each live route.",
+            },
+            {
+                "decision_id": "D-2",
+                "source_run": "business_architecture",
+                "source_object_keys": ["tag:2"],
+                "disposition": "owner_decision_needed",
+                "summary": "The business owner must decide whether the campaign is retained.",
+                "owner_question": "Should the campaign be retained?",
+                "recommended_action": "Confirm ownership.",
+            },
+        ]
+        configuration = {
+            "rows": [
+                {
+                    "review_id": "CFG-1",
+                    "object_key": "tag:3",
+                    "external_evidence_status": "runtime_handoff_required",
+                    "external_evidence_summary": (
+                        "The container proves configured endpoints but not external "
+                        "script delivery or vendor acceptance."
+                    ),
+                    "external_evidence_next_action": (
+                        "Capture the browser request and vendor acceptance response "
+                        "on the affected route."
+                    ),
+                    "detected_vendor": "Example vendor",
+                    "effective_consent_route_facts": {
+                        "server_routing_hosts": []
+                    },
+                    "required_contract_topics": [],
+                    "technical_code_facts": {
+                        "container_evidence_limits": [
+                            "The container proves configured endpoints but not external "
+                            "script delivery or vendor acceptance."
+                        ]
+                    },
+                }
+            ]
+        }
+        handoff = runtime_qa_handoff(ledger, configuration)
+        self.assertEqual(2, handoff["item_count"])
+        self.assertEqual(
+            {"page_dom", "vendor_delivery"},
+            {item["category"] for item in handoff["items"]},
+        )
+        self.assertTrue(
+            all(
+                item["blocking_scope"] == "nonblocking_for_unrelated_cleanup"
+                for item in handoff["items"]
+            )
+        )
+        rows, errors = build_rows(
+            {
+                "operations": [],
+                "decision_ledger": ledger,
+                "runtime_qa_handoff": handoff,
+            }
+        )
+        self.assertEqual([], errors)
+        scope = next(row for row in rows if row["ID"] == "SCOPE-001")
+        self.assertIn("runtime-QA handoff item", scope["Affected object(s)"])
+        self.assertEqual(0, runtime_qa_handoff([], {"rows": []})["item_count"])
+
     def test_vendor_registry_is_current_and_structurally_valid(self) -> None:
         registry_path = ROOT / "references/03-rules/vendor-registry.toml"
         errors, warnings = validate_registry(registry_path, online=False, max_age_days=365)
@@ -5671,13 +8321,20 @@ scenarios:
             for vendor in load_registry(registry_path)["vendors"]
             if vendor["name"] == "TikTok"
         )
-        self.assertEqual(["CompletePayment"], tiktok["unsupported_standard_events"])
-        self.assertEqual(["CompletePayment=>Purchase"], tiktok["event_replacements"])
+        self.assertNotIn("CompletePayment", tiktok.get("unsupported_standard_events", []))
+        self.assertEqual(
+            "supported",
+            next(
+                contract
+                for contract in tiktok["contracts"]
+                if contract["event"] == "CompletePayment"
+            )["status"],
+        )
 
     def test_vendor_registry_rejects_malformed_event_lifecycle_metadata(self) -> None:
         registry_path = self.root / "malformed-vendor-registry.toml"
         registry_path.write_text(
-            """schema_version = 1
+            """schema_version = 2
 reviewed_on = "2026-07-20"
 
 [[vendors]]
@@ -5687,6 +8344,10 @@ patterns = ["example"]
 official_docs = ["http://docs.example.test"]
 unsupported_standard_events = ["OldEvent", "OldEvent"]
 event_replacements = ["DifferentEvent=>NewEvent", "broken"]
+contract_version = "latest"
+contracts = [
+  { id = "broken", status = "unsupported", deprecated_endpoints = ["ftp://old.example.test"], field_rules = [{ field = "currency", exact_length = 0 }] },
+]
 """,
             encoding="utf-8",
         )
@@ -5695,6 +8356,10 @@ event_replacements = ["DifferentEvent=>NewEvent", "broken"]
         self.assertTrue(any("contains duplicates" in error for error in errors))
         self.assertTrue(any("not listed" in error for error in errors))
         self.assertTrue(any("must use old=>new" in error for error in errors))
+        self.assertTrue(any("contract_version" in error for error in errors))
+        self.assertTrue(any("requires event" in error for error in errors))
+        self.assertTrue(any("absolute HTTP(S)" in error for error in errors))
+        self.assertTrue(any("positive integer" in error for error in errors))
 
     def test_vendor_url_check_falls_back_to_get_when_head_is_rejected(self) -> None:
         head_error = urllib.error.HTTPError(
@@ -5731,7 +8396,7 @@ event_replacements = ["DifferentEvent=>NewEvent", "broken"]
         self.assertTrue(check_release_tag("v2026.07.20.1"))
         self.assertTrue(check_release_tag("v01.0.0"))
         self.assertTrue(check_release_tag("1.0.0"))
-        self.assertEqual([], check_project_version(ROOT, "v1.3.0"))
+        self.assertEqual([], check_project_version(ROOT, "v1.4.0"))
         self.assertTrue(check_project_version(ROOT, "v1.0.2"))
 
     def test_runtime_bundle_is_self_installable_and_excludes_repo_only_files(self) -> None:

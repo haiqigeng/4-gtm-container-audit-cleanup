@@ -6,10 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
 from gtm_privacy import redact_text, spreadsheet_safe_text
+from gtm_taxonomy import CLEANUP_PLAN_COLUMNS, GENERAL_PROBLEM_CATEGORIES
 
 CANONICAL_SHEETS = [
     "01 Summary",
@@ -27,6 +29,8 @@ HEADER_FONT = "FFFFFF"
 ACCENT_FILL = "DCEEF2"
 GRID_COLOR = "C8D2DC"
 MAX_CELL_TEXT = 24000
+MAX_RENDERED_LINES = 12
+MAX_ROW_HEIGHT = MAX_RENDERED_LINES * 15
 
 
 def as_list(value: Any) -> list[Any]:
@@ -41,38 +45,89 @@ def clean_text(value: Any) -> str:
     if isinstance(value, (dict, list)):
         text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     else:
-        text = str(value or "")
+        # Counts of zero and explicit false states are evidence, not blanks.
+        text = "" if value is None else str(value)
     text = redact_text(text)
     return spreadsheet_safe_text(text)
 
 
 def join_text(values: list[Any]) -> str:
-    return "; ".join(clean_text(value) for value in values if str(value or "").strip())
+    return "; ".join(
+        clean_text(value)
+        for value in values
+        if value is not None and str(value).strip()
+    )
 
 
-def cell_chunks(value: Any) -> list[str]:
+def code_display_text(value: Any) -> str:
+    """Render code behavior without exposing internal segment hash identities."""
+    text = clean_text(value)
+    text = re.sub(
+        r"(?i)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|"
+        r"password|authorization|email|phone|user[_-]?id|client[_-]?id)\s*[:=]\s*"
+        r"<redacted(?:-[^>]+)?>",
+        "redacted_field",
+        text,
+    )
+    return re.sub(r"(?i)\b[0-9a-f]{16}\b", "segment", text)
+
+
+def cell_chunks(value: Any, max_chars: int = MAX_CELL_TEXT) -> list[str]:
     """Return lossless, formula-safe chunks that fit comfortably in an XLSX cell."""
     text = clean_text(value)
-    if len(text) <= MAX_CELL_TEXT:
+    max_chars = max(1, min(MAX_CELL_TEXT, max_chars))
+    if len(text) <= max_chars:
         return [text]
     return [
-        spreadsheet_safe_text(text[start : start + MAX_CELL_TEXT])
-        for start in range(0, len(text), MAX_CELL_TEXT)
+        spreadsheet_safe_text(text[start : start + max_chars])
+        for start in range(0, len(text), max_chars)
     ]
+
+
+def table_widths(header_count: int) -> list[int]:
+    if header_count == len(CLEANUP_PLAN_COLUMNS):
+        return [16, 28, 28, 42, 54, 54, 54]
+    return [16, 28, 42, 54, 54, 54] if header_count >= 6 else [28, 92]
+
+
+def rendered_cell_capacity(width: int) -> int:
+    # Keep one line of slack for uneven explicit line breaks and the leading
+    # apostrophe used to escape formula-like spreadsheet text.
+    return max(180, int(max(12, width * 1.25) * (MAX_RENDERED_LINES - 1)))
+
+
+def estimated_cell_lines(value: Any, width: int) -> int:
+    text = str(value or "")
+    return max(
+        1,
+        sum(
+            max(1, math.ceil(len(line) / max(12, width * 1.25)))
+            for line in text.split("\n")
+        ),
+    )
 
 
 def expanded_table_rows(
     rows: list[dict[str, Any]], headers: list[str], split_long_cells: bool
 ) -> list[list[str]]:
     expanded: list[list[str]] = []
+    widths = table_widths(len(headers))
     for row_number, row in enumerate(rows, start=2):
-        chunks_by_column = [cell_chunks(row.get(header, "")) for header in headers]
-        part_count = max(len(chunks) for chunks in chunks_by_column)
-        if part_count > 1 and not split_long_cells:
-            raise ValueError(
-                f"visible workbook row {row_number} exceeds {MAX_CELL_TEXT} characters; "
-                "summarize the user-facing row instead of truncating it"
+        chunks_by_column = []
+        for column_number, header in enumerate(headers):
+            width = widths[min(column_number, len(widths) - 1)]
+            capacity = rendered_cell_capacity(width)
+            text = clean_text(row.get(header, ""))
+            if not split_long_cells and len(text) > capacity:
+                raise ValueError(
+                    f"visible workbook row {row_number} column {header!r} needs "
+                    f"{estimated_cell_lines(text, width)} rendered lines; summarize "
+                    "the user-facing row instead of clipping it"
+                )
+            chunks_by_column.append(
+                cell_chunks(text, capacity if split_long_cells else MAX_CELL_TEXT)
             )
+        part_count = max(len(chunks) for chunks in chunks_by_column)
         for part in range(part_count):
             expanded.append(
                 [
@@ -253,26 +308,32 @@ def code_rows(configuration: dict[str, Any]) -> list[dict[str, str]]:
                     f"{len(item.get('required_code_line_hashes', []))} executable lines / "
                     f"{len(blocks)} behavior blocks"
                 ),
-                "Behavior": join_text([block.get("purpose") for block in blocks]),
-                "Inputs / outputs / side effects": join_text(
-                    [
-                        value
-                        for block in blocks
-                        for value in (
-                            block.get("inputs"),
-                            block.get("outputs"),
-                            block.get("side_effects"),
-                        )
-                    ]
+                "Behavior": code_display_text(
+                    join_text([block.get("purpose") for block in blocks])
                 ),
-                "Code findings": join_text(
-                    [
-                        f"{finding.get('finding_key')}: {finding.get('verdict')} - "
-                        f"{finding.get('rationale')}"
-                        for finding in findings
-                    ]
+                "Inputs / outputs / side effects": code_display_text(
+                    join_text(
+                        [
+                            value
+                            for block in blocks
+                            for value in (
+                                block.get("inputs"),
+                                block.get("outputs"),
+                                block.get("side_effects"),
+                            )
+                        ]
+                    )
                 ),
-                "Decision": decision_text(item),
+                "Code findings": code_display_text(
+                    join_text(
+                        [
+                            f"{finding.get('finding_key')}: {finding.get('verdict')} - "
+                            f"{finding.get('rationale')}"
+                            for finding in findings
+                        ]
+                    )
+                ),
+                "Decision": code_display_text(decision_text(item)),
             }
         )
     return rows
@@ -326,6 +387,46 @@ def operation_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
                         operation.get("execution_readiness"),
                         operation.get("qa_steps"),
                         operation.get("rollback"),
+                    ]
+                ),
+            }
+        )
+    for handoff in as_list((payload.get("runtime_qa_handoff") or {}).get("items")):
+        rows.append(
+            {
+                "Operation": clean_text(
+                    f"{handoff.get('handoff_id')} / runtime test contract"
+                ),
+                "Area / problem": clean_text(
+                    f"Runtime QA handoff / {handoff.get('category')}"
+                ),
+                "Affected objects": clean_text(
+                    as_list(handoff.get("affected_object_keys"))
+                ),
+                "Reason / target state": join_text(
+                    [
+                        handoff.get("route_contract"),
+                        handoff.get("unproven_boundaries"),
+                        (
+                            "Source decisions: "
+                            + ", ".join(
+                                str(value)
+                                for value in as_list(
+                                    handoff.get("source_references")
+                                )
+                            )
+                        ),
+                    ]
+                ),
+                "Exact mutation": (
+                    "No GTM mutation is authorized by this handoff. Required evidence: "
+                    + clean_text(handoff.get("required_evidence"))
+                ),
+                "Priority / QA / rollback": join_text(
+                    [
+                        handoff.get("test_contract_id"),
+                        handoff.get("next_action"),
+                        handoff.get("blocking_scope"),
                     ]
                 ),
             }
@@ -419,17 +520,21 @@ def add_table(
         cell.alignment = Alignment(wrap_text=True, vertical="center")
         cell.border = Border(bottom=thin)
     sheet.row_dimensions[1].height = 30
-    widths = [16, 28, 42, 54, 54, 54] if len(headers) >= 6 else [28, 92]
+    widths = table_widths(len(headers))
     for row_number in range(2, sheet.max_row + 1):
         estimated_lines = 1
         for column_number, cell in enumerate(sheet[row_number], start=1):
             value = str(cell.value or "")
             width = widths[min(column_number - 1, len(widths) - 1)]
             estimated_lines = max(
-                estimated_lines,
-                value.count("\n") + max(1, math.ceil(len(value) / max(12, width * 1.25))),
+                estimated_lines, estimated_cell_lines(value, width)
             )
-        sheet.row_dimensions[row_number].height = min(120, max(36, estimated_lines * 15))
+        if estimated_lines > MAX_RENDERED_LINES:
+            raise ValueError(
+                f"{sheet.title} row {row_number} still needs {estimated_lines} "
+                "rendered lines after chunking"
+            )
+        sheet.row_dimensions[row_number].height = max(36, estimated_lines * 15)
         if row_number % 2 == 0:
             for cell in sheet[row_number]:
                 cell.fill = PatternFill("solid", fgColor="F5F8FA")
@@ -482,16 +587,34 @@ def build_workbook(
     preservation = operations.get("measurement_preservation") or {}
     preservation_counts = preservation.get("counts") or {}
     preservation_families = as_list(preservation.get("families"))
+    runtime_handoff = operations.get("runtime_qa_handoff") or {}
+    runtime_handoff_items = as_list(runtime_handoff.get("items"))
+    runtime_handoff_categories = sorted(
+        {
+            str(item.get("category") or "")
+            for item in runtime_handoff_items
+            if str(item.get("category") or "")
+        }
+    )
+    target_organization = operations.get("target_organization") or {}
+    target_naming = target_organization.get("naming") or {}
+    target_folders = target_organization.get("folders") or {}
+    target_paused = target_organization.get("paused_lifecycle") or {}
+    # The detailed target state stays in the evidence tabs and JSON packet.
+    # Keep the visible summary scannable even for containers with dozens of
+    # measurement families; embedding each family’s full route description here
+    # produces clipped/over-height stakeholder rows rather than useful
+    # information.
     target_state_summary = join_text(
         [
-            f"{family.get('family_id')} [{family.get('preservation_status')}]: "
-            f"{family.get('target_state') or family.get('required_business_behavior')}"
-            for family in preservation_families[:6]
+            f"{family.get('family_id')} {family.get('family_label')} "
+            f"[{family.get('preservation_status')}]"
+            for family in preservation_families[:12]
         ]
     )
-    if len(preservation_families) > 6:
+    if len(preservation_families) > 12:
         target_state_summary += (
-            f"; +{len(preservation_families) - 6} more reviewed measurement families"
+            f"; +{len(preservation_families) - 12} more reviewed measurement families"
         )
     retained_families = [
         str(row.get("title") or row.get("decision_id") or "")
@@ -510,12 +633,11 @@ def build_workbook(
             priority_order.get(str(row.get("priority") or ""), 4),
             str(row.get("operation_id") or ""),
         ),
-    )[:5]
+    )[:3]
     highest_impact_summary = join_text(
         [
             f"[{row.get('priority')}] {row.get('operation_id')}: "
-            f"{row.get('problem')} -> "
-            f"{row.get('exact_proposed_action')}"
+            f"{' '.join(str(row.get('title') or row.get('problem') or '').split())[:110]}"
             for row in highest_impact
         ]
     )
@@ -588,9 +710,55 @@ def build_workbook(
             "Value": target_state_summary or "No target-state family summary recorded",
         },
         {
+            "Decision": "Target organization",
+            "Value": join_text(
+                [
+                    target_organization.get("status"),
+                    target_organization.get("scope"),
+                ]
+            )
+            or "No organization change justified",
+        },
+        {
+            "Decision": "Naming convention and exact renames",
+            "Value": (
+                f"Policy: {target_naming.get('selected_policy')}. "
+                f"Patterns: {join_text(as_list(target_naming.get('target_patterns'))) or 'none'}. "
+                f"Exact renames: {len(as_list(target_naming.get('exact_renames')))}. "
+                f"Open policy decisions: "
+                f"{len(as_list(target_naming.get('confirmation_decision_ids')))}."
+            ),
+        },
+        {
+            "Decision": "Folder target and paused lifecycle",
+            "Value": (
+                f"Exact folder actions: "
+                f"{len(as_list(target_folders.get('exact_actions')))}; "
+                f"open folder decisions: "
+                f"{len(as_list(target_folders.get('unresolved_decision_ids')))}; "
+                f"paused tags proposed for retirement: "
+                f"{len(as_list(target_paused.get('proposed_retirement_keys')))}; "
+                f"paused tags retained/pending: "
+                f"{len(as_list(target_paused.get('retained_pending_or_necessary_keys')))}."
+            ),
+        },
+        {
             "Decision": "Preservation evidence boundary",
             "Value": preservation.get("scope")
             or "Container-visible configuration only; runtime certification is separate.",
+        },
+        {
+            "Decision": "Runtime verification",
+            "Value": (
+                "Out of scope for this container-only audit; no Preview, browser, "
+                "network, CMP, or vendor test was run or planned."
+                if not runtime_handoff_items
+                else (
+                    "External verification items were supplied outside this audit: "
+                    f"{len(runtime_handoff_items)} item(s): "
+                    + ", ".join(runtime_handoff_categories)
+                )
+            ),
         },
         {
             "Decision": "Highest-impact proposed actions",
@@ -619,9 +787,34 @@ def build_workbook(
             "Decision": "Next step",
             "Value": next_step,
         },
+        {
+            "Decision": "Filterable problem taxonomy",
+            "Value": (
+                "Filter Cleanup Plan by General problem category, or filter Affected "
+                "object(s) with tag:, trigger:, variable:, builtInVariable:, folder:, "
+                "or customTemplate:. Categories: "
+                + ", ".join(sorted(GENERAL_PROBLEM_CATEGORIES))
+                + "."
+            ),
+        },
     ]
     add_table(sheets["01 Summary"], summary, ["Decision", "Value"])
-    add_table(sheets["02 Cleanup Plan"], as_list(human_rows.get("rows")))
+    add_table(
+        sheets["02 Cleanup Plan"],
+        as_list(human_rows.get("rows")),
+        list(CLEANUP_PLAN_COLUMNS),
+    )
+    from openpyxl.comments import Comment
+
+    sheets["02 Cleanup Plan"]["C1"].comment = Comment(
+        "Broad filter. The exact audit lens and problem type remain in the next column.",
+        "GTM cleanup skill",
+    )
+    sheets["02 Cleanup Plan"]["E1"].comment = Comment(
+        "Use Text Filters > Contains with tag:, trigger:, variable:, "
+        "builtInVariable:, folder:, or customTemplate: to filter by GTM layer.",
+        "GTM cleanup skill",
+    )
     add_table(
         sheets["03 Operational Review"],
         operational_rows(operational),

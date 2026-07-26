@@ -1,5 +1,5 @@
-schema_version = 1
-reviewed_on = "2026-07-20"
+schema_version = 2
+reviewed_on = "2026-07-26"
 
 [[vendors]]
 name = "Universal Analytics (legacy)"
@@ -12,6 +12,11 @@ name = "GA4 / Google tag"
 category = "analytics"
 patterns = ["\\bga4\\b", "google analytics", "measurement id", "G-[A-Z0-9]+", "\\bgaawe\\b", "\\bgaawc\\b", "\\bgoogtag\\b", "google tag", "googletagmanager\\.com", "google-analytics\\.com", "\\bgtag\\s*\\("]
 official_docs = ["https://developers.google.com/analytics/devguides/collection/ga4/reference/events", "https://developers.google.com/analytics/devguides/collection/ga4/reference/recommended-events", "https://developers.google.com/analytics/devguides/collection/ga4/ecommerce", "https://support.google.com/analytics/answer/13316687?hl=en", "https://developers.google.com/tag-platform/tag-manager/gateway/setup-guide"]
+contract_version = "2026-07-25"
+contracts = [
+  { id = "purchase", event = "purchase", status = "supported", required_fields = ["transaction_id", "items"], deduplication_fields = ["transaction_id"], field_rules = [{ field = "currency", value_type = "string", exact_length = 3 }, { field = "value", value_type = "number" }] },
+  { id = "refund", event = "refund", status = "supported", required_fields = ["transaction_id"], field_rules = [{ field = "currency", value_type = "string", exact_length = 3 }, { field = "value", value_type = "number" }] },
+]
 
 [[vendors]]
 name = "Google Ads"
@@ -30,14 +35,26 @@ name = "Meta"
 category = "media"
 patterns = ["\\bmeta(?: pixel| conversions api)?\\b", "facebook", "\\bfbq\\s*\\(", "content_ids"]
 official_docs = ["https://developers.facebook.com/docs/meta-pixel/reference/"]
+contract_version = "2026-07-26"
+contracts = [
+  { id = "page-view", event = "PageView", status = "supported" },
+  { id = "view-content", event = "ViewContent", status = "supported" },
+  { id = "add-to-cart", event = "AddToCart", status = "supported" },
+  { id = "initiate-checkout", event = "InitiateCheckout", status = "supported" },
+  { id = "lead", event = "Lead", status = "supported" },
+  { id = "purchase", event = "Purchase", status = "supported", required_fields = ["value", "currency"], field_rules = [{ field = "value", value_type = "number" }, { field = "currency", value_type = "string", pattern = "^[A-Z]{3}$" }] },
+]
 
 [[vendors]]
 name = "TikTok"
 category = "media"
 patterns = ["tiktok", "ttq", "tik tok"]
 official_docs = ["https://ads.tiktok.com/help/article/standard-events-parameters"]
-unsupported_standard_events = ["CompletePayment"]
-event_replacements = ["CompletePayment=>Purchase"]
+contract_version = "2026-07-25"
+contracts = [
+  { id = "purchase", event = "Purchase", status = "supported", field_rules = [{ field = "currency", value_type = "string", pattern = "^[A-Z]{3}$" }] },
+  { id = "complete-payment", event = "CompletePayment", status = "supported", field_rules = [{ field = "currency", value_type = "string", pattern = "^[A-Z]{3}$" }] },
+]
 
 [[vendors]]
 name = "Snapchat"

@@ -21,6 +21,7 @@ from gtm_custom_code_extract import extract_export
 from gtm_lib import source_descriptor
 from gtm_operational_review import scaffold_review as scaffold_operational_review
 from gtm_shared_facts import build_shared_facts
+from gtm_skill_identity import build_identity
 from gtm_source_model import build_model
 
 
@@ -47,6 +48,7 @@ def build_package(
     context_path: Path | None = None,
 ) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    skill_identity = build_identity(Path(__file__).resolve().parents[1])
 
     source_model = build_model(export_path)
     if source_model.get("coverage_gate") == "blocked_source_integrity":
@@ -56,6 +58,15 @@ def build_package(
             **source_descriptor(export_path),
             "kind": "gtm_audit_package_manifest",
             "status": "blocked",
+            "skill_runtime_identity": {
+                key: skill_identity.get(key)
+                for key in (
+                    "project_version",
+                    "runtime_tree_sha256",
+                    "runtime_file_count",
+                    "source_git_commit",
+                )
+            },
             "source_model_coverage_gate": source_model.get("coverage_gate"),
             "shared_facts_coverage_gate": "not_built",
             "counts": {
@@ -120,6 +131,15 @@ def build_package(
     manifest = {
         **source_descriptor(export_path),
         "kind": "gtm_audit_package_manifest",
+        "skill_runtime_identity": {
+            key: skill_identity.get(key)
+            for key in (
+                "project_version",
+                "runtime_tree_sha256",
+                "runtime_file_count",
+                "source_git_commit",
+            )
+        },
         "status": (
             "pass"
             if str(shared_facts.get("coverage_gate") or "").startswith("pass")

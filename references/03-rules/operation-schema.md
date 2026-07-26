@@ -43,8 +43,10 @@ validators and evidence boundary allow it.
 
 An unresolved owner or evidence-limit decision is not an empty fallback. It
 contains one precise question and one concrete recommended action. A final plan
-cannot leave a deterministic operational defect or source-proven configuration
-Issue in `owner_decision_needed`.
+cannot leave a deterministic operational defect or source-known configuration
+repair in `owner_decision_needed`. If a confirmed configuration Issue genuinely
+requires an owner-selected replacement, its recommendation names the object,
+defect ID or exact evidence anchor, and concrete repair/remap/removal direction.
 
 ## Required Human Fields
 
@@ -57,6 +59,10 @@ Each operation contains:
 - exact proposed action;
 - preconditions, QA steps, and rollback;
 - priority, confidence, and execution readiness;
+- `priority_basis` with active reachability, impact classes, evidence
+  confidence, reversibility, owner dependency, an evidence-calibrated floor,
+  and any below-floor review signal; this explains ordering but creates no new
+  approval gate;
 - source run(s), source review IDs, and evidence object keys;
 - affected mutation objects;
 - affected measurement-family IDs and the business behavior retained through
@@ -64,6 +70,35 @@ Each operation contains:
 
 Use the shared taxonomy in `scripts/gtm_taxonomy.py`. Do not combine unrelated
 issues under `Generic hygiene batch` merely to reduce rows.
+
+Each compiled operation also carries `execution_safety`:
+
+- `server_coupled` and exact behavior-bearing route hosts;
+- `configured_activation_risk`, which means the mutation can change static
+  configured reachability and never claims that a tag fired live;
+- `approval.scope`: High/Critical, active, consent/security, server-coupled,
+  and activation-relevant operations are individually approved; only exact
+  low-risk non-active bundles are bulk-eligible;
+- risk-based decommission strategy. Active, paused, uncertain, sensitive,
+  server-coupled, or activation-relevant deletions quarantine first and need
+  separate post-observation deletion approval. Proven inactive low-risk
+  objects can be deleted directly after exact readback.
+
+No fixed soak duration is universal. Choose an observation window that covers
+the relevant traffic/business cycle. Do not rename an object merely to simulate
+quarantine.
+
+The compiled packet does not carry runtime-test contracts. An external outcome
+that the export cannot prove remains a container-evidence boundary and cannot
+relabel a source-visible defect as a runtime question. Do not prescribe GTM
+Preview, browser, CMP, network, vendor, or server-side verification here; use
+the separately scoped `gtm-preview-recette` skill only if the analyst later
+requests runtime acceptance work.
+
+`target_organization` is a projection of exact rename, folder, and paused-
+lifecycle operations plus unresolved policy decisions. It cannot invent a
+folder placement, target count, or cosmetic move that no source decision and
+structured mutation support.
 
 ## Structured Mutations
 
@@ -162,11 +197,24 @@ The decision ledger contains one row for every operational finding,
 configuration object, architecture family, and relationship comparison. Each
 row states its originating review ID, disposition, and linked operation ID when
 cleanup is selected. No source obligation may disappear during reconciliation.
+If exact operations delete every object behind a decision, resolve it to those
+operations; if they leave a canonical survivor, narrow or resolve it to that
+target state. Deleting a recommended canonical object is a hard conflict.
+When Run 1 and a Run-3 comparison raise the same complete nonempty object-set
+choice, preserve both source judgments but present the Run-3 decision or
+operation once. This reconciliation is explicit in the ledger and is not an
+accepted-risk exception. When an exact Unicode/whitespace-only field change
+repairs every missing terminal used by downstream objects, link those dependent
+configuration decisions to the upstream operation rather than duplicating an
+owner question or field change.
 
 Human presentation may batch homogeneous duplicate, unused, naming, folder, or
 generic hygiene operations. The JSON operations remain atomic, and every
 operation ID, structured mutation, affected object, approval choice, and QA
 must remain recoverable exactly once from the visible plan.
+Visible wording explains the concrete GTM behavior and exact change in analyst
+language. Machine paths, hashes, validator phrases, and generic business-impact
+boilerplate remain proof, not the primary explanation.
 
 Apply approved operations in dependency-safe phases: create objects; add missing
 fields/list members; apply logic correction; remap consumers; flatten trigger
@@ -200,6 +248,13 @@ multi-market changes from over-inference.
 
 - Reconcile operations when their complete structured mutations are identical,
   even if independent lenses use different wording or operation keys.
+- Fold a deletion-only operation into one unambiguous broader operation when
+  all of its exact object deletions are a subset of that operation; retain both
+  source lenses and execute each deletion once. Do not choose between competing
+  broader payloads.
+- Compose generated text changes only when object key, normalized JSON path,
+  and before value match; unrelated fields never coalesce merely because both
+  operations contain changes.
 - Preserve every lens rationale and source reference in the reconciled packet.
 - Reject one operation key reused for different structured mutations.
 - Reject different targets for one field, rename, or remap source.
@@ -227,7 +282,8 @@ completeness passes only when:
 - each deterministic operational defect is an operation or intake-locked
   documented exception, while each retained review candidate includes
   source-specific proof of its intentional distinction;
-- each source-proven configuration Issue is an operation;
+- each source-known configuration correction is an operation; an owner-bound
+  Issue instead carries the exact source-specific remediation contract above;
 - each genuine owner or evidence-limit decision includes the analyst's concrete
   recommended action.
 

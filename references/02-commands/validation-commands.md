@@ -16,6 +16,13 @@ Run from the repository or installed skill root. Paths are examples.
 python -m pip install -e ".[analysis,dev]"
 ```
 
+Verify that the runtime being used is the intended source tree:
+
+```powershell
+python -B scripts/gtm_skill_identity.py identity --root . --pretty
+python -B scripts/gtm_skill_identity.py verify C:\path\to\development-source C:\path\to\installed-skill --pretty
+```
+
 ## Build The Source-Locked Package
 
 Run the intake preflight first:
@@ -57,9 +64,6 @@ ContainerVersion export rather than treating the blocked result as a reduced
 audit mode.
 
 Complete the three review JSON files. Do not alter generated source fields.
-Each scaffold includes its immutable `input_contract` and a pending
-`completion_attestation`. Record the artifact roles actually used; do not load
-another run's verdict or repository test completion helper.
 Each scaffold includes its immutable `input_contract` and a pending
 `completion_attestation`. Record the artifact roles actually used; do not load
 another run's verdict or repository test completion helper.
@@ -114,6 +118,16 @@ Full completion always requires the audit and cleanup plan together. Omitting
 `--operations` deliberately fails the completion gate, even when no mutation is
 ultimately justified.
 
+Immediately before any approved mutation or import generation, run the exact
+execution preflight:
+
+```powershell
+python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --approve OP-0001 --pretty
+```
+
+Add the operation-specific server, activation, or post-observation confirmation
+flags only when their evidence has been reviewed.
+
 ## Build And Gate The Cleanup Workbook
 
 ```powershell
@@ -153,9 +167,6 @@ python -B scripts/gtm_change_log_build.py field_changes.json change_log.xlsx
 ```
 
 Use `planned` execution mode for a planned preview. Never label it executed.
-In `executed` mode the command exits nonzero unless the complete readback
-matches the approved simulated future state and every observed field change
-links exactly to an approved operation.
 In `executed` mode the command exits nonzero unless the complete readback
 matches the approved simulated future state and every observed field change
 links exactly to an approved operation.

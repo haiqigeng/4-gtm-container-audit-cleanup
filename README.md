@@ -65,11 +65,12 @@ copied or stale hash is not enough to pass.
 1. **Operational sanitation** checks references, unused and paused-only
    objects, exact duplicates, trigger groups, regex and blocker defects,
    sequencing, schedules, folders, Zones, templates, built-ins, naming,
-   consent-control shape, and active-root lifecycle hygiene. Remediation for a
+   Unicode/reference integrity, consent-control shape, and active-root lifecycle hygiene. Remediation for a
    nested/cyclic trigger group is dependency-ordered, never a blind flatten.
    Payload comparison deliberately excludes route, consent, sequencing,
    schedule, and firing controls so equal payloads on conflicting routes remain
-   visible; deleting a consumed object requires complete remap coverage.
+   visible; deleting a consumed object requires complete remap or exact
+   reference-removal coverage.
 2. **Configuration correctness** reviews every tag, trigger, variable,
    Zone, template, client, Google tag configuration, and transformation. It
    follows every referenced variable to every possible terminal source, checks
@@ -86,7 +87,14 @@ copied or stale hash is not enough to pass.
    contracts, defects, and the overall verdict; duplicate review identities
    fail rather than overwrite. GA4 purchase/refund reviews include
    explicit transaction-ID obligations. Opaque custom templates and incomplete
-   parser coverage cannot be certified as Correct. Community-template terms,
+   parser coverage cannot be certified as Correct. Lookup/regex row/default/order
+   defects, behavior-bearing portability literals, dataLayer resets, GTM
+   internals, manual gtag senders, cookie attributes, and listener guards are
+   explicit obligations. The same locked review covers `document.write`
+   support, missing Custom HTML script wrappers, Optimize/anti-flicker
+   remnants, callback-based CMP reads, and redacted credential candidates.
+   Versioned official contracts lock supported/deprecated
+   events, required fields, static value rules, and endpoints. Community-template terms,
    help, tests, licenses, permissions, and comments are not miscounted as
    executable lines; permissions remain contract evidence. Parser fallback describes
    every individual code segment, not merely its hashes, and cannot invert a
@@ -99,8 +107,9 @@ copied or stale hash is not enough to pass.
    families. It finds functional overlap, conflicting funnel logic, duplicate
    destinations, Zones governing the same child container, unnecessary
    variants, trigger-group cycles, custom-code business events, route/consent
-   variants, browser/server event-destination-consent families, unresolved
-   chain edges, and missed consolidation that exact matching cannot reveal.
+   variants, behavior-equivalent environment/container variants, browser/server event-destination-consent families, unresolved
+   chain edges, dataLayer push/listener spelling near misses, SPA History versus
+   `send_page_view` conflicts, and missed consolidation that exact matching cannot reveal.
    Visible unsafe relationships cannot be retained or hidden behind a generic
    container-evidence limit without a candidate-bound operation or precise,
    relationship-specific owner decision. No-op and object/path-mismatched
@@ -122,7 +131,10 @@ decision rather than independent form fields.
 Only after all three validators pass are their actions reconciled and simulated
 against a future copy of the container. The simulation reruns sanitation,
 configuration, and architecture checks so a structurally valid mutation cannot
-silently create a logically worse target state.
+silently create a logically worse target state. Identical mutations merge
+without losing either evidence lens, and a deletion-only subset folds into one
+unambiguous broader operation so the plan never tells an analyst to delete the
+same object twice.
 
 Large reviews can be split into bounded, source-locked shards. The merge tool
 refuses missing, duplicate, pending, or source-mismatched work, so scaling the
@@ -160,11 +172,21 @@ forwarding requires both a server route and a behavior-bearing payload chain.
 - An audit summary and a separate cleanup-plan XLSX workbook.
 - Two visible decision tabs and compact, unprotected proof tabs that analysts
   can unhide when needed.
+- A filterable general problem category before the exact area/problem type,
+  with GTM layer prefixes retained in the affected-object column.
+- Plain analyst-facing problem/change/readback wording, including explicit
+  explanations for invisible Unicode reference corruption.
 - Lossless hidden proof: long evidence continues onto another row instead of
   being silently truncated.
 - Exact reconciled operations with preconditions, QA, and rollback.
+- Evidence-based priority dimensions, server/activation safety, and risk-based
+  approval/decommission treatment. Runtime QA is out of scope; invoke
+  `gtm-preview-recette` separately only when that work is requested.
 - Every substantiated cleanup action in one exact operation set, plus genuine
   owner decisions and container-evidence limits with a recommended resolution.
+- Exact duplicates become concrete canonical/remap/delete proposals; identical
+  cross-run choices and upstream-reference repairs are shown once while all
+  source judgments remain in the evidence ledger.
 - One visible nonblocking evidence-boundary summary, with each exact per-object
   limit preserved in the hidden reviews instead of presented as a cleanup task.
 - On request and after approval, direct GTM changes or a valid import JSON.
@@ -190,6 +212,9 @@ as a clean result.
 ```powershell
 python -m pip install -e ".[analysis,dev]"
 ```
+
+Use `gtm_skill_identity.py verify` when both a development source and installed
+copy exist; version strings alone do not prove that the runnable trees match.
 
 The full audit requires the deterministic Python pipeline and complete
 container evidence. If either is unavailable, report the audit as blocked and
@@ -223,7 +248,10 @@ verdict artifact as input. For large reviews, run `gtm_review_shards.py check`
 after each completed shard, then merge and run the complete validator.
 
 The exact compilation, future-state, workbook, privacy, and change-log commands
-are in `references/02-commands/validation-commands.md`.
+are in `references/02-commands/validation-commands.md`. Before approved
+mutation or import generation, `gtm_execution_guard.py` enforces exact
+do-not-touch, server-route, activation, quarantine, source, and future-state
+preconditions.
 
 ## Repository Map
 
@@ -242,7 +270,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.3.0
+python -B scripts/check_release.py --tag v1.4.0
 git diff --check
 ```
 

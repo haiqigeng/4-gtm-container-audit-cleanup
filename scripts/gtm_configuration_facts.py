@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
 from typing import Any
 
@@ -70,6 +71,16 @@ def object_key(layer: str, obj: dict[str, Any]) -> str:
 def object_type(layer: str, obj: dict[str, Any]) -> str:
     fallback = layer if layer in {"customTemplate", "zone", "gtagConfig"} else ""
     return str(obj.get("type") or fallback)
+
+
+def normalized_reference_name(value: Any) -> str:
+    """Normalize invisible compatibility differences without guessing semantics."""
+
+    normalized = unicodedata.normalize("NFKC", str(value or ""))
+    normalized = "".join(
+        " " if character.isspace() else character for character in normalized
+    )
+    return re.sub(r" +", " ", normalized).strip()
 
 
 def object_hash(obj: dict[str, Any]) -> str:
@@ -440,6 +451,22 @@ def reference_trace_requirements(
         for variable in as_list(cv.get("builtInVariable"))
         if variable.get("name")
     }
+    all_reference_names = sorted({*variables, *builtins})
+    source_path = "$"
+    for layer, index, candidate in layer_objects(cv):
+        if candidate is obj:
+            source_path = f"{root_path}.{layer}[{index}]"
+            break
+    source_reference_facts = walk_json_fields(obj, source_path)
+
+    def normalization_candidates(reference: str) -> list[str]:
+        normalized = normalized_reference_name(reference)
+        return [
+            candidate
+            for candidate in all_reference_names
+            if candidate != reference
+            and normalized_reference_name(candidate) == normalized
+        ]
 
     def visit(
         reference: str,
@@ -493,7 +520,10 @@ def reference_trace_requirements(
                             "key": str(parameter.get("key") or ""),
                             "type": str(parameter.get("type") or ""),
                             "value_preview": safe_scalar_preview(
-                                parameter.get("value"), 160
+                                parameter.get("value"),
+                                160,
+                                field_name=str(parameter.get("key") or ""),
+                                object_name=str(variable.get("name") or ""),
                             ),
                         }
                         for parameter in as_list(variable.get("parameter"))
@@ -548,6 +578,7 @@ def reference_trace_requirements(
             }
             return
         if not targets:
+            candidates = normalization_candidates(reference)
             terminal_states.add("missing")
             terminal_key = f"missing:{reference}"
             terminals[terminal_key] = {
@@ -556,6 +587,15 @@ def reference_trace_requirements(
                 "reference": reference,
                 "source_object_key": parent_key,
                 "configured_source": f"Missing GTM variable named {reference}",
+                "normalized_reference": normalized_reference_name(reference),
+                "normalization_candidate_names": candidates,
+                "normalization_resolution": (
+                    "unique"
+                    if len(candidates) == 1
+                    else "ambiguous"
+                    if candidates
+                    else "none"
+                ),
             }
             return
         index, variable = targets[0]
@@ -580,7 +620,12 @@ def reference_trace_requirements(
                 {
                     "key": str(parameter.get("key") or ""),
                     "type": str(parameter.get("type") or ""),
-                    "value_preview": safe_scalar_preview(parameter.get("value"), 160),
+                    "value_preview": safe_scalar_preview(
+                        parameter.get("value"),
+                        160,
+                        field_name=str(parameter.get("key") or ""),
+                        object_name=str(variable.get("name") or ""),
+                    ),
                 }
                 for parameter in as_list(variable.get("parameter"))
             ],
@@ -597,7 +642,15 @@ def reference_trace_requirements(
             terminal_states.add("resolved")
             terminal_key = f"resolved:{current_key}"
             configured_source = "; ".join(
-                f"{parameter.get('key')}={safe_scalar_preview(parameter.get('value'), 80)}"
+                "{}={}".format(
+                    parameter.get("key"),
+                    safe_scalar_preview(
+                        parameter.get("value"),
+                        80,
+                        field_name=str(parameter.get("key") or ""),
+                        object_name=str(variable.get("name") or ""),
+                    ),
+                )
                 for parameter in as_list(variable.get("parameter"))
                 if parameter.get("key") and parameter.get("value") is not None
             )
@@ -647,6 +700,11 @@ def reference_trace_requirements(
         requirements.append(
             {
                 "reference": reference,
+                "source_reference_paths": sorted(
+                    str(fact.get("json_path") or "")
+                    for fact in source_reference_facts
+                    if reference in as_list(fact.get("referenced_variables"))
+                ),
                 "required_object_keys": sorted(object_keys),
                 "required_evidence_anchors": sorted(anchors),
                 "terminal_states": sorted(terminal_states),

@@ -19,6 +19,24 @@ REGISTRY_PATH = (
     Path(__file__).resolve().parents[1] / "references" / "03-rules" / "vendor-registry.toml"
 )
 URL_CHECK_USER_AGENT = "Mozilla/5.0 (compatible; gtm-skill-doc-check/1.0)"
+VENDOR_NEUTRAL_FIELDS = {
+    "accountId",
+    "containerId",
+    "workspaceId",
+    "fingerprint",
+    "path",
+    "tagManagerUrl",
+    "notes",
+    "parentFolderId",
+    "name",
+    "monitoringMetadata",
+    "monitoringMetadataTagNameKey",
+}
+COMMENT_OR_LITERAL_RE = re.compile(
+    r"(?P<literal>'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`)"
+    r"|(?P<comment>/\*.*?\*/|//[^\r\n]*|<!--.*?-->)",
+    re.S,
+)
 
 
 def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
@@ -51,6 +69,58 @@ def compiled_vendors(path: Path = REGISTRY_PATH) -> tuple[dict[str, Any], ...]:
 def detect_vendor_text(text: str) -> tuple[str, str]:
     entry = vendor_record(text)
     return str(entry.get("name", "Unclassified")), str(entry.get("category", "unclassified"))
+
+
+def strip_code_comments(value: str) -> str:
+    """Remove comments while preserving quoted endpoints and call arguments."""
+
+    return COMMENT_OR_LITERAL_RE.sub(
+        lambda match: match.group("literal") or " ",
+        value,
+    )
+
+
+def behavior_bearing_vendor_text(
+    obj: dict[str, Any], layer: str = ""
+) -> str:
+    """Serialize only configuration that can identify an executed integration.
+
+    Names, notes, monitoring labels, template help/tests/terms, and other GTM UI
+    metadata are not vendor evidence.  Native template identity, configured
+    parameters, executable calls, and endpoints remain available.
+    """
+
+    if layer == "customTemplate":
+        from gtm_lib import custom_template_executable_code
+
+        payload: Any = {
+            "type": obj.get("type"),
+            "templateId": obj.get("templateId"),
+            "executable_code": custom_template_executable_code(
+                obj.get("templateData", obj)
+            ),
+        }
+    else:
+        payload = obj
+
+    def project(value: Any, parent_key: str = "") -> Any:
+        if isinstance(value, dict):
+            return {
+                key: project(child, key)
+                for key, child in value.items()
+                if key not in VENDOR_NEUTRAL_FIELDS
+            }
+        if isinstance(value, list):
+            return [project(child, parent_key) for child in value]
+        if isinstance(value, str) and parent_key.lower() in {
+            "html",
+            "javascript",
+            "executable_code",
+        }:
+            return strip_code_comments(value)
+        return value
+
+    return json.dumps(project(payload), ensure_ascii=False, sort_keys=True)
 
 
 def vendor_records(text: str) -> list[dict[str, Any]]:
@@ -112,8 +182,9 @@ def validate_registry(
     errors: list[str] = []
     warnings: list[str] = []
     registry = load_registry(path)
-    if registry.get("schema_version") != 1:
-        errors.append("schema_version must be 1")
+    schema_version = registry.get("schema_version")
+    if schema_version not in {1, 2}:
+        errors.append("schema_version must be 1 or 2")
     try:
         reviewed = date.fromisoformat(str(registry.get("reviewed_on") or ""))
         age = (date.today() - reviewed).days
@@ -179,6 +250,116 @@ def validate_registry(
                         f"vendor {name!r}: replacement source {parts[0]!r} is not listed "
                         "in unsupported_standard_events"
                     )
+        contracts = vendor.get("contracts", [])
+        if contracts and schema_version != 2:
+            errors.append(
+                f"vendor {name!r}: versioned contracts require registry schema_version 2"
+            )
+        if contracts and not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}(?:\.\d+)?",
+            str(vendor.get("contract_version") or ""),
+        ):
+            errors.append(
+                f"vendor {name!r}: contract_version must use YYYY-MM-DD or YYYY-MM-DD.N"
+            )
+        if not isinstance(contracts, list) or any(
+            not isinstance(contract, dict) for contract in contracts
+        ):
+            errors.append(f"vendor {name!r}: contracts must be a list of tables")
+            contracts = []
+        contract_ids: set[str] = set()
+        allowed_contract_fields = {
+            "id",
+            "event",
+            "status",
+            "replacement",
+            "required_fields",
+            "deduplication_fields",
+            "required_consent_fields",
+            "required_routing_fields",
+            "field_rules",
+            "deprecated_endpoints",
+        }
+        for contract_index, contract in enumerate(contracts, start=1):
+            contract_id = str(contract.get("id") or "").strip()
+            prefix = f"vendor {name!r}: contract {contract_index}"
+            if not contract_id:
+                errors.append(f"{prefix} is missing id")
+            elif contract_id in contract_ids:
+                errors.append(f"vendor {name!r}: duplicate contract id {contract_id!r}")
+            contract_ids.add(contract_id)
+            unknown_fields = sorted(set(contract) - allowed_contract_fields)
+            if unknown_fields:
+                errors.append(f"{prefix} has unknown fields {unknown_fields!r}")
+            status = str(contract.get("status") or "supported").lower()
+            if status not in {"supported", "deprecated", "unsupported"}:
+                errors.append(f"{prefix} has invalid status {status!r}")
+            event = str(contract.get("event") or "").strip()
+            replacement = str(contract.get("replacement") or "").strip()
+            if status in {"deprecated", "unsupported"} and not event:
+                errors.append(f"{prefix} requires event for status {status!r}")
+            if replacement and not event:
+                errors.append(f"{prefix} cannot define replacement without event")
+            for field in (
+                "required_fields",
+                "deduplication_fields",
+                "required_consent_fields",
+                "required_routing_fields",
+                "deprecated_endpoints",
+            ):
+                values = contract.get(field, [])
+                if not isinstance(values, list) or any(
+                    not isinstance(value, str) or not value.strip()
+                    for value in values
+                ):
+                    errors.append(f"{prefix} {field} must contain non-empty strings")
+                elif len(values) != len(set(values)):
+                    errors.append(f"{prefix} {field} contains duplicates")
+            for endpoint in contract.get("deprecated_endpoints", []):
+                if not re.fullmatch(r"https?://[^\s]+", str(endpoint)):
+                    errors.append(
+                        f"{prefix} deprecated_endpoints must use absolute HTTP(S) URLs"
+                    )
+            field_rules = contract.get("field_rules", [])
+            if not isinstance(field_rules, list) or any(
+                not isinstance(rule, dict) for rule in field_rules
+            ):
+                errors.append(f"{prefix} field_rules must be a list of tables")
+                field_rules = []
+            field_names: set[str] = set()
+            for rule_index, rule in enumerate(field_rules, start=1):
+                rule_prefix = f"{prefix} field rule {rule_index}"
+                field_name = str(rule.get("field") or "").strip()
+                if not field_name:
+                    errors.append(f"{rule_prefix} is missing field")
+                elif field_name in field_names:
+                    errors.append(
+                        f"{prefix} repeats field rule for {field_name!r}"
+                    )
+                field_names.add(field_name)
+                unknown_rule_fields = sorted(
+                    set(rule) - {"field", "value_type", "exact_length", "pattern"}
+                )
+                if unknown_rule_fields:
+                    errors.append(
+                        f"{rule_prefix} has unknown fields {unknown_rule_fields!r}"
+                    )
+                value_type = str(rule.get("value_type") or "")
+                if value_type and value_type not in {"string", "number", "boolean"}:
+                    errors.append(
+                        f"{rule_prefix} has invalid value_type {value_type!r}"
+                    )
+                exact_length = rule.get("exact_length")
+                if exact_length is not None and (
+                    not isinstance(exact_length, int) or exact_length < 1
+                ):
+                    errors.append(f"{rule_prefix} exact_length must be a positive integer")
+                pattern = str(rule.get("pattern") or "")
+                if pattern:
+                    try:
+                        re.compile(pattern)
+                    except re.error as exc:
+                        errors.append(f"{rule_prefix} has invalid pattern: {exc}")
         if online:
             for url in docs:
                 url_error = official_url_error(url)

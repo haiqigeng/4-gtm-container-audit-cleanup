@@ -9,6 +9,7 @@ complementary implementations, conflicting logic, or unrelated.
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 import unicodedata
@@ -34,10 +35,11 @@ from gtm_lib import (
     source_descriptor,
     source_integrity_findings,
     stable_hash,
+    strip_nonbehavior_comments,
     trigger_group_members,
     walk_json_fields,
 )
-from gtm_vendor_registry import vendor_record
+from gtm_vendor_registry import behavior_bearing_vendor_text, vendor_record
 
 COMMON_IGNORED = set(BEHAVIOR_NEUTRAL_FIELDS)
 IDENTITY_IGNORED = {
@@ -138,6 +140,14 @@ CUSTOM_CODE_EVENT_PATTERNS = (
     re.compile(r"\bsnaptr\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", re.I),
     re.compile(r"\bpintrk\s*\(\s*['\"]track['\"]\s*,\s*['\"]([^'\"]+)", re.I),
 )
+DATA_LAYER_PUSH_OBJECT_RE = re.compile(
+    r"\bdataLayer\s*\.\s*push\s*\(\s*\{(?P<body>.{0,1800}?)\}\s*\)",
+    re.I | re.S,
+)
+PUSH_EVENT_FIELD_RE = re.compile(
+    r"(?:['\"]?event['\"]?)\s*:\s*['\"]([^'\"]+)['\"]",
+    re.I,
+)
 DIMENSIONS_BY_LAYER = {
     "tag": [
         "purpose",
@@ -201,6 +211,7 @@ DISCOVERY_METHOD_BY_COMPARISON_TYPE = {
     "browser_server_event_route_family": "consumer_destination_and_event_overlap",
     "browser_server_consent_deduplication_review": "consent_sequence_and_server_route_conflicts",
     "browser_server_terminal_source_review": "terminal_source_formula_and_output_overlap",
+    "behavior_portability_variant": "normalized_condition_and_route_variants",
     "shared_zone_child_container": "normalized_condition_and_route_variants",
     "shared_execution_trigger": "normalized_condition_and_route_variants",
     "related_trigger_scope_tag_family": "funnel_question_market_and_product_families",
@@ -217,6 +228,8 @@ DISCOVERY_METHOD_BY_COMPARISON_TYPE = {
     "near_equivalent_trigger_conditions": "normalized_condition_and_route_variants",
     "trigger_condition_subset": "normalized_condition_and_route_variants",
     "shared_business_scope": "funnel_question_market_and_product_families",
+    "data_layer_push_listener_near_miss": "consumer_destination_and_event_overlap",
+    "spa_history_send_page_view_review": "consumer_destination_and_event_overlap",
 }
 
 
@@ -440,7 +453,7 @@ def tag_contract(record: dict[str, Any]) -> dict[str, Any]:
     if not events:
         return {}
     vendor = str(
-        vendor_record(json.dumps(behavior_projection(obj), ensure_ascii=False)).get("name")
+        vendor_record(behavior_bearing_vendor_text(obj, record["layer"])).get("name")
         or ""
     )
     return {
@@ -492,6 +505,179 @@ def custom_code(obj: dict[str, Any]) -> str:
         if value is not None:
             return re.sub(r"\s+", " ", str(value)).strip()
     return ""
+
+
+def pushed_data_layer_events(obj: dict[str, Any]) -> list[str]:
+    code = strip_nonbehavior_comments(custom_code(obj))
+    return sorted(
+        {
+            re.sub(r"\s+", " ", str(match.group(1) or "")).strip()
+            for push in DATA_LAYER_PUSH_OBJECT_RE.finditer(code)
+            for match in PUSH_EVENT_FIELD_RE.finditer(push.group("body"))
+            if str(match.group(1) or "").strip()
+        }
+    )
+
+
+def trigger_custom_event_values(record: dict[str, Any]) -> list[str]:
+    values: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            parameters = condition_parameters(value)
+            left = re.sub(r"\s+", " ", str(parameters.get("arg0") or "")).strip()
+            right = re.sub(r"\s+", " ", str(parameters.get("arg1") or "")).strip()
+            if left in {"{{_event}}", "_event"} and right:
+                values.add(right)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(record["object"])
+    return sorted(values)
+
+
+def canonical_event_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", normalized_text(value))
+
+
+def near_event_name(left: str, right: str) -> tuple[bool, float]:
+    if left == right:
+        return False, 1.0
+    if left.casefold() == right.casefold():
+        return True, 0.99
+    left_key = canonical_event_name(left)
+    right_key = canonical_event_name(right)
+    if not left_key or not right_key:
+        return False, 0.0
+    if left_key == right_key:
+        return True, 0.99
+    if min(len(left_key), len(right_key)) < 5:
+        return False, 0.0
+    score = difflib.SequenceMatcher(
+        None,
+        left_key,
+        right_key,
+        autojunk=False,
+    ).ratio()
+    return score >= 0.9 and abs(len(left_key) - len(right_key)) <= 2, score
+
+
+def add_push_listener_near_miss_candidates(
+    builder: CandidateBuilder,
+    tags: list[dict[str, Any]],
+    triggers: list[dict[str, Any]],
+) -> None:
+    listeners = []
+    for record in triggers:
+        values = trigger_custom_event_values(record)
+        if values:
+            listeners.append((record, values))
+    for tag in tags:
+        pushed_events = pushed_data_layer_events(tag["object"])
+        if not pushed_events:
+            continue
+        for trigger, listened_events in listeners:
+            for pushed in pushed_events:
+                for listened in listened_events:
+                    matched, score = near_event_name(pushed, listened)
+                    if not matched:
+                        continue
+                    builder.add(
+                        "data_layer_push_listener_near_miss",
+                        (tag, trigger),
+                        (
+                            f"{tag['object_key']} pushes dataLayer event {pushed!r}, while "
+                            f"{trigger['object_key']} listens for near-matching "
+                            f"{listened!r}. Confirm intentional spelling/casing before "
+                            "changing either side."
+                        ),
+                        score,
+                    )
+
+
+def explicit_parameter_boolean(obj: dict[str, Any], key: str) -> bool | None:
+    values = [
+        value
+        for parameter_key, value in nested_key_values(obj.get("parameter", []))
+        if normalized_text(parameter_key) == normalized_text(key)
+    ]
+    if not values:
+        return None
+    value = normalized_text(values[-1])
+    if value in {"true", "1"}:
+        return True
+    if value in {"false", "0"}:
+        return False
+    return None
+
+
+def add_spa_page_view_candidates(
+    builder: CandidateBuilder,
+    tags: list[dict[str, Any]],
+    triggers: list[dict[str, Any]],
+    gtag_configs: list[dict[str, Any]],
+) -> None:
+    history_triggers = {
+        str(record["object_id"]): record
+        for record in triggers
+        if str(record["object_type"] or "").upper() == "HISTORY_CHANGE"
+    }
+    if not history_triggers:
+        return
+    manual_page_views = []
+    for tag in tags:
+        event_values = {
+            canonical_event_name(value)
+            for value in as_list(tag_contract(tag).get("events"))
+        }
+        firing_ids = {
+            str(value) for value in as_list(tag["object"].get("firingTriggerId"))
+        }
+        used_history = firing_ids & set(history_triggers)
+        if "pageview" in event_values and used_history:
+            manual_page_views.append((tag, used_history))
+
+    google_configs = [
+        record
+        for record in [*tags, *gtag_configs]
+        if str(
+            vendor_record(
+                behavior_bearing_vendor_text(record["object"], record["layer"])
+            ).get("name")
+            or ""
+        )
+        == "GA4 / Google tag"
+        and (
+            record["layer"] == "gtagConfig"
+            or str(record["object"].get("type") or "").lower()
+            in {"googtag", "gaawc"}
+        )
+        and not record.get("paused")
+        and explicit_parameter_boolean(record["object"], "send_page_view") is not False
+    ]
+    for manual_tag, history_ids in manual_page_views:
+        for google_config in google_configs:
+            if google_config["object_key"] == manual_tag["object_key"]:
+                continue
+            members = [
+                manual_tag,
+                google_config,
+                *[history_triggers[value] for value in sorted(history_ids)],
+            ]
+            builder.add(
+                "spa_history_send_page_view_review",
+                members,
+                (
+                    f"{manual_tag['object_key']} sends page_view on History Change while "
+                    f"{google_config['object_key']} does not explicitly disable "
+                    "send_page_view. Confirm GA4 Enhanced Measurement/property behavior "
+                    "and retain exactly one virtual page-view sender per navigation."
+                ),
+                0.85,
+            )
 
 
 def condition_parameters(node: dict[str, Any]) -> dict[str, str]:
@@ -1079,6 +1265,81 @@ def add_semantic_name_candidates(
             )
 
 
+PORTABILITY_TOKEN_RE = re.compile(
+    r"\bGTM-(?=[A-Z0-9]{4,12}\b)(?=[A-Z0-9]*\d)[A-Z0-9]+\b|"
+    r"\b(?:dev|development|stage|staging|qa|uat|sandbox|preprod|prod|production|live)\b|"
+    r"(?:localhost|127\.0\.0\.1)",
+    re.I,
+)
+
+
+def add_portability_candidates(
+    builder: CandidateBuilder,
+    records: dict[str, list[dict[str, Any]]],
+) -> None:
+    """Compare environment/container variants without treating metadata as behavior."""
+
+    def normalize(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: normalize(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        if not isinstance(value, str):
+            return value
+        text = re.sub(
+            r"\bGTM-(?=[A-Z0-9]{4,12}\b)(?=[A-Z0-9]*\d)[A-Z0-9]+\b",
+            "<gtm-container>",
+            value,
+            flags=re.I,
+        )
+        text = re.sub(
+            r"\b(?:dev|development|stage|staging|qa|uat|sandbox|preprod|"
+            r"prod|production|live)\b",
+            "<environment>",
+            text,
+            flags=re.I,
+        )
+        return re.sub(r"(?:localhost|127\.0\.0\.1)", "<environment-host>", text, flags=re.I)
+
+    for layer, layer_records in records.items():
+        groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        signals_by_key: dict[str, list[str]] = {}
+        for record in layer_records:
+            behavior = comparable(
+                behavior_projection(record["object"]),
+                IDENTITY_IGNORED[layer],
+            )
+            serialized = json.dumps(behavior, ensure_ascii=False, sort_keys=True)
+            signals = sorted(set(PORTABILITY_TOKEN_RE.findall(serialized)))
+            if not signals:
+                continue
+            key = stable_hash(normalize(behavior))
+            groups[key].append(record)
+            signals_by_key[record["object_key"]] = signals
+        for signature, group in sorted(groups.items()):
+            if len(group) < 2:
+                continue
+            builder.add(
+                "behavior_portability_variant",
+                group,
+                (
+                    "Behavior-bearing configuration becomes equivalent only after replacing "
+                    "environment/container literals; compare the exact routes and parameterize "
+                    "or retain them deliberately. Signals: "
+                    + json.dumps(
+                        {
+                            record["object_key"]: signals_by_key[record["object_key"]]
+                            for record in group
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    + f"; normalized signature={signature}."
+                ),
+                0.9,
+            )
+
+
 def add_variable_candidates(builder: CandidateBuilder, variables: list[dict[str, Any]]) -> None:
     for key, group in keyed_record_groups(
         variables,
@@ -1292,6 +1553,17 @@ def relationship_candidates(
     add_code_candidates(builder, records)
     add_trigger_candidates(builder, records.get("trigger", []))
     add_trigger_group_cycle_candidates(builder, records.get("trigger", []))
+    add_push_listener_near_miss_candidates(
+        builder,
+        records.get("tag", []),
+        records.get("trigger", []),
+    )
+    add_spa_page_view_candidates(
+        builder,
+        records.get("tag", []),
+        records.get("trigger", []),
+        records.get("gtagConfig", []),
+    )
     add_tag_trigger_scope_candidates(
         builder,
         records.get("tag", []),
@@ -1302,6 +1574,7 @@ def relationship_candidates(
         records.get("tag", []),
         records.get("trigger", []),
     )
+    add_portability_candidates(builder, records)
     add_semantic_name_candidates(builder, records)
     return builder.rows()
 

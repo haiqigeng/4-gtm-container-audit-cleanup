@@ -26,6 +26,16 @@ obligations, not automatic deletions.
 - Zones, Google tag configurations, clients, and transformations included when
   exported.
 
+For each missing setup/teardown name, list ranked existing-tag candidates using
+normalized name identity, compatible type, peer sequence usage, and proximity.
+A unique peer-supported candidate creates an exact `tagName` repair. Clearing
+the setup/teardown list is not a safe fallback. When the affected tag itself
+is paused with no active export-visible consumers and is selected for complete
+lifecycle deletion, that deletion takes precedence over repairing its stale
+sequence field; never emit both actions for the same inactive target. If no
+candidate is unique, retain the broken edge and ask one source-specific owner
+question.
+
 ## Lifecycle And Usage
 
 - active tags versus paused tags;
@@ -94,6 +104,9 @@ group deletion.
 ## Folders And Naming
 
 - empty, singleton, overloaded, and unfiled structures;
+- invisible/control characters, non-breaking or other non-standard whitespace,
+  non-canonical Unicode forms, confusable cross-script names, and invisible
+  corruption inside `{{variable references}}`;
 - dominant local naming order and meaningful acronyms;
 - inconsistent object-type prefixes, case, separators, scope, country/product,
   consent-blocking roles, and duplicate proposed names;
@@ -101,6 +114,10 @@ group deletion.
 
 Naming proposals remain provisional until behavior, canonical objects, and
 business-specific prefixes are understood.
+Canonicalize a Unicode-corrupted name only together with every name-based
+reference. If normalization collides with another object or two names merely
+look confusable, preserve the candidate for analyst review instead of guessing
+identity.
 When neither an approved policy nor a reliable dominant local convention
 exists, present one visible naming-policy question together with the analyst's
 recommended convention instead of declaring every object nonconforming to an
@@ -113,6 +130,12 @@ consolidation/remaps are settled.
 - Universal Analytics tag types, property IDs, active UA parameters, corroborated
   event names, and old ecommerce paths; a media event such as `AddToCart` or an
   unrelated false-valued `enhancedEcommerce` field is not UA evidence alone;
+- a `(UA)`/Universal Analytics name without native UA type, property ID, or old
+  ecommerce behavior is a label-only candidate. Record its exact consumers,
+  tag types, and destinations. If every consumer is current GA4 and removing
+  the stale label yields a unique name, propose that exact metadata rename;
+  mixed, unknown, or colliding consumers remain candidates, and name evidence
+  never proves legacy behavior or migration;
 - fixed product positions and old product-array assumptions;
 - vendor, destination/account/pixel IDs, endpoints, and external script hosts;
 - export/UI metadata URLs excluded from destination and vendor inference, and
@@ -130,6 +153,9 @@ consolidation/remaps are settled.
   semantics, with unknown values kept as findings rather than normalized away.
 - blockers recorded as control candidates until trigger overlap proves that
   they can affect the tag; consent-looking names/events do not prove forwarding.
+  When every firing route and the blocker expose exact disjoint custom-event
+  sets, remove the ineffective edge. Delete that blocker trigger in the same
+  operation only when the edge removal leaves no exported consumer.
 
 ## Mandatory Result
 
@@ -148,10 +174,15 @@ or affected object and provide a specific reason; the review
 rationale must preserve that reason. `not_applicable` and
 `container_evidence_limit` are not valid ways to dismiss a nonzero sanitation
 finding.
+Unfiled objects never disappear during presentation or reconciliation. When a
+locked folder policy or source-supported role mapping exists, emit exact
+`parentFolderId` moves; otherwise retain one visible policy decision with the
+analyst's recommended taxonomy and list it in `target_organization`.
 
-Deleting a consumed object requires the accepted remap set to cover every
-surviving consumer. Several remap records may jointly provide that coverage;
-consumers deleted in the same accepted operation set do not require remapping.
+Deleting a consumed object requires the accepted remap set or exact field
+change that removes the reference to cover every surviving consumer. Several
+remap/change records may jointly provide that coverage; consumers deleted in
+the same accepted operation set do not require remapping.
 Every remap stays within its supported GTM layer, targets an object that
 survives the accepted operation set, and is rejected when the resulting
 consumer graph introduces a cycle. Apply all accepted renames, creations, and

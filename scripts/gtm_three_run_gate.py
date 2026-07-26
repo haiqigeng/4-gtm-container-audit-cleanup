@@ -130,6 +130,7 @@ def review_binding_errors(
         "architecture_review": "business_architecture",
     }
     contracts = manifest.get("run_input_contracts") or {}
+    reasoning_contexts: dict[str, str] = {}
     for key in ("operational_review", "configuration_review", "architecture_review"):
         payload = load_json(paths[key])
         if payload.get("shared_facts_sha256") != shared.get("shared_facts_sha256"):
@@ -144,6 +145,22 @@ def review_binding_errors(
         expected_contract = contracts.get(contract_key_by_review[key])
         if payload.get("input_contract") != expected_contract:
             errors.append(f"{paths[key].name} input contract differs from the package manifest")
+        attestation = payload.get("completion_attestation") or {}
+        context_id = str(attestation.get("independent_review_context_id") or "")
+        if context_id:
+            reasoning_contexts[key] = context_id
+    duplicate_contexts = sorted(
+        {
+            context_id
+            for context_id in reasoning_contexts.values()
+            if list(reasoning_contexts.values()).count(context_id) > 1
+        }
+    )
+    if duplicate_contexts:
+        errors.append(
+            "the three semantic runs reuse an independent_review_context_id; "
+            "each run must be completed in its own reasoning context"
+        )
     return errors
 
 

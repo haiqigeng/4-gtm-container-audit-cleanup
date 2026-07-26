@@ -63,6 +63,11 @@ INTAKE_FIELDS = (
     "cmp",
     "markets",
     "server_routing_hosts",
+    "spa",
+    "canonical_ids",
+    "staging_hosts",
+    "do_not_touch",
+    "naming_policy",
     "requested_deliverable",
 )
 INFERENCE_EVIDENCE = {
@@ -72,8 +77,18 @@ INFERENCE_EVIDENCE = {
     "cmp": "reachable active-object CMP identifiers",
     "markets": "domain ccTLD, container prefix, or Zone scope",
     "server_routing_hosts": "recognized route fields on reachable tags and Google configurations",
+    "spa": "reachable History Change trigger configuration",
+    "canonical_ids": "analyst-owned canonical destination or object decision",
+    "staging_hosts": "behavior-bearing development/staging/QA endpoint",
+    "do_not_touch": "analyst-owned exact execution fence",
+    "naming_policy": "analyst-owned policy or completed container-local naming analysis",
     "requested_deliverable": "full-run contract: audit plus exact cleanup plan",
 }
+STAGING_HOST_RE = re.compile(
+    r"^(?:localhost|127\.0\.0\.1|"
+    r"(?:dev|development|stage|staging|qa|uat|sandbox|preprod)(?:[-.].+))$",
+    re.I,
+)
 
 
 def as_list(value: Any) -> list[Any]:
@@ -133,6 +148,21 @@ def hostnames(text: str) -> list[str]:
     return sorted(values)
 
 
+def staging_hostnames(text: str) -> list[str]:
+    return [host for host in hostnames(text) if STAGING_HOST_RE.fullmatch(host)]
+
+
+def normalize_spa(value: Any) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    normalized = str(value or "").strip().lower()
+    if normalized in {"yes", "true", "spa", "single_page_application"}:
+        return "yes"
+    if normalized in {"no", "false", "multi_page_application", "mpa"}:
+        return "no"
+    return "unknown"
+
+
 def inferred_website_url(cv: dict[str, Any]) -> str:
     container = cv.get("container") if isinstance(cv.get("container"), dict) else {}
     raw_values = [container.get("domainName"), cv.get("domainName")]
@@ -178,13 +208,23 @@ def inferred_markets(cv: dict[str, Any], website_url: str) -> list[str]:
 
 
 def context_value_present(field: str, value: Any, provided: bool = False) -> bool:
-    if provided and field in {"cmp", "markets", "server_routing_hosts"}:
+    if provided and field in {
+        "cmp",
+        "markets",
+        "server_routing_hosts",
+        "canonical_ids",
+        "staging_hosts",
+        "do_not_touch",
+    }:
         return isinstance(value, list)
     if provided and field == "container_type":
         return isinstance(value, str) and value.strip().lower() in {"web", "server"}
+    if provided and field == "spa":
+        return normalize_spa(value) in {"yes", "no"}
     if provided and field in {
         "website_url",
         "business_model",
+        "naming_policy",
         "requested_deliverable",
     }:
         return isinstance(value, str) and value.strip().lower() not in {
@@ -319,6 +359,12 @@ def build_context_model(
         else "not_visible_in_container_export"
     )
     website_url = inferred_website_url(cv)
+    active_history_triggers = [
+        obj
+        for obj in active_objects.get("trigger", [])
+        if str(obj.get("type") or "").upper() == "HISTORY_CHANGE"
+    ]
+    detected_staging_hosts = staging_hostnames(active_text)
     inferred = {
         "website_url": website_url,
         "business_model": inferred_business_model(active_text),
@@ -328,6 +374,11 @@ def build_context_model(
             name for name, pattern in CMP_PATTERNS.items() if pattern.search(active_text)
         ),
         "server_routing_hosts": route_hosts,
+        "spa": "yes" if active_history_triggers else "unknown",
+        "canonical_ids": [],
+        "staging_hosts": detected_staging_hosts,
+        "do_not_touch": [],
+        "naming_policy": "unknown",
         "external_hosts": hostnames(text),
         "google_tag_gateway": {
             "status": gateway_status,
@@ -372,6 +423,8 @@ def build_context_model(
         accepted_provided["container_type"] = str(
             accepted_provided["container_type"]
         ).strip().lower()
+    if "spa" in accepted_provided:
+        accepted_provided["spa"] = normalize_spa(accepted_provided["spa"])
     context = {**inferred, **accepted_provided}
     evidence = build_context_evidence(inferred, accepted_provided)
     intake_questions: list[dict[str, Any]] = []
@@ -427,6 +480,32 @@ def build_context_model(
                 "Confirm which detected first-party hosts route browser events to a server container.",
                 True,
                 "browser/server ownership, consent forwarding, and deduplication boundaries",
+            )
+        )
+    if detected_staging_hosts and evidence["staging_hosts"]["status"] != "provided":
+        intake_questions.append(
+            intake_question(
+                "INTAKE-STAGING-HOSTS",
+                "staging_hosts",
+                (
+                    "Confirm whether the behavior-bearing non-production host(s) "
+                    f"{detected_staging_hosts!r} are intentional in this container."
+                ),
+                True,
+                "portability repairs and production endpoint preservation",
+            )
+        )
+    if evidence["do_not_touch"]["status"] == "unresolved":
+        intake_questions.append(
+            intake_question(
+                "INTAKE-DO-NOT-TOUCH",
+                "do_not_touch",
+                (
+                    "List any exact layer:ID objects that must not be changed, or "
+                    "confirm none before execution approval."
+                ),
+                False,
+                "executor-level mutation fence; audit depth is unchanged",
             )
         )
     for index, value in enumerate(as_list(provided.get("unresolved_questions")), start=1):

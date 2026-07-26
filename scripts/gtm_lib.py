@@ -69,6 +69,7 @@ SYSTEM_VARIABLE_REFERENCES = {
 KNOWN_SYSTEM_TRIGGER_REFERENCES = {
     "2147479553": "GTM system trigger reference, commonly exported for all-pages/pageview routes",
     "2147479573": "GTM system trigger reference, commonly exported for initialization or Google tag routes",
+    "2147479593": "GTM system trigger reference exported for Consent Initialization - All Pages",
 }
 
 
@@ -354,10 +355,44 @@ def stable_hash(value: Any, length: int = 16) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:length]
 
 
-def safe_scalar_preview(value: Any, limit: int = 160) -> str:
+SECRET_FIELD_CONTEXT_RE = re.compile(
+    r"\b(?:client|api)[ _-]?secret\b|\b(?:access|refresh)[ _-]?token\b|"
+    r"\bauthorization\b|\bpassword\b|\bprivate[ _-]?key\b|"
+    r"\b(?:api|subscription)[ _-]?key\b",
+    re.I,
+)
+SECRET_OBJECT_NAME_RE = re.compile(
+    r"\b(?:client|api)[ _-]?secret\b|\b(?:access|refresh)[ _-]?token\b|"
+    r"\bpassword\b|\bprivate[ _-]?key\b|\b(?:api|subscription)[ _-]?key\b",
+    re.I,
+)
+SECRET_VALUE_SHAPE_RE = re.compile(
+    r"^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$|"
+    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+    re.I,
+)
+
+
+def safe_scalar_preview(
+    value: Any,
+    limit: int = 160,
+    *,
+    field_name: str = "",
+    object_name: str = "",
+) -> str:
     if value is None or isinstance(value, (bool, int, float)):
         return json.dumps(value, ensure_ascii=False)
     text = str(value)
+    if (
+        text.strip()
+        and not REF_RE.search(text)
+        and (
+            SECRET_FIELD_CONTEXT_RE.search(field_name)
+            or SECRET_OBJECT_NAME_RE.search(object_name)
+            or SECRET_VALUE_SHAPE_RE.search(text.strip())
+        )
+    ):
+        return "<redacted secret-like container value>"
     text = re.sub(
         r"(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password)"
         r"\s*[:=]\s*[^&\s,;]+",
@@ -368,13 +403,32 @@ def safe_scalar_preview(value: Any, limit: int = 160) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "..."
 
 
-def walk_json_fields(value: Any, path: str = "$") -> list[dict[str, Any]]:
+def walk_json_fields(
+    value: Any,
+    path: str = "$",
+    *,
+    object_name: str = "",
+    field_name: str = "",
+) -> list[dict[str, Any]]:
     """Return stable leaf facts with exact JSON paths and variable references."""
     rows: list[dict[str, Any]] = []
     if isinstance(value, dict):
+        current_object_name = str(value.get("name") or object_name)
+        parameter_name = str(value.get("key") or "")
         for key in sorted(value):
             child_path = f"{path}.{key}"
-            rows.extend(walk_json_fields(value[key], child_path))
+            rows.extend(
+                walk_json_fields(
+                    value[key],
+                    child_path,
+                    object_name=current_object_name,
+                    field_name=(
+                        parameter_name
+                        if parameter_name and key in {"value", "list", "map"}
+                        else key
+                    ),
+                )
+            )
         if not value:
             rows.append(
                 {
@@ -388,7 +442,14 @@ def walk_json_fields(value: Any, path: str = "$") -> list[dict[str, Any]]:
         return rows
     if isinstance(value, list):
         for index, item in enumerate(value):
-            rows.extend(walk_json_fields(item, f"{path}[{index}]"))
+            rows.extend(
+                walk_json_fields(
+                    item,
+                    f"{path}[{index}]",
+                    object_name=object_name,
+                    field_name=field_name,
+                )
+            )
         if not value:
             rows.append(
                 {
@@ -405,7 +466,11 @@ def walk_json_fields(value: Any, path: str = "$") -> list[dict[str, Any]]:
         {
             "json_path": path,
             "value_type": type(value).__name__,
-            "value_preview": safe_scalar_preview(value),
+            "value_preview": safe_scalar_preview(
+                value,
+                field_name=field_name,
+                object_name=object_name,
+            ),
             "value_hash": stable_hash(value),
             "referenced_variables": sorted(refs(value)),
         }

@@ -245,6 +245,23 @@ Check:
 - consent before external script or request initiation;
 - browser/server duplicate paths and event-ID consistency.
 
+The versioned registry locks common Meta standard-event identities and the
+source-visible `Purchase` value/currency contract. Inspect fields inside the
+actual `fbq()` payload rather than treating a Custom HTML parameter table as
+empty. Do not require a browser/server deduplication ID on a browser-only Meta
+route; require it only when the audited architecture proves both delivery
+paths.
+
+For Google Ads and Floodlight, review conversion-linking coverage
+conditionally. An all-pages Google tag can make a separate Conversion Linker
+unnecessary, and current conversion tags may load Google tag capability; the
+absence of a standalone linker is therefore not an automatic defect. When
+`url_passthrough` or `ads_data_redaction` is configured, create an explicit
+consent-contract review. A `*.run.app` transport is a production-domain review
+candidate, not proof of broken routing; recommend an approved first-party
+domain where applicable without upgrading the route to an Issue by hostname
+alone.
+
 A dataLayer variable is valid when it already returns the required array/object.
 Custom JavaScript is justified only for a real documented transformation, and
 its output must be inspected line by line.

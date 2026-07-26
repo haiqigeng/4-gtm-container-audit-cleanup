@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import argparse
 import collections
+import difflib
 import hashlib
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +37,7 @@ from gtm_lib import (
     system_reference_description,
     trigger_group_members,
 )
-from gtm_vendor_registry import detect_vendor_text
+from gtm_vendor_registry import behavior_bearing_vendor_text, detect_vendor_text
 
 COMMON_IGNORED = set(BEHAVIOR_NEUTRAL_FIELDS)
 TAG_ID_IGNORED = COMMON_IGNORED | {"tagId", "name"}
@@ -77,6 +79,9 @@ REVIEW_CANDIDATE_FINDING_TYPES = {
     "normalized_duplicate_tag_signature",
     "same_contract_different_consent_control_candidate",
     "singleton_folder",
+    "unicode_confusable_name_candidate",
+    "unicode_name_integrity_candidate",
+    "legacy_name_only_candidate",
     "universally_permissive_condition",
     "universally_permissive_zone_boundary",
 }
@@ -120,6 +125,172 @@ CONDITION_OPERATORS = {
 
 def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def canonical_unicode_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or ""))
+    normalized = "".join(
+        " "
+        if char == "\u00a0" or unicodedata.category(char) == "Zs"
+        else ""
+        if unicodedata.category(char) in {"Cc", "Cf"}
+        else char
+        for char in normalized
+    )
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def unicode_integrity_problems(value: str) -> list[str]:
+    problems: list[str] = []
+    categories = {unicodedata.category(char) for char in value}
+    if any(category in {"Cc", "Cf"} for category in categories):
+        problems.append("invisible/control Unicode character")
+    if any(
+        char != " " and (char == "\u00a0" or unicodedata.category(char) == "Zs")
+        for char in value
+    ):
+        problems.append("non-standard Unicode whitespace")
+    if unicodedata.normalize("NFKC", value) != value:
+        problems.append("non-canonical Unicode form")
+    return problems
+
+
+def normalized_reference_name(value: str) -> str:
+    return canonical_unicode_text(value).casefold()
+
+
+def object_string_fields(
+    cv: dict[str, Any], root_path: str
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+
+    def visit(
+        value: Any,
+        path: str,
+        object_key_value: str,
+    ) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                visit(child, f"{path}.{key}", object_key_value)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, f"{path}[{index}]", object_key_value)
+        elif isinstance(value, str):
+            rows.append(
+                {
+                    "object_key": object_key_value,
+                    "json_path": path,
+                    "value": value,
+                }
+            )
+
+    for layer in SEMANTIC_LAYERS:
+        for index, obj in enumerate(as_list(cv.get(layer))):
+            visit(
+                obj,
+                f"{root_path}.{layer}[{index}]",
+                f"{layer}:{object_id(obj, layer)}",
+            )
+    return rows
+
+
+def reference_text_changes(
+    cv: dict[str, Any],
+    root_path: str,
+    before_name: str,
+    after_name: str,
+    *,
+    object_key_filter: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    before_token = "{{" + before_name + "}}"
+    after_token = "{{" + after_name + "}}"
+    rows = []
+    for fact in object_string_fields(cv, root_path):
+        if object_key_filter and fact["object_key"] not in object_key_filter:
+            continue
+        before = fact["value"]
+        after = before.replace(before_token, after_token)
+        if after != before:
+            rows.append(
+                {
+                    "object_key": fact["object_key"],
+                    "json_path": fact["json_path"],
+                    "before": before,
+                    "after": after,
+                }
+            )
+    return rows
+
+
+def setup_reference_candidates(
+    tags: list[dict[str, Any]],
+    missing_name: str,
+    consumer: dict[str, Any],
+) -> list[dict[str, Any]]:
+    target_norm = normalized_reference_name(missing_name)
+    peer_usage: collections.Counter[str] = collections.Counter()
+    consumer_type = str(consumer.get("type") or "")
+    for tag in tags:
+        if str(tag.get("type") or "") != consumer_type:
+            continue
+        for relation in ("setupTag", "teardownTag"):
+            for item in as_list(tag.get(relation)):
+                if isinstance(item, dict) and item.get("tagName"):
+                    peer_usage[str(item.get("tagName"))] += 1
+    rows = []
+    for tag in tags:
+        name = str(tag.get("name") or "")
+        if not name:
+            continue
+        normalized = normalized_reference_name(name)
+        score = difflib.SequenceMatcher(None, target_norm, normalized).ratio()
+        if score < 0.55:
+            continue
+        rows.append(
+            {
+                "object_key": f"tag:{object_id(tag, 'tag')}",
+                "object_name": name,
+                "object_type": str(tag.get("type") or ""),
+                "paused": bool(tag.get("paused")),
+                "normalized_exact": normalized == target_norm,
+                "name_similarity": round(score, 3),
+                "same_consumer_tag_type": (
+                    str(tag.get("type") or "") in {"googtag", consumer_type}
+                ),
+                "peer_sequence_consumers": peer_usage.get(name, 0),
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            not row["normalized_exact"],
+            -float(row["name_similarity"]),
+            -int(row["peer_sequence_consumers"]),
+            row["object_key"],
+        ),
+    )[:8]
+
+
+def unique_setup_repair_candidate(
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not candidates:
+        return None
+    exact = [row for row in candidates if row["normalized_exact"]]
+    if len(exact) == 1:
+        return exact[0]
+    first = candidates[0]
+    second_score = (
+        float(candidates[1]["name_similarity"]) if len(candidates) > 1 else 0.0
+    )
+    if (
+        float(first["name_similarity"]) >= 0.9
+        and float(first["name_similarity"]) - second_score >= 0.08
+        and first["same_consumer_tag_type"]
+        and int(first["peer_sequence_consumers"]) >= 1
+    ):
+        return first
+    return None
 
 
 def stable_payload(value: Any) -> str:
@@ -620,30 +791,179 @@ def add_ua_styled_setup_findings(
     tags: list[dict[str, Any]],
     triggers: list[dict[str, Any]],
     variables: list[dict[str, Any]],
+    variable_consumers: dict[str, list[dict[str, Any]]],
+    trigger_consumers: dict[str, list[dict[str, Any]]],
+    root_path: str,
 ) -> None:
     module_name = "outdated_ua_styled_setup_objects"
     builder.add_module(module_name, len(tags) + len(triggers) + len(variables))
+    existing_names = {
+        layer: {
+            str(item.get("name") or "").casefold()
+            for item in items
+            if str(item.get("name") or "")
+        }
+        for layer, items in (
+            ("tag", tags),
+            ("trigger", triggers),
+            ("variable", variables),
+        )
+    }
     for layer, items in (("tag", tags), ("trigger", triggers), ("variable", variables)):
-        for item in items:
+        for item_index, item in enumerate(items):
             signals = ua_style_signals(layer, item)
             if not signals:
                 continue
+            name_only = signals == [
+                "object name says UA, Universal Analytics, or Enhanced Ecommerce"
+            ]
+            consumers = (
+                variable_consumers.get(str(item.get("name") or ""), [])
+                if layer == "variable"
+                else trigger_consumers.get(str(item.get("triggerId") or ""), [])
+                if layer == "trigger"
+                else []
+            )
+            tag_by_id = {
+                str(tag.get("tagId") or ""): tag for tag in tags
+            }
+            consumer_evidence = []
+            for consumer in consumers:
+                consumer_key = (
+                    f"{consumer.get('object_type')}:{consumer.get('object_id')}"
+                )
+                source_tag = tag_by_id.get(str(consumer.get("object_id") or ""))
+                consumer_evidence.append(
+                    {
+                        "object_key": consumer_key,
+                        "object_name": str(consumer.get("object_name") or ""),
+                        "object_type": (
+                            str(source_tag.get("type") or "")
+                            if source_tag
+                            else str(consumer.get("object_type") or "")
+                        ),
+                        "destination_vendor": (
+                            detect_vendor_text(
+                                behavior_bearing_vendor_text(source_tag, "tag")
+                            )[0]
+                            if source_tag
+                            else "Unclassified"
+                        ),
+                    }
+                )
+            current_name = str(item.get("name") or "")
+            proposed_name = UA_LABEL_RE.sub("", current_name)
+            proposed_name = re.sub(r"\(\s*\)|\[\s*\]", "", proposed_name)
+            proposed_name = re.sub(
+                r"(?:\s*[-\u2013\u2014|:]\s*){2,}", " - ", proposed_name
+            )
+            proposed_name = proposed_name.strip()
+            proposed_name = re.sub(
+                r"^(?:[-\u2013\u2014|:]\s*)+|(?:\s*[-\u2013\u2014|:])+$",
+                "",
+                proposed_name,
+            )
+            proposed_name = re.sub(r"\s{2,}", " ", proposed_name).strip()
+            only_current_ga4_consumers = bool(consumer_evidence) and all(
+                str(consumer.get("object_type") or "").lower() == "gaawe"
+                or consumer.get("destination_vendor") == "GA4 / Google tag"
+                for consumer in consumer_evidence
+            )
+            unique_proposed_name = bool(proposed_name) and (
+                proposed_name.casefold() == current_name.casefold()
+                or proposed_name.casefold() not in existing_names[layer]
+            )
+            deterministic_label_repair = (
+                layer == "trigger"
+                and name_only
+                and only_current_ga4_consumers
+                and proposed_name != current_name
+                and unique_proposed_name
+            )
+            repair = {
+                "status": (
+                    "unique_ga4_label_cleanup"
+                    if deterministic_label_repair
+                    else "no_unique_container_target"
+                ),
+                "repair_kind": "object_name",
+                "target_object_key": f"{layer}:{object_id(item, layer)}",
+                "target_name": proposed_name if deterministic_label_repair else "",
+                "changes": [],
+                "renames": (
+                    [
+                        {
+                            "object_key": f"{layer}:{object_id(item, layer)}",
+                            "before": current_name,
+                            "after": proposed_name,
+                        }
+                    ]
+                    if deterministic_label_repair
+                    else []
+                ),
+                "source_name_json_path": (
+                    f"{root_path}.{layer}[{item_index}].name"
+                    if deterministic_label_repair
+                    else ""
+                ),
+            }
             builder.add_finding(
                 module_name,
-                "outdated_ua_styled_setup_object",
+                (
+                    "legacy_name_only_candidate"
+                    if name_only
+                    else "outdated_ua_styled_setup_object"
+                ),
                 layer,
                 [object_summary(item, layer)],
                 f"{layer}:{object_id(item, layer)}",
                 (
-                    "This object has legacy Universal Analytics-style setup signals: "
+                    "The object name contains a UA/Universal Analytics label, but the "
+                    "exported object itself has no native UA type, UA property ID, or "
+                    "old ecommerce path. Consuming routes are "
+                    f"{consumer_evidence!r}."
+                    if name_only
+                    else "This object has legacy Universal Analytics-style setup signals: "
                     + "; ".join(signals)
                     + "."
                 ),
                 (
-                    "Confirm whether the object is still needed. If it feeds current "
+                    (
+                        f"Rename {layer}:{object_id(item, layer)} from "
+                        f"{current_name!r} to {proposed_name!r}; every visible consumer "
+                        "is a current GA4 route, so the UA label is metadata-only."
+                    )
+                    if deterministic_label_repair
+                    else "Judge the consuming tag type and destination before renaming; do not "
+                    "classify this object as legacy from its label alone."
+                    if name_only
+                    else "Confirm whether the object is still needed. If it feeds current "
                     "GA4 or vendor tracking, migrate it to the current event/item data "
                     "format or document a legacy exception supported by container evidence."
                 ),
+                (
+                    "cleanup_operation | documented_exception"
+                    if deterministic_label_repair
+                    else "cleanup_operation | documented_exception | "
+                    "owner_decision_needed | keep"
+                ),
+                extra={
+                    "consumer_route_evidence": consumer_evidence,
+                    "deterministic_repair": repair,
+                    "repair_affected_object_keys": (
+                        [f"{layer}:{object_id(item, layer)}"]
+                        if deterministic_label_repair
+                        else []
+                    ),
+                    **(
+                        {
+                            "finding_class": "deterministic_defect",
+                            "deterministic_action_candidate": "rename_candidate",
+                        }
+                        if deterministic_label_repair
+                        else {}
+                    ),
+                },
             )
 
 
@@ -888,7 +1208,11 @@ def build_execution_reachability(cv: dict[str, Any]) -> dict[str, Any]:
         for obj in items:
             key = f"{layer}:{object_id(obj, layer)}"
             if layer in {"variable", "builtInVariable"}:
-                variable_keys[object_name(obj)].append(key)
+                name = object_name(obj)
+                variable_keys[name].append(key)
+                normalized_name = normalized_reference_name(name)
+                if normalized_name and normalized_name != name:
+                    variable_keys[normalized_name].append(key)
             elif layer == "trigger":
                 trigger_keys[object_id(obj, layer)].append(key)
             elif layer == "tag":
@@ -904,6 +1228,13 @@ def build_execution_reachability(cv: dict[str, Any]) -> dict[str, Any]:
             source_key = f"{layer}:{object_id(obj, layer)}"
             for reference in refs(obj):
                 dependencies[source_key].update(variable_keys.get(reference, []))
+                # Resolve Unicode/whitespace variants conservatively for
+                # reachability while retaining the exact unresolved reference
+                # finding above.  If normalization is ambiguous, all matching
+                # targets remain reachable, preventing unsafe deletion.
+                dependencies[source_key].update(
+                    variable_keys.get(normalized_reference_name(reference), [])
+                )
             if layer == "tag":
                 for trigger_id in as_list(obj.get("firingTriggerId")) + as_list(
                     obj.get("blockingTriggerId")
@@ -1005,6 +1336,12 @@ def build_lifecycle_matrix(
     template_type_index = custom_template_type_index(
         as_list(cv.get("customTemplate"))
     )
+    normalized_variable_consumers: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for reference, reference_consumers in variable_consumers.items():
+        normalized_reference = normalized_reference_name(reference)
+        if not normalized_reference or normalized_reference == reference:
+            continue
+        normalized_variable_consumers[normalized_reference].extend(reference_consumers)
     for layer, items in layer_items:
         if layer in {"customTemplate", "folder"}:
             continue
@@ -1042,6 +1379,18 @@ def build_lifecycle_matrix(
                 )
             elif layer in {"variable", "builtInVariable"}:
                 consumers = variable_consumers.get(object_name(obj), [])
+                # A malformed Unicode/whitespace reference remains separately
+                # reported by the exact missing-reference scan, while its
+                # normalized consumer keeps the canonical target out of an
+                # unsafe unused/deletion candidate.
+                normalized_consumers = normalized_variable_consumers.get(
+                    normalized_reference_name(object_name(obj)), []
+                )
+                if normalized_consumers:
+                    consumers = list(consumers)
+                    for consumer in normalized_consumers:
+                        if consumer not in consumers:
+                            consumers.append(consumer)
                 usage = (
                     "used"
                     if current_key in active_keys
@@ -1152,7 +1501,7 @@ def build_destination_matrix(cv: dict[str, Any]) -> list[dict[str, Any]]:
                 set(URL_RE.findall(code_value(behavior) + " " + stable_payload(behavior)))
             )
             vendor, category = detect_vendor_text(
-                object_name(obj) + " " + stable_payload(behavior)
+                behavior_bearing_vendor_text(obj, layer)
             )
             rows.append(
                 {
@@ -1453,6 +1802,8 @@ def add_trigger_lint_findings(
     tags: list[dict[str, Any]],
     triggers: list[dict[str, Any]],
     zones: list[dict[str, Any]],
+    trigger_consumers: dict[str, list[dict[str, Any]]],
+    root_path: str,
 ) -> dict[str, int]:
     trigger_by_id = {str(item.get("triggerId")): item for item in triggers}
     counts: collections.Counter[str] = collections.Counter()
@@ -1463,7 +1814,7 @@ def add_trigger_lint_findings(
             add_condition_lint_findings(builder, layer, obj, counts)
 
     builder.add_module("ineffective_blocking_triggers", len(tags))
-    for tag in tags:
+    for tag_index, tag in enumerate(tags):
         firing_trigger_ids = [
             str(trigger_id) for trigger_id in as_list(tag.get("firingTriggerId"))
         ]
@@ -1479,22 +1830,111 @@ def add_trigger_lint_findings(
         ):
             continue
         firing_events = set().union(*firing_event_sets)
+        ineffective_blockers: list[tuple[str, dict[str, Any], set[str]]] = []
         for blocker_id in as_list(tag.get("blockingTriggerId")):
             blocker = trigger_by_id.get(str(blocker_id))
             if not blocker:
                 continue
             blocking_events = exact_event_names(blocker)
             if blocking_events and firing_events.isdisjoint(blocking_events):
-                counts["ineffective_blockers"] += 1
-                builder.add_finding(
-                    "ineffective_blocking_triggers",
-                    "ineffective_blocking_trigger",
-                    "tag",
-                    [object_summary(tag, "tag"), object_summary(blocker, "trigger")],
-                    f"tag:{object_id(tag, 'tag')}:blocker:{blocker_id}",
-                    f"The tag fires on {sorted(firing_events)} but blocker {blocker.get('name')!r} is constrained to {sorted(blocking_events)}.",
-                    "Remove or replace the blocker because its exact custom-event constraint cannot match the firing event.",
+                ineffective_blockers.append(
+                    (str(blocker_id), blocker, blocking_events)
                 )
+        if not ineffective_blockers:
+            continue
+        counts["ineffective_blockers"] += len(ineffective_blockers)
+        before_blockers = [
+            str(value) for value in as_list(tag.get("blockingTriggerId"))
+        ]
+        ineffective_ids = {item[0] for item in ineffective_blockers}
+        after_blockers = [
+            blocker_id
+            for blocker_id in before_blockers
+            if blocker_id not in ineffective_ids
+        ]
+        tag_key = f"tag:{object_id(tag, 'tag')}"
+        orphaned_blocker_ids = {
+            blocker_id
+            for blocker_id in ineffective_ids
+            if {
+                f"{consumer.get('object_type')}:{consumer.get('object_id')}"
+                for consumer in trigger_consumers.get(blocker_id, [])
+                if str(consumer.get("object_type") or "")
+                and str(consumer.get("object_id") or "")
+            }
+            == {tag_key}
+        }
+        repair = {
+            "status": "unique_ineffective_blocker_removal",
+            "repair_kind": "blockingTriggerId",
+            "target_object_key": tag_key,
+            "target_name": str(tag.get("name") or ""),
+            "changes": [
+                {
+                    "object_key": tag_key,
+                    "json_path": (
+                        f"{root_path}.tag[{tag_index}].blockingTriggerId"
+                    ),
+                    "before": before_blockers,
+                    "after": after_blockers,
+                }
+            ],
+            "renames": [],
+            "deletions": [
+                {
+                    "object_key": f"trigger:{blocker_id}",
+                    "reason": (
+                        f"After removing its impossible blocker edge from {tag_key}, "
+                        "the trigger has no remaining exported consumer."
+                    ),
+                }
+                for blocker_id in sorted(orphaned_blocker_ids)
+            ],
+        }
+        builder.add_finding(
+            "ineffective_blocking_triggers",
+            "ineffective_blocking_trigger",
+            "tag",
+            [
+                object_summary(tag, "tag"),
+                *[
+                    object_summary(blocker, "trigger")
+                    for _blocker_id, blocker, _events in ineffective_blockers
+                ],
+            ],
+            f"{tag_key}:blockers:{','.join(sorted(ineffective_ids))}",
+            (
+                f"The tag fires only on {sorted(firing_events)}; blocker routes "
+                + "; ".join(
+                    f"{blocker_id} {blocker.get('name')!r} only on {sorted(events)}"
+                    for blocker_id, blocker, events in ineffective_blockers
+                )
+                + " cannot intersect those firing events."
+            ),
+            (
+                f"Remove blocker ID(s) {', '.join(sorted(ineffective_ids))} from "
+                f"{tag_key} in one exact blockingTriggerId update; retain every other "
+                "blocker unchanged."
+                + (
+                    " Delete newly orphaned trigger ID(s) "
+                    + ", ".join(sorted(orphaned_blocker_ids))
+                    + " in the same operation."
+                    if orphaned_blocker_ids
+                    else ""
+                )
+            ),
+            "cleanup_operation | documented_exception",
+            extra={
+                "deterministic_repair": repair,
+                "repair_affected_object_keys": [
+                    tag_key,
+                    *[
+                        f"trigger:{blocker_id}"
+                        for blocker_id in sorted(orphaned_blocker_ids)
+                    ],
+                ],
+            },
+        )
     return dict(counts)
 
 
@@ -1503,6 +1943,7 @@ def add_missing_reference_findings(
     cv: dict[str, Any],
     variable_consumers: dict[str, list[dict[str, Any]]],
     trigger_consumers: dict[str, list[dict[str, Any]]],
+    root_path: str,
 ) -> None:
     tags = as_list(cv.get("tag"))
     triggers = as_list(cv.get("trigger"))
@@ -1529,14 +1970,55 @@ def add_missing_reference_findings(
         + len(transformations),
     )
 
-    variable_names = {item.get("name") for item in variables} | {
-        item.get("name") for item in builtins
-    }
+    variable_objects = [
+        ("variable", item) for item in variables
+    ] + [("builtInVariable", item) for item in builtins]
+    variable_names = {item.get("name") for _layer, item in variable_objects}
+    normalized_variable_targets: dict[str, list[tuple[str, dict[str, Any]]]] = (
+        collections.defaultdict(list)
+    )
+    for target_layer, target in variable_objects:
+        name = str(target.get("name") or "")
+        if name:
+            normalized_variable_targets[normalized_reference_name(name)].append(
+                (target_layer, target)
+            )
     for name in sorted(
         ref
         for ref in variable_consumers
         if ref not in variable_names and not is_system_variable_reference(ref)
     ):
+        normalized_targets = normalized_variable_targets.get(
+            normalized_reference_name(name), []
+        )
+        repair: dict[str, Any] = {
+            "status": "no_unique_container_target",
+            "repair_kind": "variable_reference",
+            "target_object_key": "",
+            "target_name": "",
+            "changes": [],
+            "renames": [],
+        }
+        if len(normalized_targets) == 1:
+            target_layer, target = normalized_targets[0]
+            target_name = str(target.get("name") or "")
+            changes = reference_text_changes(
+                cv,
+                root_path,
+                name,
+                target_name,
+            )
+            if changes:
+                repair = {
+                    "status": "unique_normalized_target",
+                    "repair_kind": "variable_reference",
+                    "target_object_key": (
+                        f"{target_layer}:{object_id(target, target_layer)}"
+                    ),
+                    "target_name": target_name,
+                    "changes": changes,
+                    "renames": [],
+                }
         builder.add_finding(
             "missing_references",
             "undefined_variable_reference",
@@ -1544,8 +2026,24 @@ def add_missing_reference_findings(
             [{"object_id": name, "object_name": name}],
             f"var:{name}",
             f"Reference {{{{{name}}}}} is used but no variable or built-in with that name exists.",
-            "Resolve reference before cleanup execution; use fresh readback or restore/create the missing source.",
+            (
+                f"Replace the corrupted reference with {repair['target_name']!r} at every "
+                "listed source path."
+                if repair["status"] == "unique_normalized_target"
+                else "Resolve reference before cleanup execution; use fresh readback or "
+                "restore/create the missing source."
+            ),
             "cleanup_operation | documented_exception | owner_decision_needed",
+            extra={
+                "deterministic_repair": repair,
+                "repair_affected_object_keys": sorted(
+                    {
+                        str(change.get("object_key") or "")
+                        for change in as_list(repair.get("changes"))
+                        if str(change.get("object_key") or "")
+                    }
+                ),
+            },
         )
 
     trigger_ids = {str(trigger.get("triggerId")) for trigger in triggers}
@@ -1566,13 +2064,42 @@ def add_missing_reference_findings(
         )
 
     tag_names = {tag.get("name") for tag in tags}
-    for tag in tags:
+    for tag_index, tag in enumerate(tags):
         for relation in ("setupTag", "teardownTag"):
-            for ref in as_list(tag.get(relation)):
+            for ref_index, ref in enumerate(as_list(tag.get(relation))):
                 if not isinstance(ref, dict):
                     continue
                 tag_name = ref.get("tagName")
                 if tag_name and tag_name not in tag_names:
+                    candidates = setup_reference_candidates(tags, str(tag_name), tag)
+                    target = unique_setup_repair_candidate(candidates)
+                    repair = {
+                        "status": "no_unique_container_target",
+                        "repair_kind": relation,
+                        "target_object_key": "",
+                        "target_name": "",
+                        "changes": [],
+                        "renames": [],
+                    }
+                    if target:
+                        repair = {
+                            "status": "unique_peer_supported_target",
+                            "repair_kind": relation,
+                            "target_object_key": target["object_key"],
+                            "target_name": target["object_name"],
+                            "changes": [
+                                {
+                                    "object_key": f"tag:{object_id(tag, 'tag')}",
+                                    "json_path": (
+                                        f"{root_path}.tag[{tag_index}].{relation}"
+                                        f"[{ref_index}].tagName"
+                                    ),
+                                    "before": tag_name,
+                                    "after": target["object_name"],
+                                }
+                            ],
+                            "renames": [],
+                        }
                     builder.add_finding(
                         "missing_references",
                         f"missing_{relation}_reference",
@@ -1583,8 +2110,21 @@ def add_missing_reference_findings(
                         ],
                         f"{relation}:{tag_name}",
                         f"Tag {tag.get('name')!r} references missing {relation} tag {tag_name!r}.",
-                        "Resolve sequencing reference before cleanup execution.",
+                        (
+                            f"Remap the missing sequence name to peer-supported tag "
+                            f"{target['object_key']} — {target['object_name']}."
+                            if target
+                            else "Resolve sequencing reference before cleanup execution; "
+                            "do not clear the sequencing edge by default."
+                        ),
                         "cleanup_operation | documented_exception | owner_decision_needed",
+                        extra={
+                            "reference_resolution_candidates": candidates,
+                            "deterministic_repair": repair,
+                            "repair_affected_object_keys": [
+                                f"tag:{object_id(tag, 'tag')}"
+                            ],
+                        },
                     )
 
     folder_ids = {str(folder.get("folderId")) for folder in folders}
@@ -2641,7 +3181,9 @@ def add_consent_logic_findings(
         )
 
 
-def add_name_hygiene_findings(builder: BaselineBuilder, cv: dict[str, Any]) -> None:
+def add_name_hygiene_findings(
+    builder: BaselineBuilder, cv: dict[str, Any], root_path: str
+) -> None:
     items: list[tuple[str, dict[str, Any]]] = []
     for layer in (
         "tag",
@@ -2651,10 +3193,69 @@ def add_name_hygiene_findings(builder: BaselineBuilder, cv: dict[str, Any]) -> N
         "zone",
         "customTemplate",
         "client",
+        "gtagConfig",
         "transformation",
     ):
         items.extend((layer, item) for item in as_list(cv.get(layer)))
     builder.add_module("name_hygiene", len(items))
+
+    confusable_ascii = str.maketrans(
+        {
+            "Α": "A",
+            "А": "A",
+            "Β": "B",
+            "В": "B",
+            "Ε": "E",
+            "Е": "E",
+            "Η": "H",
+            "Н": "H",
+            "Ι": "I",
+            "І": "I",
+            "Κ": "K",
+            "К": "K",
+            "Μ": "M",
+            "М": "M",
+            "Ν": "N",
+            "О": "O",
+            "Ο": "O",
+            "Ρ": "P",
+            "Р": "P",
+            "С": "C",
+            "Τ": "T",
+            "Т": "T",
+            "Χ": "X",
+            "Х": "X",
+            "а": "a",
+            "е": "e",
+            "о": "o",
+            "р": "p",
+            "с": "c",
+            "х": "x",
+            "у": "y",
+            "і": "i",
+            "ј": "j",
+        }
+    )
+
+    def confusable_skeleton(value: str) -> str:
+        return canonical_unicode_text(value).translate(confusable_ascii).casefold()
+
+    by_layer_and_skeleton: dict[tuple[str, str], list[dict[str, Any]]] = (
+        collections.defaultdict(list)
+    )
+    names_by_layer: dict[str, list[str]] = collections.defaultdict(list)
+    for item_layer, item in items:
+        names_by_layer[item_layer].append(object_name(item))
+    variable_targets: dict[str, list[tuple[str, dict[str, Any]]]] = (
+        collections.defaultdict(list)
+    )
+    for target_layer in ("variable", "builtInVariable"):
+        for target in as_list(cv.get(target_layer)):
+            target_name = str(target.get("name") or "")
+            if target_name:
+                variable_targets[normalized_reference_name(target_name)].append(
+                    (target_layer, target)
+                )
     for layer, item in items:
         name = object_name(item)
         problems = []
@@ -2666,16 +3267,189 @@ def add_name_hygiene_findings(builder: BaselineBuilder, cv: dict[str, Any]) -> N
             problems.append("repeated whitespace")
         if re.search(r"\s+-\s+-\s+", name) or "--" in name:
             problems.append("duplicated separator")
+        unicode_problems = unicode_integrity_problems(name)
+        problems.extend(unicode_problems)
+        if name:
+            by_layer_and_skeleton[(layer, confusable_skeleton(name))].append(item)
         if not problems:
+            pass
+        else:
+            canonical_name = canonical_unicode_text(name)
+            collision = bool(
+                canonical_name
+                and any(
+                    other != name
+                    and canonical_unicode_text(other).casefold()
+                    == canonical_name.casefold()
+                    for other in names_by_layer[layer]
+                )
+            )
+            repair_changes: list[dict[str, Any]] = []
+            if unicode_problems and canonical_name and not collision:
+                if layer in {"variable", "builtInVariable"}:
+                    repair_changes.extend(
+                        reference_text_changes(
+                            cv,
+                            root_path,
+                            name,
+                            canonical_name,
+                        )
+                    )
+                elif layer == "tag":
+                    for fact in object_string_fields(cv, root_path):
+                        if (
+                            fact["json_path"].endswith(".tagName")
+                            and fact["value"] == name
+                        ):
+                            repair_changes.append(
+                                {
+                                    "object_key": fact["object_key"],
+                                    "json_path": fact["json_path"],
+                                    "before": name,
+                                    "after": canonical_name,
+                                }
+                            )
+            repair = {
+                "status": (
+                    "unique_canonical_name"
+                    if unicode_problems and canonical_name and not collision
+                    else "normalization_collision"
+                    if unicode_problems and collision
+                    else "not_applicable"
+                ),
+                "repair_kind": "object_name",
+                "target_object_key": f"{layer}:{object_id(item, layer)}",
+                "target_name": canonical_name,
+                "changes": repair_changes,
+                "renames": (
+                    [
+                        {
+                            "object_key": f"{layer}:{object_id(item, layer)}",
+                            "before": name,
+                            "after": canonical_name,
+                        }
+                    ]
+                    if unicode_problems and canonical_name and not collision
+                    else []
+                ),
+            }
+            builder.add_finding(
+                "name_hygiene",
+                (
+                    "unicode_name_integrity_candidate"
+                    if unicode_problems and collision
+                    else "unicode_name_integrity"
+                    if unicode_problems
+                    else "name_hygiene"
+                ),
+                layer,
+                [object_summary(item, layer)],
+                f"name:{object_id(item, layer)}",
+                f"Name hygiene issue(s): {', '.join(problems)}.",
+                (
+                    "Rename to the generated canonical visible spelling and update every "
+                    "name-based reference atomically."
+                    if unicode_problems
+                    else "Fix naming as part of the naming standardization stage or document an exception."
+                ),
+                extra={
+                    "deterministic_repair": repair,
+                    "repair_affected_object_keys": sorted(
+                        {
+                            f"{layer}:{object_id(item, layer)}",
+                            *(
+                                str(change.get("object_key") or "")
+                                for change in repair_changes
+                                if str(change.get("object_key") or "")
+                            ),
+                        }
+                    ),
+                },
+            )
+
+        for reference in sorted(refs(item)):
+            reference_problems = unicode_integrity_problems(reference)
+            if not reference_problems:
+                continue
+            targets = variable_targets.get(normalized_reference_name(reference), [])
+            repair = {
+                "status": "no_unique_container_target",
+                "repair_kind": "variable_reference",
+                "target_object_key": "",
+                "target_name": "",
+                "changes": [],
+                "renames": [],
+            }
+            if len(targets) == 1:
+                target_layer, target = targets[0]
+                target_name = str(target.get("name") or "")
+                changes = reference_text_changes(
+                    cv,
+                    root_path,
+                    reference,
+                    target_name,
+                    object_key_filter={f"{layer}:{object_id(item, layer)}"},
+                )
+                if changes:
+                    repair = {
+                        "status": "unique_normalized_target",
+                        "repair_kind": "variable_reference",
+                        "target_object_key": (
+                            f"{target_layer}:{object_id(target, target_layer)}"
+                        ),
+                        "target_name": target_name,
+                        "changes": changes,
+                        "renames": [],
+                    }
+            builder.add_finding(
+                "name_hygiene",
+                "unicode_reference_integrity",
+                layer,
+                [object_summary(item, layer)],
+                f"reference:{object_id(item, layer)}:{signature(reference)}",
+                (
+                    f"Variable reference {reference!r} contains "
+                    f"{', '.join(reference_problems)}."
+                ),
+                (
+                    f"Replace the reference with exact target {repair['target_name']!r}."
+                    if repair["status"] == "unique_normalized_target"
+                    else "Resolve the intended variable identity; do not guess when more "
+                    "than one variable could be the target."
+                ),
+                extra={
+                    "deterministic_repair": repair,
+                    "repair_affected_object_keys": [
+                        f"{layer}:{object_id(item, layer)}"
+                    ],
+                },
+            )
+
+    for (layer, skeleton), group in sorted(by_layer_and_skeleton.items()):
+        visible_names = {object_name(item) for item in group}
+        if len(group) < 2 or len(visible_names) < 2:
+            continue
+        if not any(
+            unicode_integrity_problems(name)
+            or canonical_unicode_text(name).casefold() != skeleton
+            for name in visible_names
+        ):
             continue
         builder.add_finding(
             "name_hygiene",
-            "name_hygiene",
+            "unicode_confusable_name_candidate",
             layer,
-            [object_summary(item, layer)],
-            f"name:{object_id(item, layer)}",
-            f"Name hygiene issue(s): {', '.join(problems)}.",
-            "Fix naming as part of the naming standardization stage or document an exception.",
+            [object_summary(item, layer) for item in group],
+            f"unicode_confusable:{layer}:{signature(sorted(visible_names))}",
+            (
+                f"Names {sorted(visible_names)!r} collapse to the same Unicode-confusable "
+                f"skeleton {skeleton!r}; source identity does not prove whether they are "
+                "intentional variants."
+            ),
+            (
+                "Confirm the intended identities, then rename and remap atomically when the "
+                "visual collision is accidental; otherwise retain a source-specific exception."
+            ),
         )
 
 
@@ -3013,7 +3787,13 @@ def audit_export(path: Path) -> dict[str, Any]:
         "recognized_system_references",
         sum(len(values) for values in system_refs.values()),
     )
-    add_missing_reference_findings(builder, cv, variable_consumers, trigger_consumers)
+    add_missing_reference_findings(
+        builder,
+        cv,
+        variable_consumers,
+        trigger_consumers,
+        root_path,
+    )
     add_duplicate_name_findings(builder, "duplicate_tag_names", "tag", tags)
     add_duplicate_name_findings(builder, "duplicate_trigger_names", "trigger", triggers)
     add_duplicate_name_findings(builder, "duplicate_variable_names", "variable", variables)
@@ -3132,7 +3912,15 @@ def audit_export(path: Path) -> dict[str, Any]:
             "Pick a canonical variable or document why separate variables are required.",
         )
 
-    add_ua_styled_setup_findings(builder, tags, triggers, variables)
+    add_ua_styled_setup_findings(
+        builder,
+        tags,
+        triggers,
+        variables,
+        variable_consumers,
+        trigger_consumers,
+        root_path,
+    )
     add_unused_findings(builder, cv, lifecycle)
     add_lifecycle_findings(builder, lifecycle)
     add_tag_sequence_findings(builder, tags)
@@ -3143,9 +3931,11 @@ def audit_export(path: Path) -> dict[str, Any]:
     add_builtin_mirror_findings(builder, variables, builtins)
     add_custom_formula_findings(builder, variables)
     add_consent_logic_findings(builder, tags, variables, root_path)
-    trigger_lint_summary = add_trigger_lint_findings(builder, tags, triggers, zones)
+    trigger_lint_summary = add_trigger_lint_findings(
+        builder, tags, triggers, zones, trigger_consumers, root_path
+    )
     add_folder_topology_findings(builder, folder_topology)
-    add_name_hygiene_findings(builder, cv)
+    add_name_hygiene_findings(builder, cv, root_path)
     add_naming_architecture_findings(builder, cv, naming_policy)
     builder.close_zero_modules()
 

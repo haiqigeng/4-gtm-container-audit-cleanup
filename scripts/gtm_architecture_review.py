@@ -184,6 +184,7 @@ def usable_distinguishing_term(value: Any) -> str:
             r"\b(?:ambiguous|empty|error|invalid|malformed|unknown|unproven)\b",
             lowered,
         )
+        or re.search(r"\bsignature\s+[0-9a-f]{8,}\b", lowered)
         or re.fullmatch(r"[-+]?\d+(?:\.\d+)?", lowered)
         or any(
             marker in lowered
@@ -245,6 +246,53 @@ def dependency_trace_terms(traces: list[dict[str, Any]]) -> list[str]:
     return compact_terms(values, 80)
 
 
+def configured_parameter_terms(shared: dict[str, Any]) -> list[str]:
+    """Return compact, source-visible key/value parameter distinctions.
+
+    Tag-template configurations often use the same template, trigger, consent
+    controls, and variable inputs while differing only in a destination,
+    conversion, pixel, or event parameter.  Keep the key with its value so an
+    opaque number is never mistaken for a semantic distinction on its own.
+    Nested list/map entries are deliberately excluded: their local ``key`` /
+    ``value`` labels describe the list structure rather than a GTM parameter.
+    """
+    parameter_keys: dict[str, str] = {}
+    parameter_values: dict[str, str] = {}
+    for fact in as_list(shared.get("source_leaf_facts")):
+        path = str(fact.get("json_path") or "")
+        match = re.match(r"^(.*\.parameter\[\d+\])\.(key|value)$", path)
+        if not match:
+            continue
+        parent, field = match.groups()
+        value = " ".join(str(fact.get("value_preview") or "").split())
+        if not value:
+            continue
+        if field == "key":
+            parameter_keys[parent] = value
+        else:
+            parameter_values[parent] = value
+    return compact_terms(
+        f"parameter {parameter_keys[parent]} {parameter_values[parent]}"
+        for parent in sorted(set(parameter_keys) & set(parameter_values))
+    )
+
+
+def custom_code_return_terms(shared: dict[str, Any]) -> list[str]:
+    """Expose compact return semantics without copying executable source code."""
+    ignored = {
+        "const", "document", "false", "function", "let", "null", "return",
+        "true", "undefined", "var", "window",
+    }
+    terms: list[str] = []
+    for item in as_list((shared.get("custom_code_facts") or {}).get("return_expressions")):
+        expression = str(item.get("expression") or "") if isinstance(item, dict) else ""
+        for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", expression):
+            lowered = token.lower()
+            if lowered not in ignored:
+                terms.append(f"custom return {lowered}")
+    return compact_terms(terms, 24)
+
+
 def object_behavior_terms(shared: dict[str, Any]) -> list[str]:
     contract = shared.get("vendor_event_contract") or {}
     consent = shared.get("effective_consent_route") or {}
@@ -265,6 +313,18 @@ def object_behavior_terms(shared: dict[str, Any]) -> list[str]:
     ]
     candidate_terms = compact_terms(
         [
+            # A GTM object type is a source-visible implementation distinction.
+            # It prevents a shared trigger or common event family from being
+            # mistaken for a duplicate solely because its contract fields are
+            # sparse (a common case for vendor template tags).
+            f"object type {shared.get('object_type')}"
+            if shared.get("object_type")
+            else "",
+            f"vendor {contract.get('vendor')}"
+            if contract.get("vendor")
+            else "",
+            *configured_parameter_terms(shared),
+            *custom_code_return_terms(shared),
             *as_list(shared.get("referenced_variables")),
             *[
                 f"firing trigger {value}"
@@ -325,19 +385,24 @@ def distinguishing_terms_for_keys(
     for key in keys:
         other_terms = set().union(*(values for other, values in terms.items() if other != key))
         own_unique = sorted(terms[key] - other_terms)
+        # A broad trigger can be deliberately paired with a stricter trigger.
+        # The broad one has no *additional* term, but its base condition set is
+        # still a visible, meaningful distinction from the child scope.  Keep
+        # that relationship reviewable as a scope variant instead of forcing an
+        # artificial owner decision merely because set subtraction is empty.
         if not own_unique:
-            own_signatures = shared_by_key.get(key, {}).get("behavior_signatures", {}) or {}
-            other_signatures = [
-                shared_by_key.get(other, {}).get("behavior_signatures", {}) or {}
-                for other in keys
+            has_strict_superset = any(
+                terms[key] < values
+                for other, values in terms.items()
                 if other != key
-            ]
-            own_unique = [
-                f"{dimension.replace('_', ' ')} signature {value}"
-                for dimension, value in sorted(own_signatures.items())
-                if value
-                and any(other.get(dimension) != value for other in other_signatures)
-            ]
+            )
+            baseline_conditions = sorted(
+                value
+                for value in terms[key]
+                if re.search(r"\b(?:equals|contains|match|starts|ends|regex)\b", value)
+            )
+            if has_strict_superset and baseline_conditions:
+                own_unique = [f"baseline condition set {baseline_conditions[0]}"]
         result[key] = own_unique[:80]
     return result
 
@@ -824,11 +889,81 @@ def scaffold_comparisons(
                 "disposition": "",
                 "owner_question": "",
                 "recommended_action": "",
+                "canonical_selection_rationale": "",
                 "operations": [],
                 "confidence": "",
             }
         )
     return rows
+
+
+def add_canonical_recommendations(
+    comparisons: list[dict[str, Any]],
+    consumer_map: dict[str, set[str]],
+) -> None:
+    """Add one evidence-derived default for exact duplicates.
+
+    This recommendation does not mutate the container or replace the analyst's
+    relationship verdict.  It prevents an exact-duplicate owner decision from
+    stopping at "choose one" when the export already supports a sensible
+    default.
+    """
+
+    weak_name = re.compile(
+        r"\b(?:copy|duplicate|duplicat|old|legacy|backup|test|temp|tmp)\b", re.I
+    )
+    for comparison in comparisons:
+        keys = [
+            str(value)
+            for value in as_list(comparison.get("candidate_object_keys"))
+            if str(value)
+        ]
+        names = {
+            key: str(name)
+            for key, name in zip(
+                keys,
+                as_list(comparison.get("candidate_object_names")),
+                strict=False,
+            )
+        }
+        paused = comparison.get("candidate_paused_status") or {}
+        consumer_keys = {
+            key: sorted(consumer_map.get(key, set()))
+            for key in keys
+        }
+        comparison["candidate_consumer_keys"] = consumer_keys
+        comparison["candidate_consumer_counts"] = {
+            key: len(values) for key, values in consumer_keys.items()
+        }
+        comparison["recommended_canonical_object_key"] = ""
+        comparison["recommended_canonical_basis"] = ""
+        if "exact_configuration" not in as_list(
+            comparison.get("comparison_types")
+        ) or not keys:
+            continue
+
+        ranked = sorted(
+            keys,
+            key=lambda key: (
+                -int(not bool(paused.get(key))),
+                -len(consumer_keys.get(key, [])),
+                int(bool(weak_name.search(names.get(key, "")))),
+                key,
+            ),
+        )
+        selected = ranked[0]
+        selected_name = names.get(selected, "")
+        comparison["recommended_canonical_object_key"] = selected
+        comparison["recommended_canonical_basis"] = (
+            f"Recommend {selected} ({selected_name!r}) because it is "
+            f"{'paused' if paused.get(selected) else 'active'}, has "
+            f"{len(consumer_keys.get(selected, []))} container-visible consumer(s) "
+            f"{consumer_keys.get(selected, [])!r}, and its name "
+            f"{'contains' if weak_name.search(selected_name) else 'does not contain'} "
+            "a copy/legacy/test marker. Ranking is active over paused, then more "
+            "visible consumers, then a non-copy name; the object key is only the "
+            "final deterministic tie-breaker."
+        )
 
 
 def scaffold_review(
@@ -881,6 +1016,7 @@ def scaffold_review(
             family["member_object_keys"], shared_by_key
         )
     comparisons = scaffold_comparisons(cv, root_path)
+    add_canonical_recommendations(comparisons, object_consumer_map(export_path))
     for comparison in comparisons:
         comparison["candidate_evidence_terms"] = {
             key: object_evidence_terms(shared_by_key.get(key, {}))
@@ -1512,6 +1648,11 @@ def validate_retention_distinctions(
         text = str(
             (assessments.get(key) or {}).get("distinguishing_configuration") or ""
         ).lower()
+        if re.search(r"\bsignature\s+[0-9a-f]{8,}\b", text):
+            errors.append(
+                f"{label}: {key} retention rationale uses an opaque signature instead "
+                "of a source-visible semantic distinction"
+            )
         if not terms or not any(term in text for term in terms):
             errors.append(
                 f"{label}: {key} retention rationale lacks a configuration term unique to that member"
@@ -1975,6 +2116,10 @@ GENERATED_COMPARISON_FIELDS = {
     "candidate_config_hashes",
     "candidate_source_paths",
     "candidate_paused_status",
+    "candidate_consumer_keys",
+    "candidate_consumer_counts",
+    "recommended_canonical_object_key",
+    "recommended_canonical_basis",
     "available_member_evidence_anchors",
     "candidate_specificity_tokens",
     "candidate_behavior_signatures",
@@ -1999,13 +2144,34 @@ def deterministic_comparison_policy_errors(
     verdict = row.get("relationship_verdict")
     disposition = row.get("disposition")
     if "exact_configuration" in comparison_types:
-        if verdict not in {"Exact duplicate", "Owner decision needed"}:
+        recommended = str(expected_row.get("recommended_canonical_object_key") or "")
+        if recommended not in as_list(expected_row.get("candidate_object_keys")):
+            errors.append(f"{label}: exact duplicate lacks a valid canonical recommendation")
+        if verdict != "Exact duplicate" or disposition != "cleanup_operation":
             errors.append(
-                f"{label}: identical source configuration must be resolved as an exact "
-                "duplicate or a visible owner decision"
+                f"{label}: identical source configuration has no distinct behavior "
+                "choice; it must become an Exact duplicate cleanup operation"
             )
-        if verdict == "Owner decision needed" and disposition != "owner_decision_needed":
-            errors.append(f"{label}: unresolved exact duplicate requires owner_decision_needed")
+        if not as_list(row.get("operations")):
+            errors.append(f"{label}: exact duplicate lacks a consolidation operation")
+        rationale = str(row.get("canonical_selection_rationale") or "")
+        selected = {
+            str(operation.get("canonical_object_key") or "")
+            for operation in as_list(row.get("operations"))
+            if str(operation.get("canonical_object_key") or "")
+        }
+        if recommended and selected and recommended not in selected and (
+            not specific_text(rationale, 7)
+            or not re.search(
+                r"\b(?:active|paused|consumer|reference|route|configuration|"
+                r"consent|sequence|name|destination|payload)\b",
+                rationale.lower(),
+            )
+        ):
+            errors.append(
+                f"{label}: choosing a canonical object other than the source-ranked "
+                "default requires a source-based canonical-selection rationale"
+            )
     if "different_consent_purposes_same_logic" in comparison_types:
         if verdict not in {"Conflict", "Owner decision needed"}:
             errors.append(

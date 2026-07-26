@@ -69,6 +69,9 @@ Include:
 - revenue or quantity formulas that are syntactically valid but logically wrong;
 - arrays required by vendor tags but scalars supplied by variables;
 - nested variables, cycles, missing values, null fallbacks, and type coercion;
+- missing references that differ from one existing name only by NBSP or another
+  compatibility-space, plus ambiguous/fuzzy neighboring names that must not be
+  auto-selected;
 - duplicate custom-variable names and custom/built-in name collisions, proving
   that every candidate is retained and the reference is marked ambiguous;
 - GA4 standard events with wrong ecommerce dataLayer/item contracts;
@@ -81,6 +84,12 @@ Include:
   one with missing or partial forwarding;
 - custom code with multiple branches, returns, network/storage/DOM effects,
   unsafe APIs, fixed product slots, and parse failures;
+- safe inline/DOM/storage/listener patterns that must close as reviewed
+  non-defects rather than owner questions, alongside deterministic
+  `dataLayer.reset`, internal-object, HTTP, cookie-attribute, debugger,
+  unguarded-listener, and async-CMP defects;
+- `document.write` code/support-setting matches and both mismatch directions,
+  proving that only mismatches create exact Boolean actions;
 - bare GTM-variable returns, one dynamic loader with both element and URL
   evidence, DOM mutation without selector reads, and global writes;
 - the optional JavaScript parser unavailable or returning errors, proving that
@@ -121,6 +130,8 @@ Include:
 
 - funnel `question 1`, `Q1`, and `step 1` paths with different conditions;
 - duplicate loaders with different names;
+- exact configuration duplicates, which must produce canonical/remap/delete
+  operations rather than owner choices between identical copies;
 - same payload on different routes;
 - standard and custom purchase events with revenue duplication risk;
 - mixed-vendor purchase calls inside one Custom HTML tag;
@@ -168,6 +179,9 @@ Test that compilation fails when:
 - a non-consolidation behavior change conflicts with an architecture `keep` or
   unresolved verdict;
 - a creation introduces a behavioral route without architecture support.
+- Run 1 and Run 3 emit the same complete object-set owner choice, or downstream
+  configuration rows consume one upstream Unicode-reference repair; the final
+  plan must retain all evidence but show the decision/action once.
 
 Test that future-state validation fails when a planned change creates a missing
 reference, duplicate ID, orphan, new folder/trigger/Zone issue, or unresolved
@@ -182,8 +196,17 @@ pending, belongs to another run kind, or uses another source hash.
 Ask a web analyst who did not inspect the source export to review the workbook.
 They should be able to understand each problem, affected objects, impact, exact
 action, priority, readiness, and QA. The workbook must not reveal client secrets,
-repeat the same conclusion across columns, exceed eight tabs/six columns, or mix
-the cleanup plan with a change log.
+repeat the same conclusion across columns, exceed eight tabs, exceed the
+canonical seven Cleanup Plan columns or six columns elsewhere, or mix the
+cleanup plan with a change log. Confirm that the general category and affected
+object columns support useful filtering without replacing the exact problem
+type.
+Give the analyst at least one invisible-Unicode row without explanation from
+the evaluator. They must be able to state what character is wrong, why GTM can
+treat the reference as missing, the intended readable variable name, the exact
+field change, and which surrounding settings remain unchanged. Reject visible
+rows led by raw JSON paths, hashes, validator wording, or generic
+“maintenance-risk” boilerplate.
 
 ## No-Cheat Rule
 

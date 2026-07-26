@@ -110,6 +110,13 @@ GENERIC_PHRASES = {
     "fixture value",
     "fixture family",
     "source-bound route, payload, and dependency configuration",
+    "through the exact cleanup action indicated by the source evidence",
+    "obtain the named owner, runtime, vendor, or code evidence",
+    "obtain the named runtime or owner evidence",
+    "otherwise prepare one exact repair, consolidation, or retirement operation",
+    "candidates retain distinct roles after route and source comparison",
+    "keeps separate paths because no common target is proven",
+    "members have no proven duplicate firing in this export",
 }
 
 
@@ -161,16 +168,28 @@ def pending_completion_attestation(contract: dict[str, Any]) -> dict[str, Any]:
         "used_artifact_roles": [],
         "foreign_verdict_artifacts_used": [],
         "helper_modules": [],
+        "decision_authoring_method": "",
+        "independent_review_context_id": "",
+        "semantic_completion_artifacts": [],
     }
 
 
 def complete_review_attestation(
     review: dict[str, Any],
     *,
+    decision_authoring_method: str,
+    independent_review_context_id: str | None = None,
     optional_artifact_roles: list[str] | None = None,
     helper_modules: list[str] | None = None,
+    semantic_completion_artifacts: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Create the neutral completion attestation used by agents and test fixtures."""
+    """Create an explicit independent-review completion attestation.
+
+    The required authoring method is deliberately not inferred.  Calling code
+    must state that semantic decisions were completed in one run-specific
+    review context rather than silently treating a bulk projection helper as a
+    reviewer.
+    """
     contract = review.get("input_contract") or {}
     return {
         "status": "complete",
@@ -181,6 +200,13 @@ def complete_review_attestation(
         ],
         "foreign_verdict_artifacts_used": [],
         "helper_modules": helper_modules or [],
+        "decision_authoring_method": decision_authoring_method,
+        "independent_review_context_id": (
+            independent_review_context_id
+            or f"{contract.get('review_run') or 'review'}:"
+            f"{str(contract.get('contract_sha256') or '')[:20]}"
+        ),
+        "semantic_completion_artifacts": semantic_completion_artifacts or [],
     }
 
 
@@ -244,12 +270,40 @@ def validate_review_provenance(
     prohibited_helpers = sorted(
         helper
         for helper in helpers
-        if re.search(r"(^|[./\\])tests?([./\\]|$)|test_pipeline|test_adversarial", helper, re.I)
+        if re.search(
+            r"(^|[./\\])tests?([./\\]|$)|test_pipeline|test_adversarial|"
+            r"complete[_-]?reviews?|semantic[_-]?(?:completion|writer)|bulk[_-]?decision",
+            helper,
+            re.I,
+        )
     )
     if prohibited_helpers:
         errors.append(
-            f"{label}: real review completion cannot use repository test helpers: "
+            f"{label}: semantic verdicts cannot be written by repository test helpers "
+            "or bulk-completion helpers: "
             + ", ".join(prohibited_helpers)
+        )
+    authoring_method = str(attestation.get("decision_authoring_method") or "")
+    if authoring_method not in {
+        "independent_agent_review",
+        "independent_manual_review",
+        "independent_test_fixture_review",
+    }:
+        errors.append(
+            f"{label}: decision_authoring_method must attest one independent semantic review"
+        )
+    context_id = str(attestation.get("independent_review_context_id") or "").strip()
+    if len(context_id) < 12:
+        errors.append(f"{label}: independent_review_context_id is missing or too weak")
+    semantic_artifacts = [
+        str(value)
+        for value in as_list(attestation.get("semantic_completion_artifacts"))
+        if str(value)
+    ]
+    if semantic_artifacts:
+        errors.append(
+            f"{label}: bulk semantic completion artifacts are prohibited: "
+            + ", ".join(semantic_artifacts)
         )
     return errors
 
@@ -393,6 +447,37 @@ def _validate_remaps(
         for deletion in as_list(row.get("deletions"))
     }
     remapped_consumers: dict[str, set[str]] = {}
+    detached_consumers: dict[str, set[str]] = {}
+    for change in as_list(row.get("changes")):
+        consumer = str(change.get("object_key") or "")
+        path = str(change.get("json_path") or "")
+        before = change.get("before")
+        after = change.get("after")
+        if not consumer or not isinstance(before, list) or not isinstance(after, list):
+            continue
+        if path.endswith((".firingTriggerId", ".blockingTriggerId")):
+            removed = {str(value) for value in before} - {
+                str(value) for value in after
+            }
+            for object_id in removed:
+                detached_consumers.setdefault(f"trigger:{object_id}", set()).add(
+                    consumer
+                )
+        elif path.endswith((".setupTag", ".teardownTag")):
+            before_names = {
+                str(value.get("tagName") or "")
+                for value in before
+                if isinstance(value, dict) and str(value.get("tagName") or "")
+            }
+            after_names = {
+                str(value.get("tagName") or "")
+                for value in after
+                if isinstance(value, dict) and str(value.get("tagName") or "")
+            }
+            for object_name in before_names - after_names:
+                detached_consumers.setdefault(f"tag:{object_name}", set()).add(
+                    consumer
+                )
     for remap in as_list(row.get("remaps")):
         source = str(remap.get("from_object_key") or "")
         target = str(remap.get("to_object_key") or "")
@@ -415,19 +500,26 @@ def _validate_remaps(
             )
         remapped_consumers[source].update(consumers)
     if expected_consumers is not None:
-        for source, consumers in remapped_consumers.items():
+        for source in set(remapped_consumers) | set(detached_consumers):
             expected_live = expected_consumers.get(source, set()) - deleted_keys
-            if consumers != expected_live:
+            covered_consumers = remapped_consumers.get(
+                source, set()
+            ) | detached_consumers.get(source, set())
+            if covered_consumers != expected_live:
                 errors.append(
-                    f"{label}: remap consumers must exactly match every source-graph consumer "
-                    "that remains after the operation"
+                    f"{label}: remap or exact reference-removal coverage must exactly "
+                    "match every source-graph consumer that remains after the operation"
                 )
         for source in deleted_keys:
             expected_live = expected_consumers.get(source, set()) - deleted_keys
-            if expected_live and remapped_consumers.get(source, set()) != expected_live:
+            covered_consumers = remapped_consumers.get(
+                source, set()
+            ) | detached_consumers.get(source, set())
+            if expected_live and covered_consumers != expected_live:
                 errors.append(
-                    f"{label}: deleting consumed object {source!r} requires remap coverage "
-                    "for every retained source-graph consumer"
+                    f"{label}: deleting consumed object {source!r} requires remap "
+                    "coverage or exact reference-removal coverage for every retained "
+                    "source-graph consumer"
                 )
     return errors
 
@@ -488,6 +580,79 @@ def validate_operation_set(
     remaps = [
         remap for row in rows for remap in as_list(row.get("remaps"))
     ]
+
+    # Consumer coverage is a property of the *accepted operation set*, not of
+    # one finding row.  For example, an unused child trigger and its unused
+    # trigger-group consumer may legitimately be deleted by two separate
+    # atomic findings.  Likewise, removing one provably ineffective blocker
+    # edge must not require stripping that still-live blocker from every other
+    # tag that uses it.  Collect the whole packet before deciding whether a
+    # deleted source has every surviving reference covered.
+    if expected_consumers is not None:
+        remapped_consumers: dict[str, set[str]] = {}
+        detached_consumers: dict[str, set[str]] = {}
+        for row in rows:
+            for remap in as_list(row.get("remaps")):
+                source = str(remap.get("from_object_key") or "")
+                if source:
+                    remapped_consumers.setdefault(source, set()).update(
+                        str(value)
+                        for value in as_list(remap.get("consumer_object_keys"))
+                        if str(value)
+                    )
+            for change in as_list(row.get("changes")):
+                consumer = str(change.get("object_key") or "")
+                path = str(change.get("json_path") or "")
+                before = change.get("before")
+                after = change.get("after")
+                if not consumer or not isinstance(before, list) or not isinstance(after, list):
+                    continue
+                if path.endswith((".firingTriggerId", ".blockingTriggerId")):
+                    for object_id in {str(value) for value in before} - {
+                        str(value) for value in after
+                    }:
+                        detached_consumers.setdefault(f"trigger:{object_id}", set()).add(
+                            consumer
+                        )
+                elif path.endswith((".setupTag", ".teardownTag")):
+                    before_names = {
+                        str(value.get("tagName") or "")
+                        for value in before
+                        if isinstance(value, dict) and str(value.get("tagName") or "")
+                    }
+                    after_names = {
+                        str(value.get("tagName") or "")
+                        for value in after
+                        if isinstance(value, dict) and str(value.get("tagName") or "")
+                    }
+                    for object_name in before_names - after_names:
+                        detached_consumers.setdefault(f"tag:{object_name}", set()).add(
+                            consumer
+                        )
+
+        for source in deleted_keys:
+            expected_live = expected_consumers.get(source, set()) - deleted_keys
+            covered_consumers = remapped_consumers.get(source, set()) | detached_consumers.get(
+                source, set()
+            )
+            if expected_live and covered_consumers != expected_live:
+                errors.append(
+                    f"{label}: deleting consumed object {source!r} requires remap "
+                    "coverage or exact reference-removal coverage for every retained "
+                    "source-graph consumer"
+                )
+
+        # A source-wide remap represents a replacement of the source object,
+        # so it still must cover every surviving consumer even if the deletion
+        # is recorded in another atomic finding.
+        for source, consumers in remapped_consumers.items():
+            expected_live = expected_consumers.get(source, set()) - deleted_keys
+            covered_consumers = consumers | detached_consumers.get(source, set())
+            if covered_consumers != expected_live:
+                errors.append(
+                    f"{label}: remap or exact reference-removal coverage must exactly "
+                    "match every source-graph consumer that remains after the operation"
+                )
     for remap in remaps:
         source = str(remap.get("from_object_key") or "")
         target = str(remap.get("to_object_key") or "")
@@ -682,6 +847,36 @@ def validate_structured_actions(
     canonical = str(row.get("canonical_object_key") or "")
     if canonical and canonical not in allowed_keys:
         errors.append(f"{label}: canonical_object_key is unknown")
+    if canonical:
+        canonical_basis = str(row.get("canonical_selection_rationale") or "")
+        if not specific_text(canonical_basis, 7):
+            errors.append(
+                f"{label}: canonical selection requires a concrete source-based rationale"
+            )
+        else:
+            lowered_basis = canonical_basis.lower()
+            if canonical.lower() not in lowered_basis:
+                errors.append(
+                    f"{label}: canonical selection rationale must identify {canonical!r}"
+                )
+            if not re.search(
+                r"\b(?:active|paused|consumer|reference|route|trigger|configuration|"
+                r"consent|sequence|folder|name|owner|destination|payload)\b",
+                lowered_basis,
+            ):
+                errors.append(
+                    f"{label}: canonical selection rationale must use container-visible "
+                    "activity, consumer, route, configuration, consent, sequence, folder, "
+                    "name, destination, or ownership evidence"
+                )
+            if re.search(r"\b(?:oldest|newest|created|creation date|age)\b", lowered_basis) and not re.search(
+                r"\b(?:active|paused|consumer|reference|route|trigger|configuration|"
+                r"consent|sequence|folder|name|owner|destination|payload)\b",
+                lowered_basis,
+            ):
+                errors.append(
+                    f"{label}: object age alone cannot select the canonical object"
+                )
     deleted_keys = {str(item.get("object_key") or "") for item in as_list(row.get("deletions"))}
     if canonical and canonical in deleted_keys:
         errors.append(f"{label}: canonical object cannot also be deleted")

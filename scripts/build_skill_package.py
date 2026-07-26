@@ -7,6 +7,8 @@ import argparse
 import shutil
 from pathlib import Path
 
+from gtm_skill_identity import write_manifest
+
 ROOT_FILES = ("SKILL.md", "LICENSE", "pyproject.toml")
 ROOT_DIRECTORIES = ("agents", "references", "scripts")
 EXCLUDED_NAMES = {
@@ -37,6 +39,7 @@ def build(root: Path, output: Path) -> None:
         shutil.copy2(root / filename, output / filename)
     for dirname in ROOT_DIRECTORIES:
         shutil.copytree(root / dirname, output / dirname, ignore=ignore)
+    write_manifest(output, source_root=root)
 
 
 def main() -> int:

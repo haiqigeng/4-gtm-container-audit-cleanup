@@ -22,9 +22,24 @@ from gtm_privacy import sanitize_url
 
 URL_RE = re.compile(r"https?://[^\s\"'<>\\)]+", re.I)
 EVENT_LISTENER_RE = re.compile(r"addEventListener\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+REMOVE_EVENT_LISTENER_RE = re.compile(r"\bremoveEventListener\s*\(", re.I)
+ONCE_EVENT_LISTENER_RE = re.compile(
+    r"addEventListener\s*\([^;]{0,600}\bonce\s*:\s*true\b",
+    re.I | re.S,
+)
+LISTENER_GUARD_RE = re.compile(
+    r"\b(?:window\s*\.\s*)?[A-Za-z_$][\w$]*(?:listener|bound|initialized|registered)"
+    r"\s*(?:[!=]=|=)|\bif\s*\(\s*!\s*(?:window\s*\.)?[A-Za-z_$][\w$]*",
+    re.I,
+)
 DATA_LAYER_PUSH_RE = re.compile(r"\bdataLayer\s*\.\s*push\s*\(", re.I)
+DATA_LAYER_RESET_RE = re.compile(r"\b(?:window\s*\.\s*)?dataLayer\s*\.\s*reset\s*\(", re.I)
 DATA_LAYER_REF_RE = re.compile(r"\bdataLayer\b", re.I)
 COOKIE_RE = re.compile(r"\bdocument\s*\.\s*cookie\b|(?:^|[^A-Za-z])cookie(?:[^A-Za-z]|$)", re.I)
+COOKIE_LITERAL_WRITE_RE = re.compile(
+    r"\bdocument\s*\.\s*cookie\s*=\s*(['\"`])(?P<cookie>.*?)(?<!\\)\1",
+    re.I | re.S,
+)
 LOCAL_STORAGE_RE = re.compile(r"\blocalStorage\b", re.I)
 SESSION_STORAGE_RE = re.compile(r"\bsessionStorage\b", re.I)
 DOM_RE = re.compile(
@@ -45,14 +60,21 @@ UNSAFE_EVAL_RE = re.compile(
     r"\beval\s*\(|\bnew\s+Function\s*\(|\bset(?:Timeout|Interval)\s*\(\s*['\"`]",
     re.I,
 )
+DOCUMENT_WRITE_RE = re.compile(r"\bdocument\s*\.\s*write\s*\(", re.I)
 HTML_WRITE_RE = re.compile(
-    r"\binnerHTML\b|\bouterHTML\b|\bdocument\s*\.\s*write\s*\(|\binsertAdjacentHTML\s*\(",
+    r"\binnerHTML\b|\bouterHTML\b|\binsertAdjacentHTML\s*\(",
     re.I,
 )
 MESSAGE_LISTENER_RE = re.compile(r"addEventListener\s*\(\s*['\"]message['\"]", re.I)
 ORIGIN_CHECK_RE = re.compile(r"\b(?:event|e|evt)\s*\.\s*origin\b|\borigin\b", re.I)
 HTTP_URL_RE = re.compile(r"http://[^\s\"'<>\\)]+", re.I)
 GLOBAL_WRITE_RE = re.compile(r"\bwindow\s*\.\s*[A-Za-z_$][\w$]*\s*=", re.I)
+GTM_INTERNAL_OBJECT_RE = re.compile(
+    r"\b(?:window\s*\.\s*)?google_tag_manager\b",
+    re.I,
+)
+MANUAL_GTAG_RE = re.compile(r"(?<![\w.])gtag\s*\(", re.I)
+DEBUGGER_RE = re.compile(r"\bdebugger\s*;?", re.I)
 DYNAMIC_SCRIPT_RE = re.compile(
     r"createElement\s*\(\s*['\"]script['\"]|\.src\s*=",
     re.I,
@@ -64,6 +86,44 @@ FIXED_PRODUCT_INDEX_RE = re.compile(
 )
 RETURN_EXPRESSION_RE = re.compile(r"\breturn\s+([^;\r\n]+)", re.I)
 SLOT_SUFFIX_RE = re.compile(r"^(.*?)(?:[\s_.\-\[]+)(\d{1,3})\]?$", re.I)
+OPTIMIZE_REMNANT_RE = re.compile(
+    r"googleoptimize\.com/optimize\.js|\bgoogle_optimize\b|"
+    r"\bdataLayer\s*\.\s*hide\b|async-hide",
+    re.I,
+)
+JAVASCRIPT_TOKEN_RE = re.compile(
+    r"(?:^|[;{}\s])(?:var|let|const|function|return|if|for|while)\b|"
+    r"\b(?:window|document|dataLayer)\s*\.|\b(?:fbq|gtag|fetch)\s*\(",
+    re.I,
+)
+ASYNC_CMP_CALLBACK_RE = re.compile(
+    r"(?:__tcfapi|__cmp|addEventListener|onConsentChanged|"
+    r"addVendorStatusListener|addPurposeStatusListener)"
+    r"\s*\([^;]{0,1200}(?:function\s*\(|(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>)",
+    re.I | re.S,
+)
+STRONG_SECRET_ASSIGNMENT_RE = re.compile(
+    r"\b(?P<name>client[_-]?secret|api[_-]?secret|access[_-]?token|"
+    r"refresh[_-]?token|authorization|password|private[_-]?key)\b"
+    r"\s*[:=]\s*(['\"`])(?P<value>(?:(?!\2).){8,})\2",
+    re.I | re.S,
+)
+API_KEY_ASSIGNMENT_RE = re.compile(
+    r"\b(?:api[_-]?key|subscription[_-]?key)\b\s*[:=]\s*"
+    r"(['\"`])(?P<value>(?:(?!\1).){12,})\1",
+    re.I | re.S,
+)
+JWT_RE = re.compile(
+    r"(['\"`])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\1"
+)
+PRIVATE_KEY_RE = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", re.I)
+CACHE_BUSTER_RE = re.compile(
+    r"(?:[?&](?:cb|cachebuster|cache_buster|gtmcb)=|"
+    r"\b(?:cachebuster|cache_buster)\b|\bDate\s*\.\s*now\s*\(\s*\))",
+    re.I,
+)
+BASE64_RE = re.compile(r"\b(?:atob|btoa)\s*\(|\b[A-Za-z0-9+/]{80,}={0,2}\b")
+MUTATION_OBSERVER_RE = re.compile(r"\bMutationObserver\s*\(", re.I)
 IDENTITY_IGNORED = {"accountId", "containerId", "fingerprint", "path"}
 
 
@@ -77,6 +137,16 @@ def stable_payload(value: Any) -> str:
 
 def stable_hash(value: Any) -> str:
     return hashlib.sha256(stable_payload(value).encode("utf-8")).hexdigest()[:16]
+
+
+def has_manual_gtag_call(code: str) -> bool:
+    without_definition = re.sub(
+        r"\bfunction\s+gtag\s*\(",
+        "function __gtag_definition__(",
+        code,
+        flags=re.I,
+    )
+    return bool(MANUAL_GTAG_RE.search(without_definition))
 
 
 def comparable_config(obj: dict[str, Any]) -> dict[str, Any]:
@@ -151,6 +221,30 @@ def script_loader_count(code: str) -> int:
     dynamic = len(re.findall(r"createElement\s*\(\s*['\"]script['\"]", code, re.I))
     static = len(re.findall(r"<script\b[^>]*\bsrc\s*=", code, re.I))
     return dynamic + static
+
+
+def looks_like_unwrapped_javascript(layer: str, code: str) -> bool:
+    if layer != "tag" or not code.strip() or re.search(r"<script\b", code, re.I):
+        return False
+    return bool(JAVASCRIPT_TOKEN_RE.search(code))
+
+
+def secret_like_credential_signals(code: str) -> list[str]:
+    """Return redacted credential classes; never return literal candidate values."""
+    signals: set[str] = set()
+    for match in STRONG_SECRET_ASSIGNMENT_RE.finditer(code):
+        name = re.sub(r"[^a-z0-9]+", "_", match.group("name").lower()).strip("_")
+        value = match.group("value")
+        if refs(value):
+            continue
+        signals.add(f"literal_{name}")
+    if API_KEY_ASSIGNMENT_RE.search(code):
+        signals.add("literal_api_key_candidate")
+    if JWT_RE.search(code):
+        signals.add("literal_jwt_candidate")
+    if PRIVATE_KEY_RE.search(code):
+        signals.add("literal_private_key")
+    return sorted(signals)
 
 
 def storage_details(code: str, storage_name: str) -> list[str]:
@@ -338,6 +432,8 @@ def side_effects(code: str) -> list[str]:
     effects = []
     if DATA_LAYER_PUSH_RE.search(code):
         effects.append("dataLayer push")
+    if DATA_LAYER_RESET_RE.search(code):
+        effects.append("dataLayer model reset")
     if re.search(r"\.setItem\s*\(", code):
         effects.append("storage write")
     if re.search(r"\bdocument\s*\.\s*cookie\s*=", code, re.I):
@@ -354,6 +450,8 @@ def side_effects(code: str) -> list[str]:
         effects.append("network call")
     if GLOBAL_WRITE_RE.search(code):
         effects.append("window/global write")
+    if has_manual_gtag_call(code):
+        effects.append("manual gtag call")
     return effects
 
 
@@ -411,6 +509,11 @@ def code_health_findings(layer: str, code: str) -> list[str]:
         )
     elif len(code) > 3000:
         findings.append("Large custom code block; simplify so future changes are easier to review.")
+    if looks_like_unwrapped_javascript(layer, code):
+        findings.append(
+            "Custom HTML contains JavaScript without an exported <script> wrapper; "
+            "wrap the JavaScript so Tag Manager executes the intended code."
+        )
     if layer == "tag" and re.search(r"<script\b", code, re.I):
         findings.append(
             "Custom HTML uses an inline script; keep it only when a native tag or template "
@@ -423,6 +526,22 @@ def code_health_findings(layer: str, code: str) -> list[str]:
             "Registers browser event listeners; exported guards and trigger scope should "
             "prevent repeated registration."
         )
+        if not (
+            REMOVE_EVENT_LISTENER_RE.search(code)
+            or ONCE_EVENT_LISTENER_RE.search(code)
+            or LISTENER_GUARD_RE.search(code)
+        ):
+            findings.append(
+                "Registers a browser event listener without an exported remove, once-only "
+                "option, or registration guard; repeated GTM execution can accumulate handlers."
+            )
+    if has_manual_gtag_call(code):
+        findings.append(
+            "Calls gtag() directly inside GTM; compare its destination, event, consent, and "
+            "routing with native Google tags before retaining a parallel sender."
+        )
+    if DEBUGGER_RE.search(code):
+        findings.append("Contains a debugger statement that should not remain in production code.")
     if DOM_SELECTOR_RE.search(code):
         findings.append(
             "Reads the page DOM; the container cannot prove selector availability "
@@ -432,15 +551,57 @@ def code_health_findings(layer: str, code: str) -> list[str]:
         findings.append(
             "Changes the page DOM; confirm the mutation is required and scoped to the intended route."
         )
+    if layer == "variable" and ASYNC_CMP_CALLBACK_RE.search(code):
+        findings.append(
+            "Custom JavaScript variable starts a callback-based CMP read; a GTM variable "
+            "must return synchronously, so the callback result may arrive after evaluation."
+        )
+    if "literal_api_key_candidate" in secret_like_credential_signals(code):
+        findings.append(
+            "Contains a literal API-key candidate; evidence is redacted. Confirm that it "
+            "is intentionally browser-public and origin-restricted, otherwise remove and rotate it."
+        )
     return findings
 
 
 def code_security_findings(code: str) -> list[str]:
     findings: list[str] = []
+    cookie_attribute_findings = []
+    for match in COOKIE_LITERAL_WRITE_RE.finditer(code):
+        literal = match.group("cookie")
+        missing = [
+            attribute
+            for attribute, pattern in (
+                ("Secure", r"(?:^|;)\s*secure(?:\s*;|$)"),
+                ("SameSite", r"(?:^|;)\s*samesite\s*="),
+            )
+            if not re.search(pattern, literal, re.I)
+        ]
+        if missing:
+            cookie_attribute_findings.append(
+                "Literal cookie write omits exported "
+                + " and ".join(missing)
+                + " attributes; verify the approved cookie policy and add the applicable attributes."
+            )
     checks = (
+        (
+            DATA_LAYER_RESET_RE.search(code),
+            "Calls dataLayer.reset(), which clears GTM's internal data model and can remove "
+            "values needed by later tags.",
+        ),
+        (
+            GTM_INTERNAL_OBJECT_RE.search(code),
+            "Accesses the internal google_tag_manager object, an unsupported implementation "
+            "surface that can change without notice.",
+        ),
         (
             UNSAFE_EVAL_RE.search(code),
             "Runs text as JavaScript, which is risky and hard to debug.",
+        ),
+        (
+            DOCUMENT_WRITE_RE.search(code),
+            "Calls document.write(); retain it only with the explicit GTM support setting "
+            "and a source-proven requirement, otherwise replace the page write.",
         ),
         (
             HTML_WRITE_RE.search(code),
@@ -466,6 +627,18 @@ def code_security_findings(code: str) -> list[str]:
         ),
     )
     findings.extend(message for matched, message in checks if matched)
+    strong_secret_signals = [
+        signal
+        for signal in secret_like_credential_signals(code)
+        if signal != "literal_api_key_candidate"
+    ]
+    if strong_secret_signals:
+        findings.append(
+            "Contains a literal secret-like credential candidate "
+            f"({', '.join(strong_secret_signals)}); evidence is redacted. Remove it from "
+            "the container and rotate the credential if confirmed."
+        )
+    findings.extend(dict.fromkeys(cookie_attribute_findings))
     return findings
 
 
@@ -501,6 +674,11 @@ def code_optimization_findings(
         findings.append(
             "Bridges GTM variables into a dataLayer push; keep it small and document the "
             "expected output fields."
+        )
+    if OPTIMIZE_REMNANT_RE.search(code):
+        findings.append(
+            "Contains a Google Optimize or anti-flicker remnant; remove the obsolete "
+            "loader/hiding code after confirming no current experiment platform owns it."
         )
     return findings
 
@@ -559,6 +737,15 @@ def technical_action_candidate(
     optimization = review.get("technical_code_optimization_findings") or []
     health = review.get("technical_code_health_findings") or []
     if security:
+        return "fix_required"
+    if any(
+        marker in str(item)
+        for item in health
+        for marker in (
+            "without an exported <script> wrapper",
+            "callback-based CMP read",
+        )
+    ):
         return "fix_required"
     if any("No code body" in str(item) for item in health):
         return "owner_decision_needed"
@@ -622,9 +809,47 @@ def technical_exact_action(
         actions.append(
             "Remove eval/new Function/string timer execution and replace it with direct code, a lookup table, or a static branch."
         )
+    if has_finding(review, "dataLayer.reset"):
+        actions.append(
+            "Remove dataLayer.reset(); replace it with event-scoped fields or explicit key updates that preserve values required by later tags."
+        )
+    if has_finding(review, "google_tag_manager"):
+        actions.append(
+            "Replace direct google_tag_manager access with documented GTM variables, templates, dataLayer values, or supported APIs."
+        )
     if has_finding(review, "Writes HTML into the page"):
         actions.append(
             "Replace direct HTML insertion with safe text/attribute updates, or prove the inserted value is never visitor-controlled."
+        )
+    if has_finding(review, "Calls document.write"):
+        actions.append(
+            "Replace document.write() with a native/template loader or scoped DOM insertion; "
+            "if it is exceptionally retained, align the explicit Support document.write setting."
+        )
+    if has_finding(review, "without an exported <script> wrapper"):
+        actions.append(
+            "Wrap the JavaScript body in <script></script> without changing its variables, "
+            "trigger, consent, or vendor behavior."
+        )
+    if has_finding(review, "callback-based CMP read"):
+        actions.append(
+            "Replace the callback-based CMP read with a synchronously available consent "
+            "value populated before the consuming event, or move the async work into a tag."
+        )
+    if has_finding(review, "Google Optimize or anti-flicker remnant"):
+        actions.append(
+            "Remove the obsolete Optimize loader and anti-flicker branch after confirming "
+            "that no active replacement experimentation platform depends on it."
+        )
+    if has_finding(review, "literal secret-like credential candidate"):
+        actions.append(
+            "Remove the embedded credential, rotate it at the owning service, and replace "
+            "the integration with an approved server-side or restricted public credential route."
+        )
+    if has_finding(review, "literal API-key candidate"):
+        actions.append(
+            "Confirm the API key is browser-public and origin-restricted; otherwise remove "
+            "and rotate it rather than storing it in GTM."
         )
     if has_finding(review, "without an exported origin check"):
         actions.append(
@@ -647,6 +872,10 @@ def technical_exact_action(
         actions.append(
             "Confirm consent runs before cookie/storage access, remove sensitive visitor values, and document the allowed key names."
         )
+    if has_finding(review, "Literal cookie write omits"):
+        actions.append(
+            "Add the approved Secure and SameSite attributes to each literal cookie write, or replace the custom writer with the maintained consent-controlled implementation."
+        )
     if row.get("dom_selector_reads"):
         actions.append(
             "Guard missing page selectors and replace DOM scraping with a dataLayer or GTM variable source when one exists."
@@ -659,6 +888,16 @@ def technical_exact_action(
         actions.append(
             "Ensure the browser listener is registered once per page view and only on the intended route."
         )
+    if has_finding(review, "without an exported remove"):
+        actions.append(
+            "Add a once-only option, explicit removal, or stable registration guard so repeated GTM execution cannot accumulate listeners."
+        )
+    if has_finding(review, "Calls gtag() directly"):
+        actions.append(
+            "Compare the manual gtag call with native Google tag routes and keep one consent-aligned sender unless the separate destination is explicitly required."
+        )
+    if has_finding(review, "debugger statement"):
+        actions.append("Remove the debugger statement from production custom code.")
     if row.get("dataLayer_pushes_or_writes"):
         actions.append(
             "List the exact dataLayer event and fields written, keep one canonical writer, and remove a duplicate writer only when exported logic proves equivalence."
@@ -863,6 +1102,10 @@ def extract_export(path: Path) -> dict[str, Any]:
             "referenced_gtm_variables": sorted(refs(obj)),
             "dataLayer_reads": bool(DATA_LAYER_REF_RE.search(code)),
             "dataLayer_pushes_or_writes": bool(DATA_LAYER_PUSH_RE.search(code)),
+            "dataLayer_resets": bool(DATA_LAYER_RESET_RE.search(code)),
+            "google_tag_manager_internal_access": bool(GTM_INTERNAL_OBJECT_RE.search(code)),
+            "manual_gtag_calls": has_manual_gtag_call(code),
+            "debugger_statements": bool(DEBUGGER_RE.search(code)),
             "cookies_read_written": bool(COOKIE_RE.search(code)),
             "localStorage_use": storage_details(code, "localStorage"),
             "sessionStorage_use": storage_details(code, "sessionStorage"),
@@ -872,6 +1115,18 @@ def extract_export(path: Path) -> dict[str, Any]:
             "event_listeners": sorted(set(EVENT_LISTENER_RE.findall(code))),
             "external_scripts_loaded": external_script_urls,
             "network_calls": bool(NETWORK_RE.search(code) or external_script_urls),
+            "document_write_calls": bool(DOCUMENT_WRITE_RE.search(code)),
+            "javascript_without_script_wrapper": looks_like_unwrapped_javascript(
+                layer, code
+            ),
+            "optimize_or_antiflicker_signals": bool(OPTIMIZE_REMNANT_RE.search(code)),
+            "async_cmp_callback_candidate": bool(
+                layer == "variable" and ASYNC_CMP_CALLBACK_RE.search(code)
+            ),
+            "secret_like_credential_signals": secret_like_credential_signals(code),
+            "cache_buster_signals": bool(CACHE_BUSTER_RE.search(code)),
+            "base64_signals": bool(BASE64_RE.search(code)),
+            "mutation_observer_signals": bool(MUTATION_OBSERVER_RE.search(code)),
             "returned_value_type": (
                 "unknown_opaque"
                 if template_visibility == "opaque"

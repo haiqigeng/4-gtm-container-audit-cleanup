@@ -13,9 +13,29 @@ Completion is outcome-based: exhaustive review proof alone is insufficient.
 The result must contain the complete justified action set and a projected
 container that satisfies the three review lenses.
 
+## Operational Definition Of Done
+
+A web analyst can call the result done only when:
+
+- every supported source object and container-visible problem has a final,
+  evidence-bound disposition;
+- every substantiated defect or optimisation has one exact action, precondition,
+  approval scope, QA contract, and rollback;
+- every necessary measurement family, consent control, and route has an
+  explicit preserved target state;
+- the complete proposed mutation set simulates cleanly without new configured
+  firing scope, reference, sanitation, configuration, or architecture defects;
+- genuine owner choices and runtime-only proof are isolated without blocking
+  unrelated safe cleanup; and
+- approved execution is read back exactly, with no unapproved field change and
+  a separate field-level change log.
+
 ## Source And Scope
 
 - The source export hash is locked and every in-scope source object is inventoried.
+- The audit package records the exact runnable skill version and deterministic
+  runtime-tree hash. A copied, stale, or locally divergent installation is
+  identified before its output is compared with another run.
 - The source is a valid ContainerVersion (wrapped or direct), every recognized
   entity layer is an array, every object has a unique layer ID, and no unknown
   entity-like top-level layer is silently ignored. A failure blocks all three
@@ -34,6 +54,9 @@ container that satisfies the three review lenses.
   no prohibited artifact, foreign verdict, repository test fixture, or test
   completion helper. Prefer a fresh reasoning context; sequential execution
   reloads only the permitted source/fact inputs.
+- Every run has a distinct reasoning-context identity. Deterministic scaffolds
+  and shard tools cannot bulk-author semantic decisions; any declared semantic
+  bulk-completion artifact fails the run.
 - Built-in/system references are distinguished from missing references.
 - Web, server, consent, ecommerce, and business scope are stated without
   claiming evidence from an unseen container or live website.
@@ -49,6 +72,19 @@ container that satisfies the three review lenses.
   duplicate paths/code, trigger groups, trigger lint, folders, built-ins,
   naming, legacy setup, templates, sequencing, schedules/firing controls,
   Zones, consent shape/enums, and destination inventory are covered.
+- A missing setup/teardown name lists ranked existing candidates. One unique
+  peer-supported target becomes the exact name repair; clearing the sequence
+  edge is rejected, and ambiguous targets remain one precise owner decision.
+- Naming integrity detects invisible/control characters, non-standard Unicode
+  whitespace, noncanonical forms, confusable collisions, and corrupted
+  `{{references}}`; safe accented names remain unflagged.
+- A UA-styled name without native UA configuration records exact
+  consumers/tag types/destinations. An exclusively GA4-consumed label receives
+  a unique collision-free metadata rename; mixed, unknown, or colliding cases
+  remain candidates and are never relabelled as legacy behavior.
+- A blocker whose exact event set cannot intersect any exact firing route has
+  one field-level removal. A trigger newly orphaned by that same removal is
+  deleted atomically; any other consumer prevents the deletion.
 - Payload-equivalence signatures exclude route, consent, sequence, schedule,
   priority, pause, and firing controls; equal payloads on different routes and
   same event/destination contracts with different consent controls remain
@@ -110,8 +146,15 @@ container that satisfies the three review lenses.
   constant, URL/cookie/DOM source, lookup, code branch, missing reference, or
   cycle. Each node states literal function, output type/shape,
   availability/fallback, and consumer compatibility.
+- Lookup/regex tables lock malformed or duplicate rows, invalid patterns,
+  ordering/shadowing candidates, blank semantics, and enabled defaults while a
+  valid unique neighboring table remains clean.
 - Duplicate custom-variable names and custom/built-in name collisions retain
   every candidate and terminate as `ambiguous`; a Correct verdict cannot pass.
+- A missing reference with one case-preserving Unicode/whitespace-normalized
+  existing name becomes an exact field repair. No semantic/fuzzy name match is
+  inferred, and downstream consumers of that repaired upstream reference do
+  not create duplicate owner decisions.
 - Every executable custom-code nonblank line is covered exactly once in
   concrete behavior blocks. Community-template metadata, parameter help,
   permissions, tests, terms, licenses, and comments are not executable line
@@ -126,12 +169,25 @@ container that satisfies the three review lenses.
   per-segment behavior, so one segment's identifiers cannot attest another.
   Source-visible behavior is polarity-locked: token-rich prose that denies a
   proved send, request, DOM/script effect, dataLayer/storage action, listener,
-  read, or return fails. Source-proven health/security signals cannot be
-  dismissed as false positives or relabeled generically: cleanup, exception,
-  and owner-decision verdicts require their source-bound action, exception
-  basis, or question plus recommended action respectively.
+  read, or return fails. Static findings distinguish advisory review signals,
+  deterministic defects, and evidence boundaries. A source-present advisory
+  pattern may close as `No defect after review` with exact rationale but cannot
+  create an owner question by itself. No source-present pattern is dismissed
+  as a false positive; cleanup, exception, and genuine owner verdicts require
+  their source-bound action, exception basis, or question plus recommendation.
   Metadata-only custom-template resources remain opaque and
   cannot be marked Correct by inferred implementation behavior.
+- Static code signals cover dataLayer resets, internal `google_tag_manager`
+  access, manual `gtag`, debugger statements, literal-cookie Secure/SameSite
+  attributes, listener removal/once/registration guards, `document.write` plus
+  its support setting, missing Custom HTML script wrappers, Optimize/anti-
+  flicker remnants, callback CMP reads, and redacted credential candidates,
+  with a legitimate neighboring negative for each detector class. Cache-
+  buster, base64, MutationObserver, and network signals alone remain facts.
+- Confirmed technical issues/cleanup opportunities link to exactly one defect
+  and one exact operation unless a complete exception or genuine owner
+  decision applies. Identical code cannot receive differing technical outcomes
+  without a cited consumer-specific basis.
 - Vendor-facing objects and their consumed variables complete every generated,
   current official documentation topic for event, destination, fields, value
   types, payload shape, consent, route, and deduplication where applicable.
@@ -139,6 +195,15 @@ container that satisfies the three review lenses.
   container/runtime state, and current-source review; `Not applicable` cannot
   replace missing proof. Versioned unsupported events and replacements are
   registry-validated review cues, never guessed automatic migrations.
+- Registry schema 2 validates reviewed contract versions, event status,
+  required event/deduplication/consent/routing fields, static field
+  type/length/pattern rules, and deprecated endpoints. A current supported
+  event cannot retain a stale unsupported/replacement rule.
+- Meta Purchase inspects source-visible `fbq()` value/currency fields without
+  imposing browser/server deduplication on a browser-only route. Google
+  conversion linking is conditional, configured `url_passthrough`/
+  `ads_data_redaction` gets an explicit contract topic, and `*.run.app` is a
+  first-party-domain review rather than an automatic defect.
 - Unclassified external scripts, hosts, and templates create mandatory
   vendor-identification and official-source research obligations. One
   canonical research owner is generated per unknown identity; other objects
@@ -154,6 +219,10 @@ container that satisfies the three review lenses.
   licenses, tests, and code comments, while explicit
   recognized server-transport endpoints remain in the server-routing contract
   rather than becoming false unknown-vendor obligations.
+- Behavior-bearing container/admin IDs and environment endpoints create
+  portability obligations; metadata-only IDs/URLs do not. Run 3 compares
+  configurations that become equivalent only after environment/container
+  normalization.
 - The purpose is literal and object-specific. `Returns Date.now()` is acceptable;
   `outputs a value` is not. `Maps ecommerce.items[].item_id to Meta content_ids`
   is acceptable; `payload transformer` is not.
@@ -186,6 +255,10 @@ container that satisfies the three review lenses.
 - Every generated exact, near, shared-source, shared-route, shared-event,
   destination, code, condition-subset, and business-step candidate has an
   explicit source-bound relationship verdict.
+- High-confidence dataLayer push/listener spelling near misses and SPA History
+  Change/manual-page-view versus non-disabled Google `send_page_view` states
+  are generated review candidates, never automatic repairs or live-firing
+  claims.
 - Zones sharing child-container public IDs and tags/Google tag configurations
   sharing destination values are deterministic comparison obligations.
 - Trigger-group cycles, cross-vendor business events visible in custom code,
@@ -231,6 +304,13 @@ container that satisfies the three review lenses.
   the question itself. Absent runtime deduplication or consent parity is stated
   with unresolved/negative polarity rather than claimed complete, guaranteed,
   identical, synchronized, verified, equivalent, or otherwise proven.
+- Only exact configuration duplicates carry a source-ranked canonical
+  recommendation: active, consumer-used, non-copy objects win in that order,
+  with object key only as the final tie-breaker. Consumer count never proves
+  equivalence. Once equivalence is proven, the row has an exact consolidation
+  operation rather than an owner choice between identical copies. Retained
+  variants cite positive semantic configuration terms rather than opaque
+  signature hashes.
 
 ## Reconciliation And Cleanup Safety
 
@@ -243,14 +323,25 @@ container that satisfies the three review lenses.
   metadata operations.
 - A source-bound non-destructive Run-1 or Run-2 repair may rely on completed
   Run-3 family coverage rather than a duplicate architecture mutation. It has
-  no creation, deletion, or remap and still passes future-state simulation. An
-  architecture cleanup may resolve weaker candidates only when its complete
-  structured mutation exactly matches the compiled operation.
+  no creation, deletion, or remap and still passes future-state simulation,
+  except for deletion of a trigger made orphan by the same exact impossible-
+  blocker repair. An architecture cleanup may resolve weaker candidates only
+  when its complete structured mutation exactly matches the compiled operation.
 - Operations with identical complete structured mutations may reconcile despite
   independent wording or keys; explanatory deletion reasons and displayed
   canonical labels do not alter mutation identity, while actual endpoints do.
   Every lens rationale remains preserved. One key reused for different
   mutations fails.
+- Generated text edits compose only when object key, normalized field path,
+  and before value match. Unrelated field repairs remain atomic operations.
+- Identical mutations from multiple lenses compile once with every lens
+  classification and rationale retained; one runtime-neutral classification
+  cannot bypass another lens's required architecture decision.
+- A Run-1 owner candidate with exactly the same complete nonempty object set as
+  one Run-3 comparison is represented once under the Run-3 authority while
+  both source judgments remain in the ledger. An exact upstream
+  Unicode/whitespace reference repair resolves dependent consumer decisions to
+  the same operation.
 - Every creation, missing-field/list addition, change, remap, deletion, and
   rename names exact source or planned objects and consumers; consolidation
   names one canonical object.
@@ -258,16 +349,32 @@ container that satisfies the three review lenses.
   orphan, folder, trigger, or naming finding and resolves every operational
   finding selected for cleanup.
 - The simulated future state regenerates configuration obligations and business-
-  relationship candidates. A complete plan leaves no deterministic
-  configuration Issue and creates no relationship outside an architecture-
-  backed operation or, for a non-unsafe discovery-only candidate, an explicit
-  Run-3 retention decision covering every candidate pair.
+  relationship candidates. A complete plan leaves no unaccounted deterministic
+  configuration Issue; a genuine owner-selected replacement remains explicitly
+  owner-blocked with its source-specific remediation contract. It creates no
+  relationship outside an architecture-backed operation or, for a non-unsafe
+  discovery-only candidate, an explicit Run-3 retention decision covering every
+  candidate pair.
 - Audit and recommendation depth never change with approval. Every justified
   operation remains in the plan; explicit operation IDs control execution.
+- Every operation records exact server coupling, static configured-activation
+  risk, approval scope, and risk-based decommission treatment. High/Critical,
+  active, consent/security, server, and activation work is individually
+  approved; only exact low-risk non-active bundles are bulk-eligible.
+- Risky deletions quarantine before a separately approved delete using an
+  analyst-selected traffic/business observation window; proven inactive
+  low-risk deletions do not inherit a universal soak period.
+- The execution preflight blocks any exact do-not-touch intersection, source/
+  future-state mismatch, unconfirmed server or activation risk, or quarantined
+  deletion without post-observation confirmation.
 - The decision ledger contains every source obligation exactly once and links
-  every cleanup disposition to a compiled operation.
+  every cleanup disposition to a compiled operation. Reconciliation removes or
+  narrows stale owner/keep rows when their objects are deleted, and fails if a
+  recommended canonical object is deleted.
 - Action completeness fails when a deterministic operational defect or a
-  source-proven configuration Issue is left as an owner question. Only a
+  source-known configuration fix is left as an owner question. A configuration
+  Issue needing a genuine replacement choice names the object, defect ID or
+  evidence path, and exact remediation direction. Only a
   source-locked review candidate may be retained after source-specific review;
   only a locked review candidate or true business choice may remain an owner
   decision. Genuine owner and evidence-limit decisions contain a concrete
@@ -283,7 +390,11 @@ container that satisfies the three review lenses.
 
 ## Human Output
 
-- The cleanup workbook has at most eight tabs and six columns per tab.
+- The cleanup workbook has at most eight tabs. `02 Cleanup Plan` has exactly
+  seven canonical columns; every other tab has six or fewer.
+- Every visible plan row has one supported `General problem category` derived
+  from its exact problem type. The filter spans all seven columns, and
+  `Affected object(s)` retains filterable GTM layer prefixes.
 - Only `01 Summary` and `02 Cleanup Plan` are visible; hidden proof tabs remain
   available by unhiding.
 - Each distinct actionable issue has its own atomic operation. Exact duplicate,
@@ -294,12 +405,28 @@ container that satisfies the three review lenses.
   Nonblocking container-evidence limits use one visible scope-boundary row while
   every per-object limit remains in hidden proof. Summary permits scoped approval
   of unrelated operations and identifies the objects still awaiting owner action.
+- The audit does not create or execute runtime-QA handoffs. A source-visible
+  container-evidence limit is recorded as a static boundary only; live
+  acceptance belongs to a separately scoped `gtm-preview-recette` task if the
+  analyst asks for it. Target organisation contains no unbacked folder move or
+  arbitrary quota.
+- Object labels use `layer:ID — Name` consistently. Single owner rows omit
+  batch-count boilerplate; grouped rows show the count and exact decision links.
 - Visible text states problem, affected objects, impact, exact action, priority,
-  readiness, and QA in web-analyst language without raw dumps or internal gates.
+  evidence-based priority basis, readiness, and QA in web-analyst language
+  without raw dumps or internal gates.
+- Visible operation text explains the literal GTM behavior, exact change,
+  preserved settings/measurement, static readback, and rollback. It does not
+  lead with concatenated machine labels, raw JSON paths, hashes, or generic
+  business-impact boilerplate. Unicode-reference rows identify the invisible
+  space, show the readable intended `{{Variable}}`, and explain exact-name
+  matching.
 - Visible rows are impact-led without changing operation IDs or execution order;
   Summary counts retained/no-change decisions and names retained business-family
   architecture so the target state is not represented only by defects.
 - Cleanup plan and change log remain separate.
+- When action completeness fails, the visible Cleanup Plan contains only one
+  `BLOCKED-001` draft row; no partial operation list is approval-ready.
 - Every change-log tab uses six or fewer columns and preserves one field-level
   row per actual difference without duplicating the same payload under aliases.
 - Every completed stage ends with one concrete next action.
@@ -318,9 +445,9 @@ container that satisfies the three review lenses.
 
 ## Skill Change Regression Safety
 
-- Every semantic change has a fixture reproducing the observed failure and
-  proves both the intended correction and preservation of neighboring true
-  positives.
+- Every semantic change has paired fixtures reproducing the observed failure
+  and proving both the intended correction and preservation of a neighboring
+  legitimate case that must remain unflagged.
 - Release validation preserves exact-once object/branch identities,
   architecture candidate coverage, research ownership, and representative
   messy-container metrics; unexplained obligation growth blocks release.

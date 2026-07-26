@@ -84,7 +84,11 @@ def parameter_edges(
     edges = []
     for parameter_index, param in enumerate(as_list(obj.get("parameter"))):
         base_path = f"{root_path}.{layer}[{object_index}].parameter[{parameter_index}]"
-        for fact in walk_json_fields(param, base_path):
+        for fact in walk_json_fields(
+            param,
+            base_path,
+            object_name=str(obj.get("name") or ""),
+        ):
             edges.append(
                 {
                     "source_layer": layer,
