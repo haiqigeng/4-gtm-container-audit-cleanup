@@ -10,17 +10,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from gtm_lib import ID_KEYS
+from gtm_lib import ID_KEYS, as_list, load_json
 
 EXACT_OBJECT_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*:[^:\s]+$")
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def operation_scope_keys(operation: dict[str, Any]) -> set[str]:

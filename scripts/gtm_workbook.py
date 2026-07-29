@@ -13,8 +13,7 @@ from xml.etree import ElementTree
 def normalize_header(value: Any) -> str:
     text = str(value or "").strip().lower()
     text = re.sub(r"[^a-z0-9]+", "_", text)
-    text = text.strip("_")
-    return text
+    return text.strip("_")
 
 
 def column_index(cell_ref: str) -> int:
@@ -126,7 +125,7 @@ def load_xlsx_workbook(path: Path) -> dict[str, list[dict[str, Any]]]:
         return load_xlsx_workbook_stdlib(path)
     try:
         return load_xlsx_workbook_openpyxl(path)
-    except Exception as exc:  # noqa: BLE001 - preserve artifact parsing failure.
+    except Exception as exc:  # Preserve the parser failure instead of masking corruption.
         raise RuntimeError(
             "Unable to read XLSX workbook with openpyxl; refusing the stdlib reader "
             "because parser failure may indicate a malformed artifact."

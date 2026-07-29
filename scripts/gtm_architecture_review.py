@@ -13,6 +13,7 @@ from typing import Any
 
 from gtm_lib import (
     ID_KEYS,
+    as_list,
     container_root_path,
     container_version,
     custom_template_ids,
@@ -24,6 +25,7 @@ from gtm_lib import (
     source_integrity_findings,
     stable_hash,
     trigger_group_members,
+    write_json,
 )
 from gtm_relationships import (
     DISCOVERY_METHOD_BY_COMPARISON_TYPE,
@@ -109,10 +111,6 @@ UNSAFE_DISCOVERY_METHOD_REQUIREMENTS = {
         "consent_sequence_and_server_route_conflicts",
     },
 }
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def compact_terms(values: list[Any], limit: int = 40) -> list[str]:
@@ -1206,11 +1204,7 @@ def source_path_matches_object(path: str, source_path: str) -> bool:
     return bool(
         path
         and source_path
-        and (
-            path == source_path
-            or path.startswith(source_path + ".")
-            or path.startswith(source_path + "[")
-        )
+        and (path == source_path or path.startswith((source_path + ".", source_path + "[")))
     )
 
 
@@ -2576,14 +2570,6 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
         )
     )
     return errors, warnings
-
-
-def write_json(path: Path, payload: dict[str, Any], pretty: bool) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2 if pretty else None) + "\n",
-        encoding="utf-8",
-    )
 
 
 def main() -> int:

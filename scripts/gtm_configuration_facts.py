@@ -11,6 +11,7 @@ from typing import Any
 from gtm_lib import (
     ID_KEYS,
     SEMANTIC_LAYERS,
+    as_list,
     comparable,
     custom_template_executable_code,
     custom_template_ids,
@@ -23,10 +24,6 @@ from gtm_lib import (
     trigger_group_members,
     walk_json_fields,
 )
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def word_count(value: Any) -> int:

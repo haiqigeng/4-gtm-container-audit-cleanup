@@ -9,7 +9,7 @@ from collections import defaultdict
 from typing import Any
 from urllib.parse import urlsplit
 
-from gtm_lib import refs, stable_hash, walk_json_fields
+from gtm_lib import as_list, refs, stable_hash, walk_json_fields
 from gtm_vendor_registry import (
     behavior_bearing_vendor_text,
     detect_vendor_text,
@@ -68,10 +68,6 @@ FORWARDING_NON_PAYLOAD_PATH_TOKENS = (
     ".scheduleStartMs",
     ".scheduleEndMs",
 )
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def consent_purpose(name: str) -> str:

@@ -16,7 +16,14 @@ from gtm_architecture_review import scaffold_review as scaffold_architecture_rev
 from gtm_baseline_audit import audit_export, build_execution_reachability
 from gtm_configuration_review import scaffold_review as scaffold_configuration_review
 from gtm_custom_code_extract import extract_export
-from gtm_lib import ID_KEYS, container_version, source_descriptor, source_integrity_findings
+from gtm_lib import (
+    ID_KEYS,
+    as_list,
+    container_version,
+    load_json,
+    source_descriptor,
+    source_integrity_findings,
+)
 from gtm_shared_facts import build_shared_facts
 from gtm_validate_artifact import duplicate_ids, missing_references
 
@@ -33,14 +40,6 @@ PATH_TOKEN_RE = re.compile(r"\.([^.[\]]+)|\[(\d+)\]")
 # deduplication, creation, remap, or other configuration mutation still needs
 # explicit architecture backing.
 RETENTION_VERDICTS = {"Intentional variant", "Complementary", "Unrelated"}
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def object_catalog(cv: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -504,8 +503,10 @@ def finding_persists(
         and after.get("finding_type") == before.get("finding_type")
         and (
             bool(before_ids & {str(value) for value in as_list(after.get("object_ids"))})
-            or not before_ids
-            and evidence_shape(after) == evidence_shape(before)
+            or (
+                not before_ids
+                and evidence_shape(after) == evidence_shape(before)
+            )
         )
         for after in after_rows
     )

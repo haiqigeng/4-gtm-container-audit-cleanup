@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.review_helpers import complete_review_attestation
 from tests.test_pipeline import (
     complete_architecture,
     complete_configuration,
@@ -31,7 +32,6 @@ from gtm_operation_compile import (
 )
 from gtm_operational_review import validate_review as validate_operational
 from gtm_relationships import relationship_candidates
-from gtm_review_common import complete_review_attestation
 from gtm_review_shards import check_shard, merge_review, split_review
 from gtm_three_run_gate import run_gate
 from gtm_vendor_registry import vendor_records

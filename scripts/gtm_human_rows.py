@@ -11,6 +11,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from gtm_lib import as_list
 from gtm_privacy import redact_text
 from gtm_taxonomy import (
     AREAS,
@@ -45,10 +46,6 @@ OBJECT_KEY_RE = re.compile(
 INTERNAL_HASH_RE = re.compile(r"\b[a-f0-9]{32,}\b", re.I)
 GTM_REFERENCE_RE = re.compile(r"\{\{([^{}]+)\}\}")
 NONSTANDARD_SPACE_RE = re.compile(r"[\u00a0\u1680\u2000-\u200b\u202f\u205f\u3000]")
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def compact_visible_text(value: Any, limit: int = 360) -> str:

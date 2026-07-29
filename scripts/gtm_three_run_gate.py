@@ -13,7 +13,7 @@ from gtm_architecture_review import validate_review as validate_architecture
 from gtm_configuration_review import validate_review as validate_configuration
 from gtm_context_model import build_context_model, context_content_hash
 from gtm_future_state_check import check_future_state
-from gtm_lib import source_descriptor
+from gtm_lib import load_json, source_descriptor
 from gtm_operation_compile import compile_operations, source_object_catalog
 from gtm_operational_review import validate_review as validate_operational
 from gtm_shared_facts import build_shared_facts, shared_content_hash
@@ -29,10 +29,6 @@ REQUIRED_PACKAGE_FILES = {
     "architecture_review": "architecture_review.json",
     "manifest": "audit_package_manifest.json",
 }
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def package_paths(package_dir: Path) -> dict[str, Path]:

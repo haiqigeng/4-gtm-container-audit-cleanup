@@ -56,6 +56,9 @@ This creates:
 - `configuration_review.json`
 - `architecture_review.json`
 - `audit_package_manifest.json`
+- `operational-shards/`, `configuration-shards/`, or
+  `architecture-shards/` when the corresponding review is automatically
+  sharded
 
 The builder validates source identity before semantic work. An incomplete or
 ambiguous artifact produces only `source_model.json` and a blocked manifest;
@@ -68,23 +71,34 @@ Each scaffold includes its immutable `input_contract` and a pending
 `completion_attestation`. Record the artifact roles actually used; do not load
 another run's verdict or repository test completion helper.
 
-## Shard Large Reviews
+## Complete Automatically Sharded Reviews
 
-Use bounded shards when one review is too large for a reliable agent context.
-Repeat for operational, configuration, and architecture review files as needed.
+Read `audit_package_manifest.json > review_work_units`. The package builder
+automatically creates source-locked shards when a run has more than 40 primary
+items or one configuration obligation group has more than 30 items. A
+`single_file` run is completed directly in its canonical review file. For a
+`sharded` run, complete every file declared by that run's
+`shard_manifest.json`.
+
+Check each completed shard using its exact manifest filename, then merge the
+complete run back to its canonical package path:
 
 ```powershell
-python -B scripts/gtm_review_shards.py split audit-package/configuration_review.json configuration-shards --max-items 40 --max-obligations 30
-python -B scripts/gtm_review_shards.py check audit-package/configuration_review.json configuration-shards configuration_review.rows.0001.json
-python -B scripts/gtm_review_shards.py merge audit-package/configuration_review.json configuration-shards completed-configuration-review.json
+python -B scripts/gtm_review_shards.py check audit-package/configuration_review.json audit-package/configuration-shards configuration_review.rows.0001.json
+python -B scripts/gtm_review_shards.py merge audit-package/configuration_review.json audit-package/configuration-shards audit-package/configuration_review.json
 ```
 
-After merging, place the completed artifact at the expected package path. The
-merge fails on missing, duplicated, pending, wrong-kind, or wrong-source items.
-Shards from separate runs must remain separate. Configuration obligation shards
-also preserve the exact generated branch, trace, contract, technical-finding,
-D3-cross-check, and custom-code-line set. Lower `--max-obligations` when a code
-or configuration object still exceeds the reliable agent context.
+The merge fails on missing, duplicated, pending, wrong-kind, or wrong-source
+items. Shards from separate runs must remain separate. Configuration obligation
+shards preserve the exact generated branch, trace, contract,
+technical-finding, D3-cross-check, and custom-code-line set.
+
+Use manual splitting only for a legacy package or to lower the limits for an
+unusually dense object:
+
+```powershell
+python -B scripts/gtm_review_shards.py split audit-package/configuration_review.json audit-package/configuration-shards --max-items 40 --max-obligations 20
+```
 
 Architecture splitting also creates `*.open_discovery.0001.json`. Complete its
 analyst-added `DISC-*` comparisons and `open_discovery_attestation`; merge will

@@ -25,6 +25,7 @@ from gtm_lib import (
     BEHAVIOR_NEUTRAL_FIELDS,
     ID_KEYS,
     SEMANTIC_LAYERS,
+    as_list,
     behavior_projection,
     comparable,
     container_root_path,
@@ -231,10 +232,6 @@ DISCOVERY_METHOD_BY_COMPARISON_TYPE = {
     "data_layer_push_listener_near_miss": "consumer_destination_and_event_overlap",
     "spa_history_send_page_view_review": "consumer_destination_and_event_overlap",
 }
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def normalized_text(value: Any) -> str:

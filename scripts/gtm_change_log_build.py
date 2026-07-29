@@ -10,11 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from gtm_diff_operations import csv_row
+from gtm_lib import as_list
 from gtm_workbook_build import add_table
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def build_change_log(payload: dict[str, Any], output: Path) -> None:

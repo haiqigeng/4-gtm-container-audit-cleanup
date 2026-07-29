@@ -12,11 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from gtm_lib import (
+    as_list,
     container_version,
     custom_template_executable_code,
+    param_value,
     refs,
     source_descriptor,
     source_integrity_findings,
+    stable_hash,
 )
 from gtm_privacy import sanitize_url
 
@@ -127,18 +130,6 @@ MUTATION_OBSERVER_RE = re.compile(r"\bMutationObserver\s*\(", re.I)
 IDENTITY_IGNORED = {"accountId", "containerId", "fingerprint", "path"}
 
 
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
-def stable_payload(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def stable_hash(value: Any) -> str:
-    return hashlib.sha256(stable_payload(value).encode("utf-8")).hexdigest()[:16]
-
-
 def has_manual_gtag_call(code: str) -> bool:
     without_definition = re.sub(
         r"\bfunction\s+gtag\s*\(",
@@ -151,19 +142,6 @@ def has_manual_gtag_call(code: str) -> bool:
 
 def comparable_config(obj: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in obj.items() if key not in IDENTITY_IGNORED}
-
-
-def param_value(obj: dict[str, Any], key: str) -> Any:
-    for param in as_list(obj.get("parameter")):
-        if param.get("key") != key:
-            continue
-        if "value" in param:
-            return param.get("value")
-        if "list" in param:
-            return param.get("list")
-        if "map" in param:
-            return param.get("map")
-    return None
 
 
 def object_id(obj: dict[str, Any], layer: str) -> str:
@@ -378,7 +356,7 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
 
     try:
         parsed = esprima.parseScript(parser_source, {"tolerant": True}).toDict()
-    except Exception as exc:  # noqa: BLE001 - parser failures become evidence, not crashes.
+    except Exception as exc:  # Parser failures are evidence, not fatal extraction errors.
         return {
             "javascript_parser": "esprima_parse_failed",
             "parser_input_normalized": normalized,
@@ -801,7 +779,7 @@ def compact_values(values: list[Any], limit: int = 4) -> str:
 
 
 def technical_exact_action(
-    layer: str, row: dict[str, Any], review: dict[str, Any], action: str
+    row: dict[str, Any], review: dict[str, Any], action: str
 ) -> str:
     actions: list[str] = []
 
@@ -940,7 +918,7 @@ def technical_exact_action(
     return prefix + " ".join(actions)
 
 
-def technical_preconditions(layer: str, row: dict[str, Any], action: str) -> str:
+def technical_preconditions(layer: str, action: str) -> str:
     if action in {"fix_required", "harden_required"}:
         return (
             "Confirm the business purpose, approved endpoints/keys, consent requirement, "
@@ -1160,8 +1138,10 @@ def extract_export(path: Path) -> dict[str, Any]:
             layer, object_name, code, effects, row
         )
         row["technical_expected_clean_state"] = technical_expected_state(action)
-        row["technical_exact_proposed_action"] = technical_exact_action(layer, row, review, action)
-        row["technical_preconditions"] = technical_preconditions(layer, row, action)
+        row["technical_exact_proposed_action"] = technical_exact_action(
+            row, review, action
+        )
+        row["technical_preconditions"] = technical_preconditions(layer, action)
         row["technical_qa_steps"] = technical_qa_steps(layer, row, action)
         row["technical_rollback_note"] = technical_rollback_note(row, action)
         row["technical_handoff_packet"] = technical_handoff_packet(row)

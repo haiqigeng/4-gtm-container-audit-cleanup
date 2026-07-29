@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import collections
 import difflib
-import hashlib
 import json
 import re
 import unicodedata
@@ -24,16 +23,21 @@ from gtm_lib import (
     BEHAVIOR_NEUTRAL_FIELDS,
     ID_KEYS,
     SEMANTIC_LAYERS,
+    as_list,
     behavior_projection,
+    comparable,
     container_root_path,
     container_version,
     custom_template_ids,
     custom_template_type_index,
     is_system_trigger_reference,
     is_system_variable_reference,
+    param_value,
     refs,
     source_descriptor,
     source_integrity_findings,
+    stable_hash,
+    stable_payload,
     system_reference_description,
     trigger_group_members,
 )
@@ -121,10 +125,6 @@ CONDITION_OPERATORS = {
     "GREATER_THAN",
     "LESS_THAN",
 }
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def canonical_unicode_text(value: str) -> str:
@@ -293,29 +293,8 @@ def unique_setup_repair_candidate(
     return None
 
 
-def stable_payload(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
 def signature(value: Any) -> str:
-    return hashlib.sha256(stable_payload(value).encode("utf-8")).hexdigest()[:16]
-
-
-def comparable(obj: dict[str, Any], ignored: set[str]) -> dict[str, Any]:
-    return {key: value for key, value in obj.items() if key not in ignored}
-
-
-def param_value(obj: dict[str, Any], key: str) -> Any:
-    for param in as_list(obj.get("parameter")):
-        if param.get("key") != key:
-            continue
-        if "value" in param:
-            return param.get("value")
-        if "list" in param:
-            return param.get("list")
-        if "map" in param:
-            return param.get("map")
-    return None
+    return stable_hash(value)
 
 
 def object_id(obj: dict[str, Any], layer: str) -> str:
@@ -1675,10 +1654,10 @@ def condition_contradiction_details(nodes: list[dict[str, Any]]) -> list[str]:
                 if not right or "{{" in right:
                     continue
                 impossible = (
-                    operator == "CONTAINS" and right not in equals_value
-                    or operator == "DOES_NOT_CONTAIN" and right in equals_value
-                    or operator == "STARTS_WITH" and not equals_value.startswith(right)
-                    or operator == "ENDS_WITH" and not equals_value.endswith(right)
+                    (operator == "CONTAINS" and right not in equals_value)
+                    or (operator == "DOES_NOT_CONTAIN" and right in equals_value)
+                    or (operator == "STARTS_WITH" and not equals_value.startswith(right))
+                    or (operator == "ENDS_WITH" and not equals_value.endswith(right))
                 )
                 if impossible:
                     details.append(
@@ -2743,10 +2722,8 @@ def add_tag_execution_control_findings(
         }
         rows.append(row)
         if (
-            start_raw not in {None, ""}
-            and start is None
-            or end_raw not in {None, ""}
-            and end is None
+            (start_raw not in {None, ""} and start is None)
+            or (end_raw not in {None, ""} and end is None)
         ):
             builder.add_finding(
                 "tag_execution_controls",

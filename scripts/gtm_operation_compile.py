@@ -18,7 +18,7 @@ from gtm_architecture_review import validate_review as validate_architecture_rev
 from gtm_baseline_audit import build_execution_reachability
 from gtm_configuration_review import validate_review as validate_configuration_review
 from gtm_consent_model import server_route_hosts
-from gtm_lib import ID_KEYS, container_version, source_integrity_findings, stable_hash
+from gtm_lib import ID_KEYS, container_version, load_json, source_integrity_findings, stable_hash
 from gtm_operational_review import validate_review as validate_operational_review
 from gtm_review_common import as_list, specific_text, validate_review_provenance
 
@@ -47,10 +47,6 @@ TEXT_FIELDS = (
     "canonical_selection_rationale",
 )
 GTM_REFERENCE_RE = re.compile(r"\{\{([^{}]+)\}\}")
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def source_object_catalog(export_path: Path) -> dict[str, dict[str, Any]]:
@@ -83,7 +79,7 @@ def source_object_catalog(export_path: Path) -> dict[str, dict[str, Any]]:
                 "active"
                 if key in active_keys
                 else "paused_only"
-                if key in paused_only_keys or layer == "tag" and bool(obj.get("paused"))
+                if key in paused_only_keys or (layer == "tag" and bool(obj.get("paused")))
                 else "inactive_or_unreferenced"
             )
             catalog[key] = {
@@ -575,9 +571,9 @@ def normalized_mutation_path(object_key: str, json_path: str) -> str:
 def paths_overlap(left: str, right: str) -> bool:
     if left == right:
         return True
-    return left.startswith(right + ".") or left.startswith(right + "[") or right.startswith(
-        left + "."
-    ) or right.startswith(left + "[")
+    return left.startswith((right + ".", right + "[")) or right.startswith(
+        (left + ".", left + "[")
+    )
 
 
 def mutation_state() -> dict[str, Any]:
@@ -844,25 +840,6 @@ def architecture_family_support(
     if not behavior_keys <= set(support_by_key):
         return set()
     return set().union(*(support_by_key[key] for key in behavior_keys))
-
-
-def architecture_cleanup_destructive_keys(
-    comparisons: list[dict[str, Any]], families: list[dict[str, Any]]
-) -> set[str]:
-    """Return source keys explicitly removed or remapped by Run 3 cleanup.
-
-    Such an architecture decision resolves lesser name/scope candidates that
-    disappear with the approved object.  Requiring a duplicate operation in
-    every one of those candidate rows creates contradictory machinery without
-    increasing regression protection.
-    """
-    keys: set[str] = set()
-    for row in [*comparisons, *families]:
-        if row.get("disposition") != "cleanup_operation":
-            continue
-        for operation in as_list(row.get("operations")):
-            keys.update(destructive_object_keys(operation))
-    return keys
 
 
 def architecture_cleanup_action_signatures(

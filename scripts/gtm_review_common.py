@@ -14,7 +14,7 @@ from typing import Any
 
 from gtm_configuration_facts import build_consumers, object_consumers
 from gtm_context_model import build_context_model
-from gtm_lib import ID_KEYS, container_root_path, container_version, stable_hash
+from gtm_lib import ID_KEYS, as_list, container_root_path, container_version, stable_hash
 from gtm_shared_facts import build_shared_facts
 
 VALID_PRIORITIES = {"Critical", "High", "Medium", "Low"}
@@ -120,10 +120,6 @@ GENERIC_PHRASES = {
 }
 
 
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
 def canonical_review_facts(
     export_path: Path,
     supplied: dict[str, Any],
@@ -171,42 +167,6 @@ def pending_completion_attestation(contract: dict[str, Any]) -> dict[str, Any]:
         "decision_authoring_method": "",
         "independent_review_context_id": "",
         "semantic_completion_artifacts": [],
-    }
-
-
-def complete_review_attestation(
-    review: dict[str, Any],
-    *,
-    decision_authoring_method: str,
-    independent_review_context_id: str | None = None,
-    optional_artifact_roles: list[str] | None = None,
-    helper_modules: list[str] | None = None,
-    semantic_completion_artifacts: list[str] | None = None,
-) -> dict[str, Any]:
-    """Create an explicit independent-review completion attestation.
-
-    The required authoring method is deliberately not inferred.  Calling code
-    must state that semantic decisions were completed in one run-specific
-    review context rather than silently treating a bulk projection helper as a
-    reviewer.
-    """
-    contract = review.get("input_contract") or {}
-    return {
-        "status": "complete",
-        "input_contract_sha256": contract.get("contract_sha256"),
-        "used_artifact_roles": [
-            *as_list(contract.get("required_artifact_roles")),
-            *(optional_artifact_roles or []),
-        ],
-        "foreign_verdict_artifacts_used": [],
-        "helper_modules": helper_modules or [],
-        "decision_authoring_method": decision_authoring_method,
-        "independent_review_context_id": (
-            independent_review_context_id
-            or f"{contract.get('review_run') or 'review'}:"
-            f"{str(contract.get('contract_sha256') or '')[:20]}"
-        ),
-        "semantic_completion_artifacts": semantic_completion_artifacts or [],
     }
 
 
@@ -332,20 +292,6 @@ def precise_question(value: Any, minimum: int = 5) -> bool:
     )
 
 
-def created_object_keys(row: dict[str, Any]) -> set[str]:
-    keys: set[str] = set()
-    for creation in as_list(row.get("creations")):
-        layer = str(creation.get("layer") or "")
-        obj = creation.get("object")
-        id_key = ID_KEYS.get(layer)
-        if not id_key or not isinstance(obj, dict):
-            continue
-        object_id = str(obj.get(id_key) or obj.get("name") or "")
-        if object_id:
-            keys.add(f"{layer}:{object_id}")
-    return keys
-
-
 def _validate_creations(
     row: dict[str, Any], valid_keys: set[str], label: str
 ) -> tuple[list[str], set[str]]:
@@ -390,8 +336,7 @@ def _validate_additions(
         path = str(addition.get("json_path") or "")
         if expected_path and not (
             path == expected_path
-            or path.startswith(expected_path + ".")
-            or path.startswith(expected_path + "[")
+            or path.startswith((expected_path + ".", expected_path + "["))
         ):
             errors.append(f"{prefix} object_key is paired with another object's json_path")
         if "value" not in addition:
@@ -422,8 +367,7 @@ def _validate_changes(
         path = str(change.get("json_path") or "")
         if expected_path and not (
             path == expected_path
-            or path.startswith(expected_path + ".")
-            or path.startswith(expected_path + "[")
+            or path.startswith((expected_path + ".", expected_path + "["))
         ):
             errors.append(
                 f"{label}: change object_key is paired with another object's json_path"
@@ -565,7 +509,6 @@ def _name_collision_pairs(names: dict[str, str]) -> set[tuple[str, str, str, str
 
 def validate_operation_set(
     rows: list[dict[str, Any]],
-    valid_keys: set[str],
     expected_consumers: dict[str, set[str]] | None = None,
     object_names: dict[str, str] | None = None,
     label: str = "operation set",
@@ -832,8 +775,7 @@ def validate_structured_actions(
     errors.extend(
         validate_operation_set(
             [row],
-            allowed_keys,
-            expected_consumers,
+            expected_consumers=expected_consumers,
             label=label,
         )
     )

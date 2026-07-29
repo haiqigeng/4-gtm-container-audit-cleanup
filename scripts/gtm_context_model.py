@@ -15,6 +15,7 @@ from gtm_consent_model import server_route_hosts
 from gtm_lib import (
     ID_KEYS,
     SEMANTIC_LAYERS,
+    as_list,
     behavior_projection,
     container_version,
     source_descriptor,
@@ -89,10 +90,6 @@ STAGING_HOST_RE = re.compile(
     r"(?:dev|development|stage|staging|qa|uat|sandbox|preprod)(?:[-.].+))$",
     re.I,
 )
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def load_provided(path: Path | None) -> dict[str, Any]:

@@ -20,12 +20,14 @@ from gtm_lib import (
     ID_KEYS,
     OBJECT_LAYERS,
     SEMANTIC_LAYERS,
+    as_list,
     container_root_path,
     container_version,
     custom_template_ids,
     custom_template_type_index,
     is_system_trigger_reference,
     is_system_variable_reference,
+    param_value,
     refs,
     source_descriptor,
     source_integrity_findings,
@@ -35,30 +37,9 @@ from gtm_lib import (
 )
 
 
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
-def stable_payload(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
 def code_hash(text: str) -> str:
     normalized = re.sub(r"\s+", " ", text).strip()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16] if normalized else ""
-
-
-def param_value(obj: dict[str, Any], key: str) -> Any:
-    for param in as_list(obj.get("parameter")):
-        if param.get("key") != key:
-            continue
-        if "value" in param:
-            return param.get("value")
-        if "list" in param:
-            return param.get("list")
-        if "map" in param:
-            return param.get("map")
-    return None
 
 
 def object_id(obj: dict[str, Any], layer: str) -> str:

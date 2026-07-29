@@ -136,12 +136,13 @@ without losing either evidence lens, and a deletion-only subset folds into one
 unambiguous broader operation so the plan never tells an analyst to delete the
 same object twice.
 
-Large reviews can be split into bounded, source-locked shards. The merge tool
-refuses missing, duplicate, pending, or source-mismatched work, so scaling the
-execution does not reduce audit coverage. Architecture shards include a
-separate open-discovery file for added `DISC-*` comparisons and the final
-all-object attestation. Configuration shards also keep each code line and D3
-logic check in an exact, source-ordered obligation manifest.
+Package creation automatically splits large reviews into bounded, source-locked
+shards and records the strategy under `review_work_units` in the package
+manifest. The current limits are more than 40 primary review items or more than
+30 items in one configuration obligation group. The merge tool refuses missing,
+duplicate, pending, or source-mismatched work, so scaling the execution does not
+reduce audit coverage. Architecture shards include a separate open-discovery
+file for added `DISC-*` comparisons and the final all-object attestation.
 
 ## Inputs
 
@@ -244,8 +245,9 @@ python -B scripts/gtm_three_run_gate.py container.json audit-package --operation
 ```
 
 Prefer a fresh reasoning context per run and never provide another run's
-verdict artifact as input. For large reviews, run `gtm_review_shards.py check`
-after each completed shard, then merge and run the complete validator.
+verdict artifact as input. Follow each run's `review_work_units` strategy. For a
+sharded run, check every declared shard, merge it back to the canonical review
+path, and then run the complete validator.
 
 The exact compilation, future-state, workbook, privacy, and change-log commands
 are in `references/02-commands/validation-commands.md`. Before approved
@@ -270,7 +272,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.4.0
+python -B scripts/check_release.py --tag v1.5.0
 git diff --check
 ```
 

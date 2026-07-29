@@ -14,6 +14,7 @@ from gtm_future_state_check import apply_operations
 from gtm_lib import (
     ID_KEYS,
     apply_patch,
+    as_list,
     comparable,
     load_container_version,
     object_id,
@@ -55,10 +56,6 @@ OPERATION_PHASE_FIELDS = (
     "renames",
     "deletions",
 )
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def action_for(before: dict[str, Any] | None, after: dict[str, Any] | None) -> str:

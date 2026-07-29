@@ -20,6 +20,13 @@ from gtm_context_model import build_context_model
 from gtm_custom_code_extract import extract_export
 from gtm_lib import source_descriptor
 from gtm_operational_review import scaffold_review as scaffold_operational_review
+from gtm_review_shards import (
+    DEFAULT_MAX_ITEMS,
+    DEFAULT_MAX_OBLIGATIONS,
+    review_requires_sharding,
+    review_workload,
+    split_review,
+)
 from gtm_shared_facts import build_shared_facts
 from gtm_skill_identity import build_identity
 from gtm_source_model import build_model
@@ -39,6 +46,47 @@ def nonzero_findings(payload: dict[str, Any]) -> int:
         for finding in payload.get("findings", [])
         if finding.get("finding_type") != "zero_findings"
     )
+
+
+def build_review_work_units(
+    out_dir: Path,
+    files: dict[str, Path],
+    reviews: dict[str, tuple[str, dict[str, Any], str]],
+    pretty: bool,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "max_items_per_shard": DEFAULT_MAX_ITEMS,
+        "max_configuration_obligations_per_shard": DEFAULT_MAX_OBLIGATIONS,
+        "runs": {},
+    }
+    for run_name, (file_key, review, shard_directory) in reviews.items():
+        workload = review_workload(review)
+        run_result = {
+            "review_file": files[file_key].name,
+            "strategy": "single_file",
+            **workload,
+        }
+        if review_requires_sharding(review):
+            shard_dir = out_dir / shard_directory
+            shard_manifest = split_review(
+                files[file_key],
+                shard_dir,
+                max_items=DEFAULT_MAX_ITEMS,
+                pretty=pretty,
+                max_obligations=DEFAULT_MAX_OBLIGATIONS,
+            )
+            run_result.update(
+                {
+                    "strategy": "sharded",
+                    "shard_directory": shard_directory,
+                    "shard_manifest": f"{shard_directory}/shard_manifest.json",
+                    "primary_shards": len(shard_manifest["shards"]),
+                    "obligation_shards": len(shard_manifest["obligation_shards"]),
+                    "discovery_shard": shard_manifest["discovery_shard"],
+                }
+            )
+        result["runs"][run_name] = run_result
+    return result
 
 
 def build_package(
@@ -228,6 +276,45 @@ def build_package(
     write_json(files["technical_code_findings"], technical, pretty)
     write_json(files["configuration_review"], configuration_review, pretty)
     write_json(files["architecture_review"], architecture_review, pretty)
+    manifest["review_work_units"] = build_review_work_units(
+        out_dir,
+        files,
+        {
+            "operational_sanitation": (
+                "operational_review",
+                operational_review,
+                "operational-shards",
+            ),
+            "configuration_correctness": (
+                "configuration_review",
+                configuration_review,
+                "configuration-shards",
+            ),
+            "business_architecture": (
+                "architecture_review",
+                architecture_review,
+                "architecture-shards",
+            ),
+        },
+        pretty,
+    )
+    sharded_runs = [
+        run_name
+        for run_name, run in manifest["review_work_units"]["runs"].items()
+        if run["strategy"] == "sharded"
+    ]
+    if sharded_runs:
+        manifest["notes"].append(
+            "Large reviews were automatically sharded for: "
+            + ", ".join(sharded_runs)
+            + ". Complete and check every declared shard, then merge each run "
+            "back to its canonical review file before validation."
+        )
+    else:
+        manifest["notes"].append(
+            "All reviews are below the automatic shard limits; complete the "
+            "canonical review files directly."
+        )
     write_json(files["manifest"], manifest, pretty)
     return manifest
 

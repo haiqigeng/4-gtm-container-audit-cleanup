@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from tests.review_helpers import complete_review_attestation  # noqa: E402
+
 from build_skill_package import build as build_skill_bundle  # noqa: E402
 from check_release import (  # noqa: E402
     check_production_test_imports,
@@ -82,7 +84,6 @@ from gtm_relationships import (  # noqa: E402
     scan_export as scan_relationships,
 )
 from gtm_review_common import (  # noqa: E402
-    complete_review_attestation,
     object_consumer_map,
     object_keys,
     object_name_map,
@@ -90,7 +91,11 @@ from gtm_review_common import (  # noqa: E402
     validate_operation_set,
     validate_structured_actions,
 )
-from gtm_review_shards import merge_review, split_review  # noqa: E402
+from gtm_review_shards import (  # noqa: E402
+    merge_review,
+    review_requires_sharding,
+    split_review,
+)
 from gtm_shared_facts import build_shared_facts  # noqa: E402
 from gtm_source_model import build_model  # noqa: E402
 from gtm_taxonomy import (  # noqa: E402
@@ -703,8 +708,10 @@ def complete_configuration(
                         else "Unproven"
                         if topic.get("deterministic_contract_state")
                         == "unproven_from_container"
-                        or topic.get("research_required")
-                        and not topic["official_doc_candidates"]
+                        or (
+                            topic.get("research_required")
+                            and not topic["official_doc_candidates"]
+                        )
                         else "Compliant"
                     ),
                     "evidence_anchors": contract_topic_anchors(
@@ -4320,6 +4327,74 @@ scenarios:
             review = json.loads((package_dir / filename).read_text(encoding="utf-8"))
             self.assertEqual(shared["shared_facts_sha256"], review["shared_facts_sha256"])
 
+    def test_package_builder_auto_shards_only_large_reviews(self) -> None:
+        small_export = {
+            "exportFormatVersion": 2,
+            "containerVersion": {
+                "accountId": "100",
+                "containerId": "200",
+                "containerVersionId": "1",
+                "container": {"publicId": "GTM-TEST", "usageContext": ["WEB"]},
+                "tag": [],
+                "trigger": [],
+                "variable": [],
+            },
+        }
+        small_path = self.root / "small-container.json"
+        small_path.write_text(json.dumps(small_export), encoding="utf-8")
+        small_package = self.root / "small-package"
+        small_manifest = build_package(small_path, small_package, pretty=True)
+        self.assertTrue(
+            all(
+                run["strategy"] == "single_file"
+                for run in small_manifest["review_work_units"]["runs"].values()
+            )
+        )
+        self.assertFalse((small_package / "configuration-shards").exists())
+
+        large_export = copy.deepcopy(small_export)
+        large_export["containerVersion"]["variable"] = [
+            {
+                "variableId": str(index),
+                "name": f"Constant {index}",
+                "type": "c",
+                "parameter": [
+                    {"type": "TEMPLATE", "key": "value", "value": str(index)}
+                ],
+            }
+            for index in range(1, 42)
+        ]
+        large_path = self.root / "large-container.json"
+        large_path.write_text(json.dumps(large_export), encoding="utf-8")
+        large_package = self.root / "large-package"
+        large_manifest = build_package(large_path, large_package, pretty=True)
+        configuration = large_manifest["review_work_units"]["runs"][
+            "configuration_correctness"
+        ]
+        self.assertEqual("sharded", configuration["strategy"])
+        self.assertGreater(configuration["primary_shards"], 1)
+        self.assertTrue(
+            (large_package / configuration["shard_manifest"]).is_file()
+        )
+
+    def test_single_oversized_configuration_obligation_group_requires_sharding(
+        self,
+    ) -> None:
+        review = {
+            "kind": "gtm_configuration_correctness_review",
+            "rows": [
+                {
+                    "required_branch_reviews": [
+                        {"json_path": f"$.parameter[{index}]"}
+                        for index in range(31)
+                    ]
+                }
+            ],
+        }
+        self.assertTrue(review_requires_sharding(review))
+        review["rows"][0]["required_branch_reviews"].pop()
+        self.assertFalse(review_requires_sharding(review))
+
     def test_package_gate_rejects_shared_fact_content_with_a_copied_hash(self) -> None:
         package_dir = self.root / "tampered-package"
         build_package(self.export_path, package_dir, pretty=True)
@@ -4392,6 +4467,9 @@ scenarios:
         merged = merge_review(base_path, shard_dir, output)
         self.assertEqual(completed["rows"], merged["rows"])
         self.assertEqual("complete", merged["run_status"])
+        merged_in_place = merge_review(base_path, shard_dir, base_path)
+        self.assertEqual(completed["rows"], merged_in_place["rows"])
+        self.assertEqual("complete", merged_in_place["run_status"])
 
         shard_manifest_path = shard_dir / "shard_manifest.json"
         broken_manifest = json.loads(shard_manifest_path.read_text(encoding="utf-8"))
@@ -5390,10 +5468,9 @@ scenarios:
         ]
         errors = validate_operation_set(
             [operation],
-            object_keys(self.export_path),
-            object_consumer_map(self.export_path),
-            object_name_map(self.export_path),
-            "operational operation set",
+            expected_consumers=object_consumer_map(self.export_path),
+            object_names=object_name_map(self.export_path),
+            label="operational operation set",
         )
         self.assertTrue(any("duplicate final name" in error for error in errors))
 
@@ -5458,19 +5535,17 @@ scenarios:
 
         errors = validate_operation_set(
             [remove_dead_edge, delete_child, delete_group],
-            set(consumers),
-            consumers,
-            {},
-            "cross-finding operation set",
+            expected_consumers=consumers,
+            object_names={},
+            label="cross-finding operation set",
         )
         self.assertEqual([], errors)
 
         missing_consumer_delete = validate_operation_set(
             [remove_dead_edge, delete_child],
-            set(consumers),
-            consumers,
-            {},
-            "missing consumer operation set",
+            expected_consumers=consumers,
+            object_names={},
+            label="missing consumer operation set",
         )
         self.assertTrue(
             any("deleting consumed object 'trigger:11'" in error for error in missing_consumer_delete)
@@ -8396,8 +8471,10 @@ contracts = [
         self.assertTrue(check_release_tag("v2026.07.20.1"))
         self.assertTrue(check_release_tag("v01.0.0"))
         self.assertTrue(check_release_tag("1.0.0"))
-        self.assertEqual([], check_project_version(ROOT, "v1.4.0"))
-        self.assertTrue(check_project_version(ROOT, "v1.0.2"))
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        current_version = str(metadata["project"]["version"])
+        self.assertEqual([], check_project_version(ROOT, f"v{current_version}"))
+        self.assertTrue(check_project_version(ROOT, "v0.0.0"))
 
     def test_runtime_bundle_is_self_installable_and_excludes_repo_only_files(self) -> None:
         bundle = self.root / "runtime-bundle"

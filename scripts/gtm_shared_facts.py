@@ -19,6 +19,7 @@ from gtm_context_model import build_context_model
 from gtm_custom_code_extract import extract_export
 from gtm_lib import (
     ID_KEYS,
+    as_list,
     comparable,
     container_root_path,
     container_version,
@@ -39,10 +40,6 @@ from gtm_relationships import (
     trigger_conditions,
 )
 from gtm_source_model import build_model
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def source_leaf_facts(obj: dict[str, Any], source_path: str) -> list[dict[str, Any]]:

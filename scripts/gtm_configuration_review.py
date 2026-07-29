@@ -30,6 +30,7 @@ from gtm_consent_model import server_route_hosts
 from gtm_custom_code_extract import extract_export
 from gtm_lib import (
     ID_KEYS,
+    as_list,
     behavior_projection,
     container_root_path,
     container_version,
@@ -38,6 +39,7 @@ from gtm_lib import (
     source_integrity_findings,
     stable_hash,
     walk_json_fields,
+    write_json,
 )
 from gtm_relationships import trigger_conditions
 from gtm_review_common import (
@@ -359,10 +361,6 @@ PRIVATE_KEY_VALUE_RE = re.compile(
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
     re.I,
 )
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def compact_evidence_terms(values: list[Any], limit: int = 10) -> list[str]:
@@ -1360,26 +1358,34 @@ def required_contract_topics(
                 unsupported_events and topic in {"event_name", "action_or_event_name"}
             ):
                 deterministic_state = "known_noncompliant"
-            elif context.get("research_dependency_key") and not context.get(
-                "official_docs"
+            elif (
+                context.get("research_dependency_key") and not context.get("official_docs")
             ) or (
-                topic in runtime_topics
-                and (
-                    refs(obj)
-                    or layer == "variable"
-                    and str(obj.get("type") or "").lower() not in {"c"}
+                (
+                    topic in runtime_topics
+                    and (
+                        refs(obj)
+                        or (
+                            layer == "variable"
+                            and str(obj.get("type") or "").lower() not in {"c"}
+                        )
+                    )
                 )
-                or topic == "consent_and_timing"
-                and route_status
-                in {
-                    "unproven_export_control",
-                    "server_contract_unproven",
-                    "blocker_control_candidate",
-                    "consent_signal_review",
-                    "unrecognized_consent_status",
-                }
-                or topic == "destination_or_server_routing"
-                and route_status == "server_contract_unproven"
+                or (
+                    topic == "consent_and_timing"
+                    and route_status
+                    in {
+                        "unproven_export_control",
+                        "server_contract_unproven",
+                        "blocker_control_candidate",
+                        "consent_signal_review",
+                        "unrecognized_consent_status",
+                    }
+                )
+                or (
+                    topic == "destination_or_server_routing"
+                    and route_status == "server_contract_unproven"
+                )
             ):
                 deterministic_state = "unproven_from_container"
             else:
@@ -1742,14 +1748,16 @@ def required_configuration_obligations(
                 }
                 strong_candidate = bool(
                     STRONG_SECRET_FIELD_RE.fullmatch(configured_name)
-                    or value_slot and STRONG_SECRET_NAME_RE.search(object_name)
+                    or (value_slot and STRONG_SECRET_NAME_RE.search(object_name))
                     or JWT_VALUE_RE.fullmatch(literal_value)
                     or PRIVATE_KEY_VALUE_RE.search(literal_value)
                 )
                 public_candidate = bool(
                     PUBLIC_KEY_CANDIDATE_FIELD_RE.fullmatch(configured_name)
-                    or value_slot
-                    and PUBLIC_KEY_CANDIDATE_NAME_RE.search(object_name)
+                    or (
+                        value_slot
+                        and PUBLIC_KEY_CANDIDATE_NAME_RE.search(object_name)
+                    )
                 )
                 if strong_candidate:
                     add(
@@ -2197,10 +2205,10 @@ def required_configuration_obligations(
                     if not right or "{{" in right:
                         continue
                     impossible = (
-                        operator == "CONTAINS" and right not in equals_value
-                        or operator == "DOES_NOT_CONTAIN" and right in equals_value
-                        or operator == "STARTS_WITH" and not equals_value.startswith(right)
-                        or operator == "ENDS_WITH" and not equals_value.endswith(right)
+                        (operator == "CONTAINS" and right not in equals_value)
+                        or (operator == "DOES_NOT_CONTAIN" and right in equals_value)
+                        or (operator == "STARTS_WITH" and not equals_value.startswith(right))
+                        or (operator == "ENDS_WITH" and not equals_value.endswith(right))
                     )
                     if impossible:
                         contradictions.append(
@@ -4670,14 +4678,6 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
         )
     errors.extend(validate_identical_code_decisions(list(supplied_by_key.values())))
     return errors, warnings
-
-
-def write_json(path: Path, payload: dict[str, Any], pretty: bool) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2 if pretty else None) + "\n",
-        encoding="utf-8",
-    )
 
 
 def main() -> int:

@@ -44,11 +44,10 @@ def redact_text(value: Any) -> str:
     text = EMAIL_RE.sub("<redacted-email>", text)
     text = WINDOWS_USER_PATH_RE.sub(r"C:\\Users\\<redacted>", text)
     text = POSIX_USER_PATH_RE.sub(" /home/<redacted>", text)
-    text = SENSITIVE_ASSIGNMENT_RE.sub(
+    return SENSITIVE_ASSIGNMENT_RE.sub(
         r"\1=<redacted>",
         text,
     )
-    return text
 
 
 def spreadsheet_safe_text(value: Any) -> str:

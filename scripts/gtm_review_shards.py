@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtm_lib import as_list, load_json, write_json
+
 COLLECTIONS_BY_KIND = {
     "gtm_operational_sanitation_review": (("findings", "finding_id"),),
     "gtm_configuration_correctness_review": (("rows", "object_key"),),
@@ -39,22 +41,9 @@ CONFIGURATION_OBLIGATION_SPECS = (
         "finding_key",
     ),
 )
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def write_json(path: Path, payload: dict[str, Any], pretty: bool = True) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2 if pretty else None) + "\n",
-        encoding="utf-8",
-    )
+DEFAULT_MAX_ITEMS = 40
+DEFAULT_MAX_OBLIGATIONS = 30
+CONFIGURATION_PRIMARY_OBLIGATION_FIELDS = ("required_logic_cross_checks",)
 
 
 def safe_shard_path(directory: Path, filename: str) -> Path:
@@ -77,6 +66,78 @@ def review_collections(review: dict[str, Any]) -> tuple[tuple[str, str], ...]:
     if kind not in COLLECTIONS_BY_KIND:
         raise ValueError(f"unsupported review kind: {kind!r}")
     return COLLECTIONS_BY_KIND[kind]
+
+
+def review_lock(review: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "review_kind": review["kind"],
+        "schema_version": review.get("schema_version"),
+        "source_file": review.get("source_file"),
+        "source_sha256": review.get("source_sha256"),
+        "shared_facts_sha256": review.get("shared_facts_sha256"),
+        "context_sha256": review.get("context_sha256"),
+        "input_contract_sha256": (review.get("input_contract") or {}).get(
+            "contract_sha256"
+        ),
+    }
+
+
+def review_workload(review: dict[str, Any]) -> dict[str, Any]:
+    collections = review_collections(review)
+    collection_counts = {
+        collection: len(as_list(review.get(collection)))
+        for collection, _id_field in collections
+    }
+    workload = {
+        "collection_counts": collection_counts,
+        "review_items": sum(collection_counts.values()),
+    }
+    if review.get("kind") != "gtm_configuration_correctness_review":
+        return workload
+
+    source_fields = [
+        source_field
+        for source_field, _completion, _source_id, _completion_id in (
+            CONFIGURATION_OBLIGATION_SPECS
+        )
+    ]
+    group_counts = [
+        len(as_list(row.get(field)))
+        for row in as_list(review.get("rows"))
+        for field in (
+            *source_fields,
+            "code_line_facts",
+            *CONFIGURATION_PRIMARY_OBLIGATION_FIELDS,
+        )
+    ]
+    workload.update(
+        {
+            "configuration_obligations": sum(group_counts),
+            "largest_configuration_obligation_group": max(group_counts, default=0),
+        }
+    )
+    return workload
+
+
+def review_requires_sharding(
+    review: dict[str, Any],
+    max_items: int = DEFAULT_MAX_ITEMS,
+    max_obligations: int = DEFAULT_MAX_OBLIGATIONS,
+) -> bool:
+    if max_items < 1:
+        raise ValueError("max_items must be at least 1")
+    if max_obligations < 1 or max_obligations > DEFAULT_MAX_OBLIGATIONS:
+        raise ValueError(
+            f"max_obligations must be between 1 and {DEFAULT_MAX_OBLIGATIONS}"
+        )
+    workload = review_workload(review)
+    return (
+        workload["review_items"] > max_items
+        or (
+            workload.get("largest_configuration_obligation_group", 0)
+            > max_obligations
+        )
+    )
 
 
 def obligation_manifest_row(
@@ -265,30 +326,22 @@ def split_review(
     output_dir: Path,
     max_items: int,
     pretty: bool = True,
-    max_obligations: int = 30,
+    max_obligations: int = DEFAULT_MAX_OBLIGATIONS,
 ) -> dict[str, Any]:
     if max_items < 1:
         raise ValueError("max_items must be at least 1")
-    if max_obligations < 1 or max_obligations > 30:
-        raise ValueError("max_obligations must be between 1 and 30")
+    if max_obligations < 1 or max_obligations > DEFAULT_MAX_OBLIGATIONS:
+        raise ValueError(
+            f"max_obligations must be between 1 and {DEFAULT_MAX_OBLIGATIONS}"
+        )
     review = load_json(review_path)
     collections = review_collections(review)
+    lock = review_lock(review)
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_rows: list[dict[str, Any]] = []
     obligation_manifest_rows: list[dict[str, Any]] = []
     sharded_review = copy.deepcopy(review)
     if review.get("kind") == "gtm_configuration_correctness_review":
-        lock = {
-            "review_kind": review["kind"],
-            "schema_version": review.get("schema_version"),
-            "source_file": review.get("source_file"),
-            "source_sha256": review.get("source_sha256"),
-            "shared_facts_sha256": review.get("shared_facts_sha256"),
-            "context_sha256": review.get("context_sha256"),
-            "input_contract_sha256": (review.get("input_contract") or {}).get(
-                "contract_sha256"
-            ),
-        }
         obligation_manifest_rows = configuration_obligation_shards(
             review_path,
             as_list(review.get("rows")),
@@ -317,16 +370,8 @@ def split_review(
             shard_items = items[start : start + max_items]
             filename = f"{review_path.stem}.{collection}.{shard_index:04d}.json"
             shard = {
+                **lock,
                 "kind": "gtm_review_shard",
-                "review_kind": review["kind"],
-                "schema_version": review.get("schema_version"),
-                "source_file": review.get("source_file"),
-                "source_sha256": review.get("source_sha256"),
-                "shared_facts_sha256": review.get("shared_facts_sha256"),
-                "context_sha256": review.get("context_sha256"),
-                "input_contract_sha256": (review.get("input_contract") or {}).get(
-                    "contract_sha256"
-                ),
                 "collection": collection,
                 "id_field": id_field,
                 "shard_index": shard_index,
@@ -346,16 +391,8 @@ def split_review(
     if review.get("kind") == "gtm_business_architecture_review":
         discovery_filename = f"{review_path.stem}.open_discovery.0001.json"
         discovery = {
+            **lock,
             "kind": "gtm_architecture_discovery_shard",
-            "review_kind": review["kind"],
-            "schema_version": review.get("schema_version"),
-            "source_file": review.get("source_file"),
-            "source_sha256": review.get("source_sha256"),
-            "shared_facts_sha256": review.get("shared_facts_sha256"),
-            "context_sha256": review.get("context_sha256"),
-            "input_contract_sha256": (review.get("input_contract") or {}).get(
-                "contract_sha256"
-            ),
             "base_comparison_ids": [
                 str(item.get("comparison_id") or "")
                 for item in as_list(review.get("comparisons"))
@@ -367,16 +404,8 @@ def split_review(
         }
         write_json(output_dir / discovery_filename, discovery, pretty)
     manifest = {
+        **lock,
         "kind": "gtm_review_shard_manifest",
-        "review_kind": review["kind"],
-        "schema_version": review.get("schema_version"),
-        "source_file": review.get("source_file"),
-        "source_sha256": review.get("source_sha256"),
-        "shared_facts_sha256": review.get("shared_facts_sha256"),
-        "context_sha256": review.get("context_sha256"),
-        "input_contract_sha256": (review.get("input_contract") or {}).get(
-            "contract_sha256"
-        ),
         "base_review_file": review_path.name,
         "max_items": max_items,
         "max_obligations": max_obligations,
@@ -825,8 +854,10 @@ def main() -> int:
     split = subparsers.add_parser("split")
     split.add_argument("review", type=Path)
     split.add_argument("output_dir", type=Path)
-    split.add_argument("--max-items", type=int, default=40)
-    split.add_argument("--max-obligations", type=int, default=30)
+    split.add_argument("--max-items", type=int, default=DEFAULT_MAX_ITEMS)
+    split.add_argument(
+        "--max-obligations", type=int, default=DEFAULT_MAX_OBLIGATIONS
+    )
     split.add_argument("--compact", action="store_true")
     merge = subparsers.add_parser("merge")
     merge.add_argument("base_review", type=Path)

@@ -87,17 +87,24 @@ available, exclude completed verdict artifacts from the next run's inputs and
 reload only the export, context, shared facts, and current scaffold. This is an
 input-discipline rule; it does not add another verdict or completion engine.
 
-Large runs may be processed in source-locked shards. Every shard remains part of
-one run and the merge must recover the exact source-generated obligation set.
-Chunking is an execution strategy, not a reduced-depth mode. Architecture uses
-a dedicated discovery shard for analyst-added `DISC-*` comparisons and its
-all-object attestation; the merged run cannot become complete while either is
-pending. Configuration obligation shards contain at most 30 obligations and
-must recover every generated branch, reference trace, contract, technical
-finding, D3 cross-check, and custom-code line exactly once and in source order.
-Check each completed shard against its source locks, manifest identities, and
-exact completion set before continuing. The check catches local corruption
-early; the merged run must still pass its authoritative run validator.
+Package creation automatically uses source-locked shards when a run contains
+more than 40 primary review items or one configuration obligation group exceeds
+30 items. The package manifest records each run's strategy and shard directory
+under `review_work_units`; reviews below both limits remain single files.
+Manual splitting remains available for legacy packages or a deliberately lower
+bound on an unusually dense object.
+
+Every shard remains part of one run and the merge must recover the exact
+source-generated obligation set. Chunking is an execution strategy, not a
+reduced-depth mode. Architecture uses a dedicated discovery shard for
+analyst-added `DISC-*` comparisons and its all-object attestation; the merged
+run cannot become complete while either is pending. Configuration obligation
+shards contain at most 30 obligations and must recover every generated branch,
+reference trace, contract, technical finding, D3 cross-check, and custom-code
+line exactly once and in source order. Check each completed shard against its
+source locks, manifest identities, and exact completion set before continuing.
+The check catches local corruption early; the merged run must still pass its
+authoritative run validator.
 
 ## Run 1: Operational Sanitation
 

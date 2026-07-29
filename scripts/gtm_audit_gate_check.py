@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtm_lib import as_list
 from gtm_taxonomy import (
     CLEANUP_PLAN_COLUMNS,
     GENERAL_CATEGORY_BY_PROBLEM_TYPE,
@@ -34,10 +35,6 @@ VISIBLE_INTERNAL_DUMP_PATTERNS = (
     re.compile(r"\$\.containerVersion\b"),
     re.compile(r"\{\s*\"[A-Za-z0-9_]+\"\s*:"),
 )
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
 
 
 def duplicate_columns(sheet_name: str, rows: list[dict[str, Any]]) -> list[str]:

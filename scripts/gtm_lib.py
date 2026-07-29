@@ -73,6 +73,20 @@ KNOWN_SYSTEM_TRIGGER_REFERENCES = {
 }
 
 
+def as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def param_value(obj: dict[str, Any], key: str) -> Any:
+    for param in as_list(obj.get("parameter")):
+        if param.get("key") != key:
+            continue
+        for value_field in ("value", "list", "map"):
+            if value_field in param:
+                return param.get(value_field)
+    return None
+
+
 def container_version(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("GTM source must be a JSON object")
@@ -158,7 +172,9 @@ def behavior_projection(value: Any) -> Any:
                 continue
             if is_custom_template and key == "templateData":
                 projected[key] = custom_template_behavior_text(item)
-            elif parameter_code_key and key == "value" and isinstance(item, str) or key in {"html", "javascript"} and isinstance(item, str):
+            elif (
+                parameter_code_key and key == "value" and isinstance(item, str)
+            ) or (key in {"html", "javascript"} and isinstance(item, str)):
                 projected[key] = strip_nonbehavior_comments(item)
             else:
                 projected[key] = behavior_projection(item)
@@ -303,6 +319,14 @@ def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def write_json(path: Path, payload: Any, pretty: bool = True) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2 if pretty else None) + "\n",
+        encoding="utf-8",
+    )
+
+
 def load_container_version(path: Path) -> dict[str, Any]:
     return container_version(load_json(path))
 
@@ -327,32 +351,17 @@ def object_id(obj: dict[str, Any], id_key: str) -> str:
     return "" if value is None else str(value)
 
 
-def optional_object_id(obj: dict[str, Any], id_key: str) -> str | None:
-    value = obj.get(id_key) or obj.get("name")
-    return str(value) if value is not None else None
-
-
 def comparable(obj: dict[str, Any], ignored: set[str] | None = None) -> dict[str, Any]:
     ignored = IGNORED_FIELDS if ignored is None else ignored
     return {key: value for key, value in obj.items() if key not in ignored}
 
 
-def comparable_container(cv: dict[str, Any], ignored: set[str] | None = None) -> dict[str, Any]:
-    clean: dict[str, Any] = {}
-    ignored = IGNORED_FIELDS if ignored is None else ignored
-    for key, value in cv.items():
-        if isinstance(value, list):
-            clean[key] = [
-                comparable(obj, ignored) if isinstance(obj, dict) else obj for obj in value
-            ]
-        elif key not in ignored:
-            clean[key] = value
-    return clean
+def stable_payload(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def stable_hash(value: Any, length: int = 16) -> str:
-    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:length]
+    return hashlib.sha256(stable_payload(value).encode("utf-8")).hexdigest()[:length]
 
 
 SECRET_FIELD_CONTEXT_RE = re.compile(

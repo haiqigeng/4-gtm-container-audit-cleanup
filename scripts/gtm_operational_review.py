@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from gtm_baseline_audit import audit_export
-from gtm_lib import source_descriptor
+from gtm_lib import source_descriptor, write_json
 from gtm_review_common import (
     VALID_CONFIDENCE,
     VALID_PRIORITIES,
@@ -231,8 +231,10 @@ def scaffold_review(
             for key, fact in shared_by_key.items()
             if str(fact.get("object_id") or "") in source_ids
             and (
-                layer not in {"", "custom_code", "module"}
-                and key.startswith(layer + ":")
+                (
+                    layer not in {"", "custom_code", "module"}
+                    and key.startswith(layer + ":")
+                )
                 or layer in {"custom_code", "module"}
             )
         )
@@ -504,7 +506,6 @@ def validate_cleanup_operation(
     finding_id: str,
     operation_keys: dict[str, str],
     valid_keys: set[str],
-    expected_consumers: dict[str, set[str]],
     source_paths_by_key: dict[str, str],
     lifecycle_by_key: dict[str, dict[str, Any]],
     label: str,
@@ -703,7 +704,6 @@ def validate_finding_decision(
     audit_context: dict[str, Any],
     operation_keys: dict[str, str],
     valid_keys: set[str],
-    expected_consumers: dict[str, set[str]],
     source_paths_by_key: dict[str, str],
     lifecycle_by_key: dict[str, dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
@@ -721,7 +721,6 @@ def validate_finding_decision(
             finding_id,
             operation_keys,
             valid_keys,
-            expected_consumers,
             source_paths_by_key,
             lifecycle_by_key,
             label,
@@ -769,7 +768,6 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             supplied.get("audit_context") or {},
             operation_keys,
             valid_keys,
-            expected_consumers,
             source_paths_by_key,
             lifecycle_by_key,
         )
@@ -783,21 +781,12 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
     errors.extend(
         validate_operation_set(
             cleanup_rows,
-            valid_keys,
-            expected_consumers,
-            object_names,
-            "operational review operation set",
+            expected_consumers=expected_consumers,
+            object_names=object_names,
+            label="operational review operation set",
         )
     )
     return errors, warnings
-
-
-def write_json(path: Path, payload: dict[str, Any], pretty: bool) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2 if pretty else None) + "\n",
-        encoding="utf-8",
-    )
 
 
 def main() -> int:

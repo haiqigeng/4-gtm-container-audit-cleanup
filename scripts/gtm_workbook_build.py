@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from gtm_lib import as_list, load_json
 from gtm_privacy import redact_text, spreadsheet_safe_text
 from gtm_taxonomy import CLEANUP_PLAN_COLUMNS, GENERAL_PROBLEM_CATEGORIES
 
@@ -26,19 +27,10 @@ CANONICAL_SHEETS = [
 
 HEADER_FILL = "16324F"
 HEADER_FONT = "FFFFFF"
-ACCENT_FILL = "DCEEF2"
 GRID_COLOR = "C8D2DC"
 MAX_CELL_TEXT = 24000
 MAX_RENDERED_LINES = 12
 MAX_ROW_HEIGHT = MAX_RENDERED_LINES * 15
-
-
-def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
-def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def clean_text(value: Any) -> str:
