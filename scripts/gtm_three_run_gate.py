@@ -16,6 +16,11 @@ from gtm_future_state_check import check_future_state
 from gtm_lib import load_json, source_descriptor
 from gtm_operation_compile import compile_operations, source_object_catalog
 from gtm_operational_review import validate_review as validate_operational
+from gtm_review_common import (
+    object_consumer_map,
+    object_name_map,
+    object_source_path_map,
+)
 from gtm_shared_facts import build_shared_facts, shared_content_hash
 
 REQUIRED_PACKAGE_FILES = {
@@ -239,6 +244,9 @@ def run_gate(
                 architecture,
                 str(operations.get("route") or ""),
                 source_object_catalog(export),
+                object_consumer_map(export),
+                object_name_map(export),
+                object_source_path_map(export),
             )
             errors.extend(f"operation recompile: {error}" for error in compile_errors)
             if not compile_errors and operations != expected_operations:

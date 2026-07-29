@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,8 @@ def as_list(value: Any) -> list[Any]:
 
 def param_value(obj: dict[str, Any], key: str) -> Any:
     for param in as_list(obj.get("parameter")):
+        if not isinstance(param, dict):
+            continue
         if param.get("key") != key:
             continue
         for value_field in ("value", "list", "map"):
@@ -277,6 +280,7 @@ def source_integrity_findings(data: dict[str, Any]) -> list[dict[str, Any]]:
                     }
                 )
                 continue
+            findings.extend(nested_parameter_shape_findings(item, item_path, layer))
             raw_id = item.get(id_key)
             entity_id = "" if raw_id is None else str(raw_id).strip()
             if not entity_id:
@@ -311,6 +315,86 @@ def source_integrity_findings(data: dict[str, Any]) -> list[dict[str, Any]]:
                     ),
                     "blocking": True,
                 }
+            )
+    return findings
+
+
+def nested_parameter_shape_findings(
+    value: Any,
+    source_path: str,
+    layer: str,
+) -> list[dict[str, Any]]:
+    """Reject malformed GTM parameter collections before semantic traversal.
+
+    GTM parameter, list, and map collections are arrays of parameter objects.
+    Treating a scalar or arbitrary array member as a mapping otherwise causes
+    inconsistent crashes in downstream scanners and makes exhaustive review
+    impossible.
+    """
+
+    findings: list[dict[str, Any]] = []
+    if not isinstance(value, (dict, list)):
+        return findings
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            findings.extend(
+                nested_parameter_shape_findings(
+                    item,
+                    f"{source_path}[{index}]",
+                    layer,
+                )
+            )
+        return findings
+
+    for collection_name in ("parameter", "list", "map"):
+        if collection_name not in value:
+            continue
+        collection = value.get(collection_name)
+        collection_path = f"{source_path}.{collection_name}"
+        if not isinstance(collection, list):
+            findings.append(
+                {
+                    "finding_type": "invalid_parameter_collection_shape",
+                    "source_path": collection_path,
+                    "layer": layer,
+                    "details": (
+                        f"GTM {collection_name!r} parameter collection must be a JSON "
+                        "array; retain this as a malformed configuration finding while "
+                        "scanning every other interpretable object."
+                    ),
+                    "blocking": False,
+                }
+            )
+            continue
+        for index, item in enumerate(collection):
+            item_path = f"{collection_path}[{index}]"
+            if not isinstance(item, dict):
+                findings.append(
+                    {
+                        "finding_type": "invalid_parameter_entry_shape",
+                        "source_path": item_path,
+                        "layer": layer,
+                        "details": (
+                            f"Every GTM {collection_name!r} parameter entry must be a JSON "
+                            "object; retain this as a malformed configuration finding while "
+                            "scanning every other interpretable object."
+                        ),
+                        "blocking": False,
+                    }
+                )
+                continue
+            findings.extend(nested_parameter_shape_findings(item, item_path, layer))
+
+    for key, child in value.items():
+        if key in {"parameter", "list", "map", "templateData"}:
+            continue
+        if isinstance(child, (dict, list)):
+            findings.extend(
+                nested_parameter_shape_findings(
+                    child,
+                    f"{source_path}.{key}",
+                    layer,
+                )
             )
     return findings
 
@@ -364,6 +448,14 @@ def stable_hash(value: Any, length: int = 16) -> str:
     return hashlib.sha256(stable_payload(value).encode("utf-8")).hexdigest()[:length]
 
 
+def code_identity_text(value: Any) -> str:
+    """Normalize transport-only code differences without changing JS literals."""
+
+    return str(value or "").removeprefix("\ufeff").replace("\r\n", "\n").replace(
+        "\r", "\n"
+    )
+
+
 SECRET_FIELD_CONTEXT_RE = re.compile(
     r"\b(?:client|api)[ _-]?secret\b|\b(?:access|refresh)[ _-]?token\b|"
     r"\bauthorization\b|\bpassword\b|\bprivate[ _-]?key\b|"
@@ -394,7 +486,6 @@ def safe_scalar_preview(
     text = str(value)
     if (
         text.strip()
-        and not REF_RE.search(text)
         and (
             SECRET_FIELD_CONTEXT_RE.search(field_name)
             or SECRET_OBJECT_NAME_RE.search(object_name)
@@ -511,12 +602,56 @@ def apply_patch(original_cv: dict[str, Any], patch_cv: dict[str, Any]) -> dict[s
 
 
 def refs(obj: Any) -> set[str]:
-    if isinstance(obj, dict) and "templateId" in obj and "templateData" in obj:
-        obj = {
-            **obj,
-            "templateData": custom_template_executable_code(obj.get("templateData")),
-        }
-    return set(REF_RE.findall(json.dumps(obj, ensure_ascii=False)))
+    """Return references from real behavior-bearing string leaves only.
+
+    Serialized whole-object matching can invent references across adjacent JSON
+    fields and treats UI metadata such as notes or URLs as executable logic.
+    Walk each string leaf independently and exclude only root object metadata.
+    """
+
+    references: set[str] = set()
+
+    def visit(value: Any, *, root: bool = False) -> None:
+        if isinstance(value, str):
+            references.update(REF_RE.findall(value))
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        is_custom_template = root and "templateId" in value and "templateData" in value
+        for key, item in value.items():
+            if root and key in {
+                *BEHAVIOR_NEUTRAL_FIELDS,
+                *ID_KEYS.values(),
+                "name",
+            }:
+                continue
+            if is_custom_template and key == "templateData":
+                visit(custom_template_executable_code(item))
+            else:
+                visit(item)
+
+    visit(obj, root=isinstance(obj, dict))
+    return references
+
+
+def configure_utf8_stdio() -> None:
+    """Use stable UTF-8 CLI output where Python exposes reconfigurable streams."""
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+
+
+configure_utf8_stdio()
 
 
 def custom_template_id(obj: dict[str, Any]) -> str | None:

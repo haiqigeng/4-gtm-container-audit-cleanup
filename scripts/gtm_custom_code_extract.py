@@ -8,11 +8,13 @@ import collections
 import hashlib
 import json
 import re
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
 from gtm_lib import (
     as_list,
+    code_identity_text,
     container_version,
     custom_template_executable_code,
     param_value,
@@ -167,8 +169,8 @@ def code_for(layer: str, obj: dict[str, Any]) -> str:
 
 
 def code_hash(code: str) -> str:
-    normalized = re.sub(r"\s+", " ", code).strip()
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16] if normalized else ""
+    identity = code_identity_text(code)
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16] if identity.strip() else ""
 
 
 def reconciliation_key(layer: str, obj: dict[str, Any], code: str) -> str:
@@ -245,10 +247,10 @@ def returned_value_type(code: str) -> str:
         return "side_effect_only_or_unknown"
     if re.fullmatch(r"\s*\{\{[^{}]+\}\}\s*", return_text):
         return "gtm_variable_reference_type_unresolved"
-    if re.search(r"\b(true|false)\b|!!", return_text):
-        return "boolean_or_boolean_expression"
     if re.search(r"['\"`]", return_text):
         return "string_or_template_string"
+    if re.search(r"\b(true|false)\b|!!", return_text):
+        return "boolean_or_boolean_expression"
     if re.search(r"\b(Number|parseFloat|parseInt)\s*\(|[-+]?\d+(?:\.\d+)?", return_text):
         return "number_or_numeric_expression"
     if re.search(r"^\s*\[", return_text):
@@ -332,6 +334,7 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
     if not source.strip():
         return {
             "javascript_parser": "not_applicable",
+            "javascript_parser_version": "",
             "parser_input_normalized": False,
             "parser_gtm_substitutions": [],
             "ast_node_counts": {},
@@ -345,6 +348,7 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
     except ImportError:
         return {
             "javascript_parser": "not_installed_static_review_still_required",
+            "javascript_parser_version": "",
             "parser_input_normalized": normalized,
             "parser_gtm_substitutions": substitutions,
             "ast_node_counts": {},
@@ -355,10 +359,16 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
         }
 
     try:
+        parser_version = version("esprima")
+    except PackageNotFoundError:
+        parser_version = str(getattr(esprima, "__version__", "unknown"))
+
+    try:
         parsed = esprima.parseScript(parser_source, {"tolerant": True}).toDict()
     except Exception as exc:  # Parser failures are evidence, not fatal extraction errors.
         return {
             "javascript_parser": "esprima_parse_failed",
+            "javascript_parser_version": parser_version,
             "parser_input_normalized": normalized,
             "parser_gtm_substitutions": substitutions,
             "ast_node_counts": {},
@@ -396,6 +406,7 @@ def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
     branch_types = ("IfStatement", "ConditionalExpression", "SwitchCase", "LogicalExpression")
     return {
         "javascript_parser": "esprima",
+        "javascript_parser_version": parser_version,
         "parser_input_normalized": normalized,
         "parser_gtm_substitutions": substitutions,
         "ast_node_counts": dict(sorted(counts.items())),

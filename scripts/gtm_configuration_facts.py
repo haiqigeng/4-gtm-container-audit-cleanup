@@ -213,6 +213,8 @@ def specific_tokens(obj: dict[str, Any]) -> list[str]:
         token.lower() for token in re.findall(r"[A-Za-z0-9_.-]{4,}", str(obj.get("name") or ""))
     }
     for parameter in as_list(obj.get("parameter")):
+        if not isinstance(parameter, dict):
+            continue
         key = str(parameter.get("key") or "")
         if len(key) >= 4:
             tokens.add(key.lower())
@@ -256,6 +258,8 @@ def logic_anchors(facts: list[dict[str, Any]]) -> list[str]:
 
 def parameter_value(obj: dict[str, Any], key: str) -> str:
     for parameter in as_list(obj.get("parameter")):
+        if not isinstance(parameter, dict):
+            continue
         if parameter.get("key") == key and parameter.get("value") is not None:
             return str(parameter["value"])
     return ""
@@ -291,6 +295,8 @@ def static_reference_values(
         return [match.group(2)] if match else []
     values: list[str] = []
     for parameter in as_list(variable.get("parameter")):
+        if not isinstance(parameter, dict):
+            continue
         key = str(parameter.get("key") or "").lower()
         if key not in {"defaultvalue", "output", "value"}:
             continue
@@ -438,23 +444,39 @@ def reference_trace_requirements(
     cv: dict[str, Any],
     obj: dict[str, Any],
     root_path: str = "$.containerVersion",
+    *,
+    variables_by_name: dict[str, list[tuple[int, dict[str, Any]]]] | None = None,
+    builtin_names: set[str] | None = None,
+    source_path: str | None = None,
+    source_reference_facts: list[dict[str, Any]] | None = None,
+    variable_facts_by_key: dict[str, list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
-    variables: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
-    for index, variable in enumerate(as_list(cv.get("variable"))):
-        if variable.get("name"):
-            variables[str(variable.get("name") or "")].append((index, variable))
-    builtins = {
-        str(variable.get("name") or "")
-        for variable in as_list(cv.get("builtInVariable"))
-        if variable.get("name")
-    }
-    all_reference_names = sorted({*variables, *builtins})
-    source_path = "$"
-    for layer, index, candidate in layer_objects(cv):
-        if candidate is obj:
-            source_path = f"{root_path}.{layer}[{index}]"
-            break
-    source_reference_facts = walk_json_fields(obj, source_path)
+    if variables_by_name is None:
+        variables_by_name = defaultdict(list)
+        for index, variable in enumerate(as_list(cv.get("variable"))):
+            if variable.get("name"):
+                variables_by_name[str(variable.get("name") or "")].append(
+                    (index, variable)
+                )
+    if builtin_names is None:
+        builtin_names = {
+            str(variable.get("name") or "")
+            for variable in as_list(cv.get("builtInVariable"))
+            if variable.get("name")
+        }
+    variable_facts_by_key = variable_facts_by_key or {}
+    all_reference_names = sorted({*variables_by_name, *builtin_names})
+    if source_path is None:
+        source_path = "$"
+        for layer, index, candidate in layer_objects(cv):
+            if candidate is obj:
+                source_path = f"{root_path}.{layer}[{index}]"
+                break
+    source_reference_facts = (
+        source_reference_facts
+        if source_reference_facts is not None
+        else walk_json_fields(obj, source_path)
+    )
 
     def normalization_candidates(reference: str) -> list[str]:
         normalized = normalized_reference_name(reference)
@@ -487,15 +509,17 @@ def reference_trace_requirements(
                 "configured_source": f"GTM system variable {reference}",
             }
             return
-        targets = variables.get(reference, [])
-        builtin_match = reference in builtins
+        targets = variables_by_name.get(reference, [])
+        builtin_match = reference in builtin_names
         if len(targets) + int(builtin_match) > 1:
             candidate_keys: list[str] = []
             for index, variable in targets:
                 current_key = object_key("variable", variable)
                 candidate_keys.append(current_key)
                 object_keys.add(current_key)
-                facts = walk_json_fields(variable, f"{root_path}.variable[{index}]")
+                facts = variable_facts_by_key.get(current_key) or walk_json_fields(
+                    variable, f"{root_path}.variable[{index}]"
+                )
                 variable_anchors = logic_anchors(facts)
                 anchors.update(variable_anchors)
                 children = sorted(
@@ -524,6 +548,7 @@ def reference_trace_requirements(
                             ),
                         }
                         for parameter in as_list(variable.get("parameter"))
+                        if isinstance(parameter, dict)
                     ],
                     "semantic_role": {
                         "v": "data_layer_read",
@@ -598,7 +623,9 @@ def reference_trace_requirements(
         index, variable = targets[0]
         current_key = object_key("variable", variable)
         object_keys.add(current_key)
-        facts = walk_json_fields(variable, f"{root_path}.variable[{index}]")
+        facts = variable_facts_by_key.get(current_key) or walk_json_fields(
+            variable, f"{root_path}.variable[{index}]"
+        )
         variable_anchors = logic_anchors(facts)
         anchors.update(variable_anchors)
         children = sorted(
@@ -625,6 +652,7 @@ def reference_trace_requirements(
                     ),
                 }
                 for parameter in as_list(variable.get("parameter"))
+                if isinstance(parameter, dict)
             ],
             "semantic_role": {
                 "v": "data_layer_read",
@@ -649,7 +677,9 @@ def reference_trace_requirements(
                     ),
                 )
                 for parameter in as_list(variable.get("parameter"))
-                if parameter.get("key") and parameter.get("value") is not None
+                if isinstance(parameter, dict)
+                and parameter.get("key")
+                and parameter.get("value") is not None
             )
             terminals[terminal_key] = {
                 "terminal_key": terminal_key,

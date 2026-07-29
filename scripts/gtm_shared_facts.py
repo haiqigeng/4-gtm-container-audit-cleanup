@@ -84,9 +84,15 @@ def unique_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def selected_record_facts(
-    record: dict[str, Any], tokens: tuple[str, ...]
+    record: dict[str, Any],
+    tokens: tuple[str, ...],
+    facts: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    facts = source_leaf_facts(record["object"], record["source_json_path"])
+    facts = (
+        facts
+        if facts is not None
+        else source_leaf_facts(record["object"], record["source_json_path"])
+    )
     logic = set(logic_anchors(facts))
     selected = [
         fact
@@ -106,6 +112,12 @@ def dependency_facts_for_record(
     record: dict[str, Any],
     records: dict[str, list[dict[str, Any]]],
     consumers: dict[str, list[dict[str, str]]],
+    *,
+    records_by_key: dict[str, dict[str, Any]] | None = None,
+    triggers_by_id: dict[str, list[dict[str, Any]]] | None = None,
+    tags_by_name: dict[str, list[dict[str, Any]]] | None = None,
+    source_facts_by_key: dict[str, list[dict[str, Any]]] | None = None,
+    contracts_by_key: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
@@ -115,19 +127,24 @@ def dependency_facts_for_record(
     """Resolve execution edges and downstream consumer contracts without runtime inference."""
     obj = record["object"]
     layer = record["layer"]
-    triggers_by_id: dict[str, list[dict[str, Any]]] = {}
-    tags_by_name: dict[str, list[dict[str, Any]]] = {}
-    records_by_key = {
+    records_by_key = records_by_key or {
         item["object_key"]: item
         for layer_records in records.values()
         for item in layer_records
     }
-    for item in records.get("trigger", []):
-        triggers_by_id.setdefault(str(item["object_id"]), []).append(item)
-    for item in records.get("tag", []):
-        tags_by_name.setdefault(str(item["object_name"]), []).append(item)
-
-    source_facts = source_leaf_facts(obj, record["source_json_path"])
+    if triggers_by_id is None:
+        triggers_by_id = {}
+        for item in records.get("trigger", []):
+            triggers_by_id.setdefault(str(item["object_id"]), []).append(item)
+    if tags_by_name is None:
+        tags_by_name = {}
+        for item in records.get("tag", []):
+            tags_by_name.setdefault(str(item["object_name"]), []).append(item)
+    source_facts_by_key = source_facts_by_key or {}
+    contracts_by_key = contracts_by_key or {}
+    source_facts = source_facts_by_key.get(record["object_key"]) or source_leaf_facts(
+        obj, record["source_json_path"]
+    )
 
     def source_paths(relation: str, reference: str) -> list[str]:
         if relation == "trigger_group_member":
@@ -239,6 +256,7 @@ def dependency_facts_for_record(
                     "parameter",
                     ".type",
                 ),
+                source_facts_by_key.get(target["object_key"]),
             )
             dependency_facts.extend(target_facts)
             children = []
@@ -342,6 +360,7 @@ def dependency_facts_for_record(
                                 ".paused",
                                 ".type",
                             ),
+                            source_facts_by_key.get(target["object_key"]),
                         )
                     )
                 return {
@@ -378,6 +397,7 @@ def dependency_facts_for_record(
                         ".paused",
                         ".type",
                     ),
+                    source_facts_by_key.get(target["object_key"]),
                 )
                 dependency_facts.extend(target_facts)
                 child_traces = []
@@ -448,7 +468,11 @@ def dependency_facts_for_record(
         target = records_by_key.get(str(consumer.get("consumer_key") or ""))
         if not target:
             continue
-        contract = tag_contract(target) if target["layer"] == "tag" else {}
+        contract = (
+            contracts_by_key.get(target["object_key"], {})
+            if target["layer"] == "tag"
+            else {}
+        )
         consumer_contexts.append(
             {
                 "consumer_key": target["object_key"],
@@ -461,7 +485,9 @@ def dependency_facts_for_record(
                 "referenced_variables": sorted(refs(target["object"])),
             }
         )
-        candidate_facts = source_leaf_facts(target["object"], target["source_json_path"])
+        candidate_facts = source_facts_by_key.get(
+            target["object_key"]
+        ) or source_leaf_facts(target["object"], target["source_json_path"])
         reference_path = str(consumer.get("source_json_path") or "")
         consumer_facts.extend(
             fact
@@ -585,37 +611,91 @@ def build_shared_facts(
         for layer_records in records.values()
         for record in layer_records
     }
+    records_by_key = dict(semantic_by_key)
+    triggers_by_id: dict[str, list[dict[str, Any]]] = {}
+    for record in records.get("trigger", []):
+        triggers_by_id.setdefault(str(record["object_id"]), []).append(record)
+    tags_by_name: dict[str, list[dict[str, Any]]] = {}
+    for record in records.get("tag", []):
+        tags_by_name.setdefault(str(record["object_name"]), []).append(record)
     technical_by_key = {
         f"{row['layer']}:{row['object_id']}": row for row in as_list(technical.get("rows"))
     }
     variables = as_list(cv.get("variable"))
+    source_facts_by_key = {
+        key: source_leaf_facts(record["object"], record["source_json_path"])
+        for key, record in semantic_by_key.items()
+    }
+    trace_variables_by_name: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+    for record in records.get("variable", []):
+        trace_variables_by_name.setdefault(str(record["object_name"]), []).append(
+            (int(record["index"]), record["object"])
+        )
+    trace_builtin_names = {
+        str(variable.get("name") or "")
+        for variable in as_list(cv.get("builtInVariable"))
+        if isinstance(variable, dict) and str(variable.get("name") or "")
+    }
+    absence_facts_by_key = {
+        key: semantic_absence_facts(
+            record["layer"],
+            record["object"],
+            record["source_json_path"],
+        )
+        for key, record in semantic_by_key.items()
+    }
+    contracts_by_key = {
+        key: tag_contract(record)
+        for key, record in semantic_by_key.items()
+        if record["layer"] == "tag"
+    }
+    consent_routes_by_key = {
+        key: tag_consent_route(
+            record["object"],
+            record["source_json_path"],
+            variables=variables,
+            root_path=root_path,
+        )
+        for key, record in semantic_by_key.items()
+        if record["layer"] in {"tag", "gtagConfig"}
+    }
     destination_records = records.get("tag", []) + records.get("gtagConfig", [])
+    destinations_by_key = {
+        record["object_key"]: set(configured_destinations(record))
+        for record in destination_records
+    }
+    destination_members: dict[str, set[str]] = {}
+    for key, destinations in destinations_by_key.items():
+        for destination in destinations:
+            destination_members.setdefault(destination, set()).add(key)
     destination_peer_contexts: dict[str, list[dict[str, Any]]] = {}
     destination_peer_facts: dict[str, list[dict[str, Any]]] = {}
     for record in destination_records:
-        destinations = set(configured_destinations(record))
+        destinations = destinations_by_key[record["object_key"]]
         peers = []
         peer_facts = []
-        for peer in destination_records:
-            if peer["object_key"] == record["object_key"]:
-                continue
+        peer_keys = {
+            peer_key
+            for destination in destinations
+            for peer_key in destination_members.get(destination, set())
+            if peer_key != record["object_key"]
+        }
+        for peer_key in sorted(peer_keys):
+            peer = semantic_by_key[peer_key]
             shared_destinations = sorted(
-                destinations & set(configured_destinations(peer))
+                destinations & destinations_by_key[peer_key]
             )
-            if not shared_destinations:
-                continue
-            peer_contract = tag_contract(peer) if peer["layer"] == "tag" else {}
+            peer_contract = contracts_by_key.get(peer_key, {})
             candidate_facts = [
-                *source_leaf_facts(peer["object"], peer["source_json_path"]),
-                *semantic_absence_facts(
-                    peer["layer"], peer["object"], peer["source_json_path"]
-                ),
+                *source_facts_by_key[peer_key],
+                *absence_facts_by_key[peer_key],
             ]
+            shared_destination_set = set(shared_destinations)
             destination_anchors = [
                 fact["json_path"]
                 for fact in candidate_facts
                 if str(fact.get("value_preview") or "").lower()
-                in set(shared_destinations)
+                in shared_destination_set
             ]
             peer_facts.extend(
                 fact
@@ -641,12 +721,7 @@ def build_shared_facts(
                     )
                 )
             )
-            peer_route = tag_consent_route(
-                peer["object"],
-                peer["source_json_path"],
-                variables=variables,
-                root_path=root_path,
-            )
+            peer_route = consent_routes_by_key.get(peer_key, {})
             peers.append(
                 {
                     "object_key": peer["object_key"],
@@ -697,26 +772,40 @@ def build_shared_facts(
             key = record["object_key"]
             technical_row = technical_by_key.get(key, {})
             traces = (
-                reference_trace_requirements(cv, obj, root_path) if layer in records else []
+                reference_trace_requirements(
+                    cv,
+                    obj,
+                    root_path,
+                    variables_by_name=trace_variables_by_name,
+                    builtin_names=trace_builtin_names,
+                    source_path=record["source_json_path"],
+                    source_reference_facts=source_facts_by_key.get(key),
+                    variable_facts_by_key=source_facts_by_key,
+                )
+                if layer in records
+                else []
             )
             (
                 execution_dependencies,
                 dependency_facts,
                 consumer_dependency_facts,
                 consumer_dependency_contexts,
-            ) = dependency_facts_for_record(record, records, consumers)
-            consent_values_for_object = consent_values(obj, record["source_json_path"])
-            consent = (
-                tag_consent_route(
-                    obj,
-                    record["source_json_path"],
-                    variables=variables,
-                    root_path=root_path,
-                )
-                if record["layer"] in {"tag", "gtagConfig"}
-                else {"consent_source_values": consent_values_for_object}
+            ) = dependency_facts_for_record(
+                record,
+                records,
+                consumers,
+                records_by_key=records_by_key,
+                triggers_by_id=triggers_by_id,
+                tags_by_name=tags_by_name,
+                source_facts_by_key=source_facts_by_key,
+                contracts_by_key=contracts_by_key,
             )
-            contract = tag_contract(record) if record["layer"] == "tag" else {}
+            consent_values_for_object = consent_values(obj, record["source_json_path"])
+            consent = consent_routes_by_key.get(
+                key,
+                {"consent_source_values": consent_values_for_object},
+            )
+            contract = contracts_by_key.get(key, {})
             formula_facts = {
                 field: technical_row.get(field)
                 for field in (
@@ -725,6 +814,9 @@ def build_shared_facts(
                     "fixed_slot_groups",
                     "fixed_slot_aggregation",
                     "returned_value_type",
+                    "javascript_parser",
+                    "javascript_parser_version",
+                    "parser_input_normalized",
                     "ast_branch_count",
                     "ast_return_count",
                     "side_effects",
@@ -740,8 +832,10 @@ def build_shared_facts(
                 "paused": record["paused"],
                 "source_json_path": record["source_json_path"],
                 "configuration_hash": record["config_hash"],
-                "source_leaf_facts": source_leaf_facts(obj, record["source_json_path"]),
-                "source_absence_facts": semantic_absence_facts(
+                "source_leaf_facts": source_facts_by_key.get(key)
+                or source_leaf_facts(obj, record["source_json_path"]),
+                "source_absence_facts": absence_facts_by_key.get(key)
+                or semantic_absence_facts(
                     record["layer"], obj, record["source_json_path"]
                 ),
                 "execution_dependency_traces": execution_dependencies,

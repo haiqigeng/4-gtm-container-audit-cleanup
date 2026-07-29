@@ -383,46 +383,6 @@ def operation_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
                 ),
             }
         )
-    for handoff in as_list((payload.get("runtime_qa_handoff") or {}).get("items")):
-        rows.append(
-            {
-                "Operation": clean_text(
-                    f"{handoff.get('handoff_id')} / runtime test contract"
-                ),
-                "Area / problem": clean_text(
-                    f"Runtime QA handoff / {handoff.get('category')}"
-                ),
-                "Affected objects": clean_text(
-                    as_list(handoff.get("affected_object_keys"))
-                ),
-                "Reason / target state": join_text(
-                    [
-                        handoff.get("route_contract"),
-                        handoff.get("unproven_boundaries"),
-                        (
-                            "Source decisions: "
-                            + ", ".join(
-                                str(value)
-                                for value in as_list(
-                                    handoff.get("source_references")
-                                )
-                            )
-                        ),
-                    ]
-                ),
-                "Exact mutation": (
-                    "No GTM mutation is authorized by this handoff. Required evidence: "
-                    + clean_text(handoff.get("required_evidence"))
-                ),
-                "Priority / QA / rollback": join_text(
-                    [
-                        handoff.get("test_contract_id"),
-                        handoff.get("next_action"),
-                        handoff.get("blocking_scope"),
-                    ]
-                ),
-            }
-        )
     return rows
 
 
@@ -579,15 +539,6 @@ def build_workbook(
     preservation = operations.get("measurement_preservation") or {}
     preservation_counts = preservation.get("counts") or {}
     preservation_families = as_list(preservation.get("families"))
-    runtime_handoff = operations.get("runtime_qa_handoff") or {}
-    runtime_handoff_items = as_list(runtime_handoff.get("items"))
-    runtime_handoff_categories = sorted(
-        {
-            str(item.get("category") or "")
-            for item in runtime_handoff_items
-            if str(item.get("category") or "")
-        }
-    )
     target_organization = operations.get("target_organization") or {}
     target_naming = target_organization.get("naming") or {}
     target_folders = target_organization.get("folders") or {}
@@ -665,8 +616,42 @@ def build_workbook(
         if owner_decisions
         else "Approve, reject, or amend the proposed operations before any GTM mutation."
     )
+    priority_counts = {
+        priority: sum(
+            1
+            for operation in as_list(operations.get("operations"))
+            if operation.get("priority") == priority
+        )
+        for priority in ("Critical", "High", "Medium", "Low")
+    }
+    priority_summary = ", ".join(
+        f"{priority} {count}"
+        for priority, count in priority_counts.items()
+        if count
+    ) or "no proposed operation"
+    projected_deltas = [
+        f"{layer} {counts.get('delta', 0):+d}"
+        for layer, counts in sorted(
+            (operations.get("projected_object_counts") or {}).items()
+        )
+        if counts.get("delta")
+    ]
+    clean_modules = sum(
+        1
+        for row in as_list(operational.get("module_results"))
+        if row.get("module_status") == "zero_findings"
+    )
+    operational_synopsis = (
+        f"{operation_count} proposed operation(s) ({priority_summary}); "
+        f"{owner_decisions} owner decision(s); {clean_modules} sanitation module(s) "
+        f"confirmed clean; {len(preservation_families)} measurement-family target "
+        f"state(s); projected object delta: "
+        f"{', '.join(projected_deltas) if projected_deltas else 'none'}. "
+        f"Next: {next_step}"
+    )
     summary = [
         {"Decision": "Overall status", "Value": overall_status},
+        {"Decision": "Operational synopsis", "Value": operational_synopsis},
         {"Decision": "Source", "Value": manifest.get("source_file")},
         {"Decision": "Objects reviewed", "Value": len(as_list(configuration.get("rows")))},
         {
@@ -743,13 +728,7 @@ def build_workbook(
             "Decision": "Runtime verification",
             "Value": (
                 "Out of scope for this container-only audit; no Preview, browser, "
-                "network, CMP, or vendor test was run or planned."
-                if not runtime_handoff_items
-                else (
-                    "External verification items were supplied outside this audit: "
-                    f"{len(runtime_handoff_items)} item(s): "
-                    + ", ".join(runtime_handoff_categories)
-                )
+                "network, CMP, vendor, or server-side test was run or planned."
             ),
         },
         {

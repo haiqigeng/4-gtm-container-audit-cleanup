@@ -25,6 +25,7 @@ from gtm_lib import (
     SEMANTIC_LAYERS,
     as_list,
     behavior_projection,
+    code_identity_text,
     comparable,
     container_root_path,
     container_version,
@@ -2909,9 +2910,9 @@ def add_duplicate_code_findings(
     builder.add_module("duplicate_custom_code", len(custom_objects))
     groups: dict[str, list[tuple[str, dict[str, Any], str]]] = collections.defaultdict(list)
     for layer, obj, code in custom_objects:
-        normalized = normalized_code(code)
-        if normalized:
-            groups[signature(normalized)].append((layer, obj, normalized))
+        identity = code_identity_text(code)
+        if identity.strip():
+            groups[signature(identity)].append((layer, obj, identity))
 
     for code_hash, group in sorted(groups.items()):
         if len(group) < 2:
@@ -2922,7 +2923,7 @@ def add_duplicate_code_findings(
             "custom_code",
             [object_summary(obj, layer) for layer, obj, _ in group],
             code_hash,
-            f"{len(group)} custom-code objects share identical normalized code hash {code_hash}.",
+            f"{len(group)} custom-code objects share the same exact code identity hash {code_hash}.",
             "Consolidate or document why identical code must remain separate.",
         )
 

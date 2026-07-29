@@ -41,12 +41,14 @@ from gtm_review_common import (
     canonical_review_facts,
     object_consumer_map,
     object_keys,
+    object_name_map,
     object_source_path_map,
     pending_completion_attestation,
     precise_question,
     review_input_contract,
     specific_text,
     validate_challenge,
+    validate_operation_set,
     validate_review_provenance,
     validate_structured_actions,
 )
@@ -2513,6 +2515,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
     descriptor = source_descriptor(export_path)
     valid_keys = object_keys(export_path)
     expected_consumers = object_consumer_map(export_path)
+    source_names = object_name_map(export_path)
     source_paths_by_key = object_source_path_map(export_path)
     source_data = json.loads(export_path.read_text(encoding="utf-8"))
     cv = container_version(source_data)
@@ -2567,6 +2570,24 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             valid_keys,
             expected_consumers,
             source_paths_by_key,
+        )
+    )
+    errors.extend(
+        validate_operation_set(
+            [
+                operation
+                for collection in (
+                    as_list(supplied.get("families")),
+                    as_list(supplied.get("comparisons")),
+                )
+                for row in collection
+                if isinstance(row, dict)
+                for operation in as_list(row.get("operations"))
+                if isinstance(operation, dict)
+            ],
+            expected_consumers=expected_consumers,
+            object_names=source_names,
+            label="architecture review operation set",
         )
     )
     return errors, warnings

@@ -800,8 +800,6 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
         for decision in unresolved
         if decision.get("disposition") == "container_evidence_limit"
     ]
-    runtime_handoff = payload.get("runtime_qa_handoff") or {}
-    handoff_items = as_list(runtime_handoff.get("items"))
     owner_groups: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
     for decision in owner_decisions:
         area = str(decision.get("area") or "Governance / ownership")
@@ -916,15 +914,8 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
             "",
             decision_id,
         )
-    if evidence_limits or handoff_items:
+    if evidence_limits:
         evidence_count = len(evidence_limits)
-        categories = sorted(
-            {
-                str(item.get("category") or "")
-                for item in handoff_items
-                if str(item.get("category") or "")
-            }
-        )
         status = "Evidence boundary"
         stage_row(
             {
@@ -934,9 +925,8 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
                     "Governance / ownership / Container-only evidence boundary"
                 ),
                 "Affected object(s)": (
-                    f"{evidence_count} retained review decision(s) and "
-                    f"{len(handoff_items)} exact runtime-QA handoff item(s); complete "
-                    "object links remain in the machine-readable operations packet"
+                    f"{evidence_count} retained review decision(s); complete object "
+                    "links remain in the machine-readable operations packet"
                 ),
                 "Problem / evidence": (
                     f"Scope boundary: {evidence_count} reviewed decisions depend on live "
@@ -944,16 +934,12 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
                     "behavior that a GTM container export cannot prove. These are not "
                     "source-visible cleanup defects and do not block unrelated cleanup. "
                     "Every per-object boundary remains lossless in the hidden reviews and "
-                    "machine-readable audit package. Handoff categories: "
-                    + (", ".join(categories) if categories else "general live runtime")
-                    + "."
+                    "machine-readable audit package."
                 ),
                 "Action / priority / QA": (
-                    "Scope treatment: retain affected behavior unless a grouped runtime "
-                    f"test proves a defect. Execute the {len(handoff_items)} exact test "
-                    "contract(s) recorded in the hidden Reconciled Operations sheet; "
-                    "their route, evidence, and next action remain source-linked. "
-                    "Readiness: nonblocking for unrelated proposed operations."
+                    "Scope treatment: do not create a cleanup mutation from unseen "
+                    "behavior. Keep each exact evidence boundary visible and continue "
+                    "with unrelated source-proven operations."
                 ),
             },
             status,

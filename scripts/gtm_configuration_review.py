@@ -49,12 +49,14 @@ from gtm_review_common import (
     canonical_review_facts,
     object_consumer_map,
     object_keys,
+    object_name_map,
     object_source_path_map,
     pending_completion_attestation,
     precise_question,
     review_input_contract,
     specific_text,
     validate_challenge,
+    validate_operation_set,
     validate_review_provenance,
     validate_structured_actions,
 )
@@ -4652,6 +4654,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
     descriptor = source_descriptor(export_path)
     valid_keys = object_keys(export_path)
     source_consumer_map = object_consumer_map(export_path)
+    source_names = object_name_map(export_path)
     source_paths_by_key = object_source_path_map(export_path)
     errors.extend(
         validate_review_identity(
@@ -4677,6 +4680,19 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             )
         )
     errors.extend(validate_identical_code_decisions(list(supplied_by_key.values())))
+    errors.extend(
+        validate_operation_set(
+            [
+                row["operation"]
+                for row in supplied_by_key.values()
+                if row.get("disposition") == "cleanup_operation"
+                and isinstance(row.get("operation"), dict)
+            ],
+            expected_consumers=source_consumer_map,
+            object_names=source_names,
+            label="configuration review operation set",
+        )
+    )
     return errors, warnings
 
 

@@ -262,11 +262,10 @@ Compilation also creates a measurement-preservation projection for every
 source-confirmed architecture family. It states whether the family is retained,
 changed, owner-blocked, or limited by container evidence; links its operations;
 and records required behavior, consent/routing context, and target state.
-It also projects only source-backed target organisation and groups external
-runtime follow-up into exact nonblocking test contracts by category,
-vendor/destination, route, event family, required evidence, and next action.
-Those contracts target surviving executable consuming tags/routes instead of
-low-level variables/templates and omit objects deleted from the target state.
+It also projects only source-backed target organisation. External behavior that
+the export cannot prove remains a static, source-linked evidence boundary; this
+skill does not create runtime test contracts or prescribe runtime acceptance
+work.
 
 ## Future-State Gate
 

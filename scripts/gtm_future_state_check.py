@@ -180,26 +180,45 @@ def apply_creations(
 
 
 def remap_trigger(source: str, target: str, consumer: dict[str, Any]) -> None:
+    def replaced_unique(values: Any) -> list[Any]:
+        result: list[Any] = []
+        seen: set[str] = set()
+        for value in as_list(values):
+            replacement = target if str(value) == source else value
+            identity = json.dumps(replacement, sort_keys=True, ensure_ascii=False)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            result.append(replacement)
+        return result
+
     for field in ("firingTriggerId", "blockingTriggerId"):
-        consumer[field] = [
-            target if str(value) == source else value for value in as_list(consumer.get(field))
-        ]
+        consumer[field] = replaced_unique(consumer.get(field))
     for parameter in as_list(consumer.get("parameter")):
         if not isinstance(parameter, dict):
             continue
         if parameter.get("key") != "triggerIds":
             continue
+        next_items: list[Any] = []
+        seen_references: set[str] = set()
         for item in as_list(parameter.get("list")):
             if not isinstance(item, dict):
+                next_items.append(item)
                 continue
             if str(item.get("value") or "") == source:
                 item["value"] = target
+            reference = str(item.get("value") or "")
+            if reference and reference in seen_references:
+                continue
+            if reference:
+                seen_references.add(reference)
+            next_items.append(item)
+        parameter["list"] = next_items
     boundary = consumer.get("boundary")
     if isinstance(boundary, dict) and "customEvaluationTriggerId" in boundary:
-        boundary["customEvaluationTriggerId"] = [
-            target if str(value) == source else value
-            for value in as_list(boundary.get("customEvaluationTriggerId"))
-        ]
+        boundary["customEvaluationTriggerId"] = replaced_unique(
+            boundary.get("customEvaluationTriggerId")
+        )
 
 
 def remap_folder(source: str, target: str, consumer: dict[str, Any]) -> None:

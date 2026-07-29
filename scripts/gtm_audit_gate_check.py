@@ -186,10 +186,7 @@ def operations_alignment_errors(
         for row in as_list(operations.get("decision_ledger"))
         if row.get("disposition") == "container_evidence_limit"
     )
-    runtime_handoff_count = len(
-        as_list((operations.get("runtime_qa_handoff") or {}).get("items"))
-    )
-    scope_row_required = bool(evidence_limit_count or runtime_handoff_count)
+    scope_row_required = bool(evidence_limit_count)
     cleanup_rows = workbook_rows.get("02 Cleanup Plan", [])
     summary_values = {
         str(row.get("decision") or ""): (

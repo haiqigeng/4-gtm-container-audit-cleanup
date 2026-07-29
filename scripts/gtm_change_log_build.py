@@ -58,6 +58,7 @@ def build_change_log(payload: dict[str, Any], output: Path) -> None:
             "After",
             "Reason / QA / status",
         ],
+        split_long_cells=True,
     )
     proof_rows = [
         {
@@ -87,7 +88,7 @@ def build_change_log(payload: dict[str, Any], output: Path) -> None:
         }
         for row in changes
     ]
-    add_table(proof_sheet, proof_rows)
+    add_table(proof_sheet, proof_rows, split_long_cells=True)
     proof_sheet.sheet_state = "hidden"
     workbook.active = 0
     output.parent.mkdir(parents=True, exist_ok=True)

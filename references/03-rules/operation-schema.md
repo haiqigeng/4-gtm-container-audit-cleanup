@@ -243,6 +243,9 @@ High/Critical operations require source recheck, active/paused and scope check,
 plausible alternative explanation, and confirmed/downgraded/rejected/blocked
 verdict. This protects consent, revenue, paid-media, server-routing, and
 multi-market changes from over-inference.
+When identical mutations merge, retain a valid challenge from the highest-risk
+lenses and never discard a blocked, rejected, or downgraded verdict because a
+lower-risk row appeared first.
 
 ## Merge And Conflict Rules
 
@@ -257,6 +260,9 @@ multi-market changes from over-inference.
   operations contain changes.
 - Preserve every lens rationale and source reference in the reconciled packet.
 - Reject one operation key reused for different structured mutations.
+- Require every source change/addition path to belong to the exact array entry
+  identified by its `object_key`; a matching layer with another object index is
+  still invalid.
 - Reject different targets for one field, rename, or remap source.
 - Reject deleting an object that is changed elsewhere.
 - Reject remapping to an object selected for deletion.
@@ -264,6 +270,9 @@ multi-market changes from over-inference.
   dependency cycle through its consumer.
 - Reject newly duplicated final names after applying the complete accepted
   creation, rename, and deletion set.
+- Re-run consumer coverage, remap cycle, final-name, and mutation-conflict
+  validation on each completed run's full operation set and again on the merged
+  cross-run set.
 - Reject mutation of an unresolved or intentional-variant architecture comparison.
 - Reconcile every behavior-impacting change with architecture, even when it is
   not a consolidation. Logic, destination, trigger, routing, consent, schedule,

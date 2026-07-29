@@ -134,7 +134,10 @@ configuration, and architecture checks so a structurally valid mutation cannot
 silently create a logically worse target state. Identical mutations merge
 without losing either evidence lens, and a deletion-only subset folds into one
 unambiguous broader operation so the plan never tells an analyst to delete the
-same object twice.
+same object twice. Every run validates its complete accepted operation set, and
+the compiler validates the complete merged set again, including consumer
+coverage, final-name uniqueness, dependency cycles, exact mutation paths, and
+cross-operation conflicts.
 
 Package creation automatically splits large reviews into bounded, source-locked
 shards and records the strategy under `review_work_units` in the package
@@ -173,6 +176,9 @@ forwarding requires both a server route and a behavior-bearing payload chain.
 - An audit summary and a separate cleanup-plan XLSX workbook.
 - Two visible decision tabs and compact, unprotected proof tabs that analysts
   can unhide when needed.
+- An operational synopsis with priority counts, owner decisions, clean scan
+  modules, measurement-family target states, projected object deltas, and the
+  next analyst action.
 - A filterable general problem category before the exact area/problem type,
   with GTM layer prefixes retained in the affected-object column.
 - Plain analyst-facing problem/change/readback wording, including explicit
@@ -272,7 +278,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.5.0
+python -B scripts/check_release.py --tag v1.6.0
 git diff --check
 ```
 

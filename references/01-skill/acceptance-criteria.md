@@ -13,6 +13,12 @@ Completion is outcome-based: exhaustive review proof alone is insufficient.
 The result must contain the complete justified action set and a projected
 container that satisfies the three review lenses.
 
+Structural gates prove source binding, exact obligation coverage, mutation-set
+consistency, and deterministic reconstruction. They cannot prove the quality of
+self-authored semantic prose or make a reasoning-context identifier independent
+by declaration alone. Human approval remains responsible for challenging
+material judgments before mutation.
+
 ## Operational Definition Of Done
 
 A web analyst can call the result done only when:

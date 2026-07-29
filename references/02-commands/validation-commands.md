@@ -203,10 +203,6 @@ The release check also rejects production scripts importing repository tests.
 The runtime-bundle test builds a source-locked package from the clean bundle
 without relying on the repository test tree.
 
-The release check also rejects production scripts importing repository tests.
-The runtime-bundle test builds a source-locked package from the clean bundle
-without relying on the repository test tree.
-
 For every semantic correction, add a fixture that reproduces the failure and a
 paired assertion that nearby true positives and architecture candidates remain.
 Compare representative messy-container object, obligation, and relationship

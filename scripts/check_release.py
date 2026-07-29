@@ -52,6 +52,7 @@ GENERATED_ARTIFACT_FILES = {
 TEXT_SUFFIXES = {".md", ".py", ".toml", ".yaml", ".yml", ".txt"}
 ALLOWED_ROOT_ENTRIES = {
     ".git",
+    ".gitattributes",
     ".github",
     ".gitignore",
     "LICENSE",
@@ -74,7 +75,11 @@ def text_files(root: Path) -> list[Path]:
     for path in root.rglob("*"):
         if not path.is_file() or ".git" in path.parts:
             continue
-        if path.suffix.lower() in TEXT_SUFFIXES or path.name in {".gitignore", "LICENSE"}:
+        if path.suffix.lower() in TEXT_SUFFIXES or path.name in {
+            ".gitattributes",
+            ".gitignore",
+            "LICENSE",
+        }:
             paths.append(path)
     return sorted(paths)
 

@@ -12,7 +12,6 @@ import argparse
 import collections
 import hashlib
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +20,7 @@ from gtm_lib import (
     OBJECT_LAYERS,
     SEMANTIC_LAYERS,
     as_list,
+    code_identity_text,
     container_root_path,
     container_version,
     custom_template_ids,
@@ -38,8 +38,8 @@ from gtm_lib import (
 
 
 def code_hash(text: str) -> str:
-    normalized = re.sub(r"\s+", " ", text).strip()
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16] if normalized else ""
+    identity = code_identity_text(text)
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16] if identity.strip() else ""
 
 
 def object_id(obj: dict[str, Any], layer: str) -> str:

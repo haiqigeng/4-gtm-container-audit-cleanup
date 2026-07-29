@@ -27,6 +27,7 @@ from gtm_lib import (
     SEMANTIC_LAYERS,
     as_list,
     behavior_projection,
+    code_identity_text,
     comparable,
     container_root_path,
     container_version,
@@ -242,6 +243,8 @@ def normalized_text(value: Any) -> str:
 
 def parameter_value(obj: dict[str, Any], key: str) -> Any:
     for parameter in as_list(obj.get("parameter")):
+        if not isinstance(parameter, dict):
+            continue
         if str(parameter.get("key") or "") != key:
             continue
         for value_key in ("value", "list", "map"):
@@ -301,6 +304,8 @@ def config_specificity_tokens(obj: dict[str, Any]) -> list[str]:
     }
     parameter_tokens: set[str] = set()
     for parameter in as_list(semantic.get("parameter")):
+        if not isinstance(parameter, dict):
+            continue
         key = normalized_text(parameter.get("key"))
         if len(key) >= 4 and key not in GENERIC_CONFIG_TOKENS:
             parameter_tokens.add(key)
@@ -500,7 +505,7 @@ def custom_code(obj: dict[str, Any]) -> str:
     for key in ("html", "javascript"):
         value = parameter_value(obj, key)
         if value is not None:
-            return re.sub(r"\s+", " ", str(value)).strip()
+            return str(value)
     return ""
 
 
@@ -680,6 +685,8 @@ def add_spa_page_view_candidates(
 def condition_parameters(node: dict[str, Any]) -> dict[str, str]:
     values: dict[str, str] = {}
     for parameter in as_list(node.get("parameter")):
+        if not isinstance(parameter, dict):
+            continue
         key = str(parameter.get("key") or "")
         if key and parameter.get("value") is not None:
             values[key] = str(parameter.get("value"))
@@ -1397,13 +1404,15 @@ def add_code_candidates(
         for code_hash, group in keyed_record_groups(
             records.get(layer, []),
             lambda record: (
-                stable_hash(custom_code(record["object"])) if custom_code(record["object"]) else ""
+                stable_hash(code_identity_text(custom_code(record["object"])))
+                if custom_code(record["object"])
+                else ""
             ),
         ):
             builder.add(
                 "equivalent_custom_code",
                 group,
-                "Custom code is identical after whitespace normalization "
+                "Custom code is byte-equivalent after line-ending normalization "
                 f"under signature {code_hash}.",
                 1.0,
             )

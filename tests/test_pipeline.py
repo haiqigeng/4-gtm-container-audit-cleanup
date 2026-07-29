@@ -55,7 +55,6 @@ from gtm_operation_compile import (  # noqa: E402
     operation_priority_basis,
     reconcile_ledger_resolutions,
     runtime_neutral_operational_deletions,
-    runtime_qa_handoff,
     source_object_catalog,
 )
 from gtm_operational_review import (  # noqa: E402  # noqa: E402
@@ -4806,6 +4805,7 @@ scenarios:
             str(row[0].value)
             for row in workbook["01 Summary"].iter_rows(min_row=2, max_col=1)
         }
+        self.assertIn("Operational synopsis", summary_decisions)
         self.assertIn("Retained / no-change decisions", summary_decisions)
         self.assertIn("Retained business-family architecture", summary_decisions)
         self.assertIn("Measurement-family preservation", summary_decisions)
@@ -7401,81 +7401,6 @@ scenarios:
             )
         )
 
-    def test_runtime_handoff_groups_one_exact_test_contract(self) -> None:
-        ledger = [
-            {
-                "decision_id": f"CFG-DOM-{index}",
-                "source_run": "configuration_correctness",
-                "source_object_keys": [f"tag:{index}"],
-                "disposition": "container_evidence_limit",
-                "summary": (
-                    "The container cannot prove whether the same checkout DOM "
-                    "selector exists on the affected route."
-                ),
-                "recommended_action": (
-                    "Verify the selector once on every affected checkout route."
-                ),
-            }
-            for index in (1, 2)
-        ]
-        handoff = runtime_qa_handoff(ledger, {"rows": []})
-        self.assertEqual(1, handoff["item_count"])
-        item = handoff["items"][0]
-        self.assertEqual(["CFG-DOM-1", "CFG-DOM-2"], item["source_references"])
-        self.assertEqual(["tag:1", "tag:2"], item["affected_object_keys"])
-        self.assertEqual("page_dom", item["category"])
-        self.assertTrue(item["test_contract_id"].startswith("TEST-"))
-
-    def test_runtime_handoff_targets_consuming_tags_and_omits_deleted_sources(
-        self,
-    ) -> None:
-        ledger = [
-            {
-                "decision_id": "CFG-VAR-1",
-                "source_run": "configuration_correctness",
-                "source_object_keys": ["variable:20"],
-                "consumer_object_keys": ["tag:1"],
-                "disposition": "container_evidence_limit",
-                "summary": (
-                    "The dataLayer runtime value type is not visible in the export."
-                ),
-                "recommended_action": (
-                    "Capture the resolved dataLayer value on the purchase tag route."
-                ),
-            },
-            {
-                "decision_id": "CFG-VAR-2",
-                "source_run": "configuration_correctness",
-                "source_object_keys": ["variable:21"],
-                "consumer_object_keys": ["tag:2"],
-                "disposition": "container_evidence_limit",
-                "summary": (
-                    "The dataLayer runtime value type is not visible in the export."
-                ),
-                "recommended_action": (
-                    "Capture the resolved dataLayer value on the lead tag route."
-                ),
-            },
-        ]
-        packets = [
-            {
-                "deletions": [
-                    {
-                        "object_key": "variable:21",
-                        "reason": "The variable is removed from the target state.",
-                    }
-                ]
-            }
-        ]
-        handoff = runtime_qa_handoff(ledger, {"rows": []}, packets)
-        self.assertEqual(1, handoff["item_count"])
-        self.assertEqual(
-            ["CFG-VAR-1"],
-            handoff["items"][0]["source_references"],
-        )
-        self.assertEqual(["variable:20"], handoff["items"][0]["affected_object_keys"])
-        self.assertEqual(["tag:1"], handoff["items"][0]["test_object_keys"])
-
     def test_action_incomplete_workbook_is_only_a_blocked_draft(self) -> None:
         try:
             from openpyxl import load_workbook
@@ -8251,7 +8176,7 @@ scenarios:
         )
         self.assertEqual(["OP-0001"], reconciled[0]["compiled_operation_ids"])
 
-    def test_priority_basis_and_runtime_handoff_add_utility_without_new_gates(
+    def test_priority_basis_and_static_evidence_boundary_add_utility(
         self,
     ) -> None:
         active_basis = operation_priority_basis(
@@ -8321,57 +8246,16 @@ scenarios:
                 "recommended_action": "Confirm ownership.",
             },
         ]
-        configuration = {
-            "rows": [
-                {
-                    "review_id": "CFG-1",
-                    "object_key": "tag:3",
-                    "external_evidence_status": "runtime_handoff_required",
-                    "external_evidence_summary": (
-                        "The container proves configured endpoints but not external "
-                        "script delivery or vendor acceptance."
-                    ),
-                    "external_evidence_next_action": (
-                        "Capture the browser request and vendor acceptance response "
-                        "on the affected route."
-                    ),
-                    "detected_vendor": "Example vendor",
-                    "effective_consent_route_facts": {
-                        "server_routing_hosts": []
-                    },
-                    "required_contract_topics": [],
-                    "technical_code_facts": {
-                        "container_evidence_limits": [
-                            "The container proves configured endpoints but not external "
-                            "script delivery or vendor acceptance."
-                        ]
-                    },
-                }
-            ]
-        }
-        handoff = runtime_qa_handoff(ledger, configuration)
-        self.assertEqual(2, handoff["item_count"])
-        self.assertEqual(
-            {"page_dom", "vendor_delivery"},
-            {item["category"] for item in handoff["items"]},
-        )
-        self.assertTrue(
-            all(
-                item["blocking_scope"] == "nonblocking_for_unrelated_cleanup"
-                for item in handoff["items"]
-            )
-        )
         rows, errors = build_rows(
             {
                 "operations": [],
                 "decision_ledger": ledger,
-                "runtime_qa_handoff": handoff,
             }
         )
         self.assertEqual([], errors)
         scope = next(row for row in rows if row["ID"] == "SCOPE-001")
-        self.assertIn("runtime-QA handoff item", scope["Affected object(s)"])
-        self.assertEqual(0, runtime_qa_handoff([], {"rows": []})["item_count"])
+        self.assertIn("1 retained review decision", scope["Affected object(s)"])
+        self.assertNotIn("runtime-QA", json.dumps(scope))
 
     def test_vendor_registry_is_current_and_structurally_valid(self) -> None:
         registry_path = ROOT / "references/03-rules/vendor-registry.toml"

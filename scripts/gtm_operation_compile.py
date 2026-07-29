@@ -20,7 +20,16 @@ from gtm_configuration_review import validate_review as validate_configuration_r
 from gtm_consent_model import server_route_hosts
 from gtm_lib import ID_KEYS, container_version, load_json, source_integrity_findings, stable_hash
 from gtm_operational_review import validate_review as validate_operational_review
-from gtm_review_common import as_list, specific_text, validate_review_provenance
+from gtm_review_common import (
+    as_list,
+    object_consumer_map,
+    object_name_map,
+    object_source_path_map,
+    specific_text,
+    validate_challenge,
+    validate_operation_set,
+    validate_review_provenance,
+)
 
 ACTION_FIELDS = (
     "creations",
@@ -290,14 +299,15 @@ def reconcile_redundant_deletion_operations(
     still blocks them.
     """
 
+    snapshot = copy.deepcopy(operations)
     adjusted = copy.deepcopy(operations)
-    for index, operation in enumerate(adjusted):
+    for index, operation in enumerate(snapshot):
         if not _is_deletion_only_operation(operation):
             continue
         targets = _deletion_targets(operation)
         candidates = [
             candidate
-            for candidate_index, candidate in enumerate(adjusted)
+            for candidate_index, candidate in enumerate(snapshot)
             if candidate_index != index
             and targets <= _deletion_targets(candidate)
             and (
@@ -310,13 +320,18 @@ def reconcile_redundant_deletion_operations(
         }
         if len(candidate_payloads) != 1:
             continue
-        carrier = next(iter(candidate_payloads.values()))
+        carrier = min(
+            candidate_payloads.values(),
+            key=lambda row: str(row.get("operation_key") or ""),
+        )
         for field in ACTION_FIELDS:
-            operation[field] = copy.deepcopy(carrier.get(field) or [])
-        operation["canonical_object_key"] = str(
+            adjusted[index][field] = copy.deepcopy(carrier.get(field) or [])
+        adjusted[index]["canonical_object_key"] = str(
             carrier.get("canonical_object_key") or ""
         )
-        operation["affected_object_keys"] = sorted(action_object_keys(operation))
+        adjusted[index]["affected_object_keys"] = sorted(
+            action_object_keys(adjusted[index])
+        )
     return adjusted
 
 
@@ -347,6 +362,11 @@ def _compose_text_change(before: str, after_values: list[str]) -> str | None:
         for right in deduplicated[index + 1 :]:
             left_start, left_end, left_value = left
             right_start, right_end, right_value = right
+            if (
+                left_start == left_end == right_start == right_end
+                and left_value != right_value
+            ):
+                return None
             if left_end <= right_start or right_end <= left_start:
                 continue
             if left_start == right_start and left_end == right_end and left_value == right_value:
@@ -479,6 +499,43 @@ def merge_compatible_operations(
         first["source_operation_keys"] = source_operation_keys
         for field in TEXT_FIELDS:
             first[field] = _selected_text(rows, field)
+        challenge_rows = [
+            row
+            for row in rows
+            if isinstance(row.get("challenge_review"), dict)
+            and row.get("challenge_review")
+        ]
+        if challenge_rows:
+            verdict_rank = {
+                "confirmed": 0,
+                "downgraded": 1,
+                "rejected": 2,
+                "blocked": 3,
+            }
+            selected_challenge = max(
+                challenge_rows,
+                key=lambda row: (
+                    verdict_rank.get(
+                        str(
+                            (row.get("challenge_review") or {}).get(
+                                "challenge_verdict"
+                            )
+                            or ""
+                        ),
+                        -1,
+                    ),
+                    {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}.get(
+                        str(row.get("priority") or ""), -1
+                    ),
+                    len(json.dumps(row.get("challenge_review"), sort_keys=True)),
+                    str(row.get("operation_key") or ""),
+                ),
+            )
+            first["challenge_review"] = copy.deepcopy(
+                selected_challenge["challenge_review"]
+            )
+        else:
+            first["challenge_review"] = {}
         classification_rank = {
             "configuration_correctness": 0,
             "business_architecture": 1,
@@ -554,6 +611,12 @@ def merge_compatible_operations(
         )
         first["affected_object_keys"] = sorted(
             {value for row in rows for value in as_list(row.get("affected_object_keys"))}
+        )
+        errors.extend(
+            validate_challenge(
+                first,
+                f"compiled operation {first['operation_key']!r}",
+            )
         )
         merged.append(first)
     return merged
@@ -666,6 +729,10 @@ def record_remap(remap: dict[str, Any], key: str, state: dict[str, Any]) -> list
     target = str(remap.get("to_object_key") or "")
     previous = state["remap_targets"].get(source)
     state["remap_targets"][source] = (target, key)
+    for consumer in as_list(remap.get("consumer_object_keys")):
+        consumer_key = str(consumer or "")
+        if consumer_key:
+            state["changed_by"][consumer_key].add(key)
     if previous:
         return [
             f"duplicate or conflicting remap targets for {source} in "
@@ -746,6 +813,44 @@ def validate_mutation_conflicts(operations: list[dict[str, Any]]) -> list[str]:
         errors.extend(record_operation_mutations(operation, state))
     errors.extend(overlapping_write_errors(state["writes"]))
     errors.extend(deletion_conflict_errors(state))
+    return errors
+
+
+def mutation_path_errors(
+    operations: list[dict[str, Any]],
+    source_paths_by_key: dict[str, str] | None,
+) -> list[str]:
+    """Bind each source-field mutation to the exact object array entry."""
+
+    errors: list[str] = []
+    for operation in operations:
+        operation_key = str(operation.get("operation_key") or "")
+        for field in ("changes", "additions"):
+            for mutation in as_list(operation.get(field)):
+                if not isinstance(mutation, dict):
+                    continue
+                object_key = str(mutation.get("object_key") or "")
+                json_path = str(mutation.get("json_path") or "")
+                expected_path = (source_paths_by_key or {}).get(object_key)
+                if expected_path and not (
+                    json_path == expected_path
+                    or json_path.startswith((expected_path + ".", expected_path + "["))
+                ):
+                    errors.append(
+                        f"{operation_key!r} {field[:-1]} pairs {object_key!r} with "
+                        "another object's source json_path"
+                    )
+                    continue
+                path_match = re.match(
+                    r"^\$\.(?:containerVersion\.)?([A-Za-z][A-Za-z0-9]*)\[\d+\]",
+                    json_path,
+                )
+                object_layer = object_key.partition(":")[0]
+                if path_match and object_layer and path_match.group(1) != object_layer:
+                    errors.append(
+                        f"{operation_key!r} {field[:-1]} path layer "
+                        f"{path_match.group(1)!r} does not match {object_key!r}"
+                    )
     return errors
 
 
@@ -2151,32 +2256,31 @@ def operation_server_route_hosts(
 
 def operation_has_configured_activation_risk(operation: dict[str, Any]) -> bool:
     """Flag mutations that can change configured reachability, never live firing."""
-    if any(
+    creation_risk = any(
         str(creation.get("layer") or "") == "tag"
         and bool(as_list((creation.get("object") or {}).get("firingTriggerId")))
         and not bool((creation.get("object") or {}).get("paused"))
         for creation in as_list(operation.get("creations"))
         if isinstance(creation, dict)
-    ):
-        return True
-    if as_list(operation.get("remaps")):
-        return any(
-            str(remap.get("from_object_key") or "").startswith(("tag:", "trigger:"))
-            or str(remap.get("to_object_key") or "").startswith(("tag:", "trigger:"))
-            or any(
-                str(key).startswith(("tag:", "trigger:"))
-                for key in as_list(remap.get("consumer_object_keys"))
-            )
-            for remap in as_list(operation.get("remaps"))
-            if isinstance(remap, dict)
+    )
+    remap_risk = any(
+        str(remap.get("from_object_key") or "").startswith(("tag:", "trigger:"))
+        or str(remap.get("to_object_key") or "").startswith(("tag:", "trigger:"))
+        or any(
+            str(key).startswith(("tag:", "trigger:"))
+            for key in as_list(remap.get("consumer_object_keys"))
         )
+        for remap in as_list(operation.get("remaps"))
+        if isinstance(remap, dict)
+    )
+    mutation_risk = False
     for field in ("changes", "additions"):
         for mutation in as_list(operation.get(field)):
             if not isinstance(mutation, dict):
                 continue
             if ACTIVATION_PATH_RE.search(str(mutation.get("json_path") or "")):
-                return True
-    return False
+                mutation_risk = True
+    return creation_risk or remap_risk or mutation_risk
 
 
 def operation_safety_metadata(
@@ -2925,450 +3029,6 @@ def reconcile_ledger_resolutions(
     return rows, errors
 
 
-def runtime_qa_handoff(
-    ledger: list[dict[str, Any]],
-    configuration: dict[str, Any],
-    packets: list[dict[str, Any]] | None = None,
-    *,
-    enabled: bool = True,
-) -> dict[str, Any]:
-    """Build optional external-verification handoffs outside the audit scope."""
-
-    if not enabled:
-        return {
-            "scope": (
-                "Runtime verification is outside this container-only audit skill. "
-                "No Preview, browser, network, CMP, or vendor test contract was created."
-            ),
-            "item_count": 0,
-            "items": [],
-        }
-
-    def classify(text: str) -> tuple[str, str, str] | None:
-        lowered = text.lower()
-        mappings = (
-            (
-                r"selector|dom|page invokes|page effect|page state",
-                "page_dom",
-                "GTM Preview plus browser console/DOM evidence on every affected route",
-                "Verify selector presence, handler count, and the intended page effect.",
-            ),
-            (
-                r"datalayer|data layer|runtime value|value type|availability",
-                "data_layer",
-                "raw dataLayer.push payloads and resolved GTM variable values in Preview",
-                "Compare event-time values, types, cardinality, and fallbacks with the contract.",
-            ),
-            (
-                r"cmp|consent|storage",
-                "cmp_consent",
-                "CMP state transitions, Consent Overview, and before/after-consent requests",
-                "Verify default/update timing and that each vendor route is blocked or allowed as approved.",
-            ),
-            (
-                r"server|downstream|receiving container",
-                "server_route",
-                "the receiving server-container export plus request/forwarding evidence",
-                "Audit consent forwarding, transformations, destinations, and deduplication on the receiving route.",
-            ),
-            (
-                r"ga4|analytics property|report|debugview",
-                "analytics_property",
-                "GA4 DebugView/Realtime and the intended property or data-stream configuration",
-                "Verify the event, parameters, property destination, and reporting availability.",
-            ),
-            (
-                r"vendor|endpoint|network|script delivery|acceptance|response",
-                "vendor_delivery",
-                "browser network evidence and the vendor platform's test/event diagnostics",
-                "Verify one expected request, accepted payload fields, response, and deduplication.",
-            ),
-        )
-        for pattern, category, evidence, action in mappings:
-            if re.search(pattern, lowered):
-                return category, evidence, action
-        return None
-
-    evidence_by_category = {
-        "page_dom": "GTM Preview plus browser console and DOM evidence on each affected route",
-        "data_layer": "raw dataLayer.push payloads and resolved GTM variable values in Preview",
-        "cmp_consent": "CMP state transitions, Consent Overview, and before/after-consent requests",
-        "server_route": "the receiving server-container export plus request and forwarding evidence",
-        "analytics_property": "GA4 DebugView or Realtime and the intended property/data-stream configuration",
-        "vendor_delivery": "browser network evidence and the vendor platform test diagnostics",
-        "live_runtime": "GTM Preview and network evidence for the exact affected route",
-    }
-    verification_recipes = {
-        "page_dom": {
-            "preconditions": "affected page route and material DOM variant are reachable",
-            "test_steps": [
-                "open the exact route in GTM Preview",
-                "exercise the affected state once in a controlled action window",
-                "inspect selector resolution, handler count, and resulting DOM effect",
-            ],
-            "pass_criteria": "the intended effect occurs once and no unrelated route or variant is affected",
-            "fail_criteria": "missing selector/effect, duplicate handler/effect, or out-of-scope mutation",
-            "evidence_capture": "Preview event trace plus before/after DOM or console evidence",
-        },
-        "data_layer": {
-            "preconditions": "the business action can be isolated in one controlled action window",
-            "test_steps": [
-                "capture every raw dataLayer.push in the action window",
-                "resolve the affected GTM variables at the consuming event",
-                "compare names, values, types, cardinality, and fallbacks with the approved contract",
-            ],
-            "pass_criteria": "one intended business occurrence has complete, correctly typed event-time values",
-            "fail_criteria": "missing, duplicate, stale, mistyped, or wrong-context values",
-            "evidence_capture": "ordered dataLayer pushes and Preview variable snapshots",
-        },
-        "cmp_consent": {
-            "preconditions": "testable deny, grant, update, and revisit states are available",
-            "test_steps": [
-                "capture consent defaults before ordinary tags",
-                "exercise each material CMP transition",
-                "compare tag eligibility and requests before and after the transition",
-            ],
-            "pass_criteria": "approved defaults and updates occur in order and every affected route obeys them",
-            "fail_criteria": "late/missing update, pre-consent delivery, or approved delivery remaining blocked",
-            "evidence_capture": "Consent Overview, Preview timeline, CMP state, and request evidence",
-        },
-        "server_route": {
-            "preconditions": "receiving server-container evidence and an observable request path are available",
-            "test_steps": [
-                "trace the browser request to the configured host",
-                "inspect the receiving client, transformations, consent fields, and destinations",
-                "reconcile browser/server identifiers and deduplication for the affected event",
-            ],
-            "pass_criteria": "the intended route receives and forwards one contract-compliant occurrence",
-            "fail_criteria": "wrong host, dropped/altered consent, unexpected destination, or duplicate delivery",
-            "evidence_capture": "browser request plus receiving-container and downstream request traces",
-        },
-        "analytics_property": {
-            "preconditions": "the intended GA4 property/stream is identified and test traffic is permitted",
-            "test_steps": [
-                "execute the exact affected event once",
-                "verify destination, event name, parameters, and item scope in transport evidence",
-                "reconcile the occurrence in DebugView or Realtime",
-            ],
-            "pass_criteria": "one correctly scoped occurrence reaches the intended property with approved values",
-            "fail_criteria": "missing, duplicate, wrong-property, wrong-name, or malformed parameter delivery",
-            "evidence_capture": "Preview and network trace plus DebugView/Realtime occurrence",
-        },
-        "vendor_delivery": {
-            "preconditions": "vendor test diagnostics and a consent-valid test state are available",
-            "test_steps": [
-                "execute the affected event once",
-                "inspect the exact vendor request and response",
-                "reconcile payload, route, acceptance, and any browser/server event identifier",
-            ],
-            "pass_criteria": "one accepted occurrence carries the approved identity and payload",
-            "fail_criteria": "missing, duplicate, rejected, wrong-account, or malformed delivery",
-            "evidence_capture": "Preview trace, request/response, and vendor test-event diagnostics",
-        },
-        "live_runtime": {
-            "preconditions": "the exact affected route and action are testable",
-            "test_steps": [
-                "reproduce the affected action once in GTM Preview",
-                "capture the relevant resolved configuration and outbound behavior",
-                "compare the result with the approved operation and measurement contract",
-            ],
-            "pass_criteria": "the approved behavior occurs once with no material side effect",
-            "fail_criteria": "missing, duplicate, mistimed, wrong-context, or unexpected behavior",
-            "evidence_capture": "Preview trace and the smallest decisive browser/runtime evidence",
-        },
-    }
-
-    deleted_keys = {
-        str(deletion.get("object_key") or "")
-        for packet in as_list(packets)
-        for deletion in as_list(packet.get("deletions"))
-        if str(deletion.get("object_key") or "")
-    }
-    candidates: list[dict[str, Any]] = []
-    for decision in ledger:
-        disposition = str(decision.get("disposition") or "")
-        explicit_handoff = (
-            str(decision.get("external_evidence_status") or "")
-            == "runtime_handoff_required"
-        )
-        text = " ".join(
-            str(decision.get(field) or "")
-            for field in (
-                "external_evidence_summary",
-                "external_evidence_next_action",
-                "summary",
-                "owner_question",
-                "recommended_action",
-            )
-        )
-        classified = classify(text)
-        if not explicit_handoff and disposition != "container_evidence_limit":
-            continue
-        classified = classified or (
-            "live_runtime",
-            evidence_by_category["live_runtime"],
-            "Test the unresolved live behavior and create a corrective operation only if it fails.",
-        )
-        category, default_evidence, default_action = classified
-        evidence_object_keys = sorted(
-            {
-                str(value)
-                for value in as_list(decision.get("source_object_keys"))
-                if str(value)
-            }
-        )
-        surviving_evidence_keys = [
-            key for key in evidence_object_keys if key not in deleted_keys
-        ]
-        if evidence_object_keys and not surviving_evidence_keys:
-            continue
-        consumer_keys = sorted(
-            {
-                str(value)
-                for value in as_list(decision.get("consumer_object_keys"))
-                if str(value) and str(value) not in deleted_keys
-            }
-        )
-        tag_consumers = [key for key in consumer_keys if key.startswith("tag:")]
-        test_object_keys = (
-            tag_consumers
-            or consumer_keys
-            or surviving_evidence_keys
-        )
-        required_evidence = default_evidence
-        next_action = str(
-            decision.get("external_evidence_next_action") or default_action
-        )
-        boundary = str(
-            decision.get("external_evidence_summary")
-            or decision.get("summary")
-            or decision.get("owner_question")
-            or "Live outcome is not proven by the container export."
-        )
-        candidates.append(
-            {
-                "source_reference": str(decision.get("decision_id") or ""),
-                "source_run": str(decision.get("source_run") or ""),
-                "affected_object_keys": surviving_evidence_keys,
-                "test_object_keys": test_object_keys,
-                "category": category,
-                "vendor": str(decision.get("detected_vendor") or ""),
-                "route_hosts": sorted(
-                    {
-                        str(value)
-                        for value in as_list(decision.get("server_routing_hosts"))
-                        if str(value)
-                    }
-                ),
-                "configured_events": sorted(
-                    {
-                        str(value)
-                        for value in as_list(decision.get("configured_event_values"))
-                        if str(value)
-                    }
-                ),
-                "unproven_boundary": boundary,
-                "required_evidence": required_evidence,
-                "next_action": next_action,
-                "blocking_scope": "nonblocking_for_unrelated_cleanup",
-            }
-        )
-
-    # The configuration rows are already represented in the decision ledger.
-    # Keeping this assertion close to compilation prevents a future refactor
-    # from silently dropping explicit handoffs before grouping.
-    explicit_configuration_refs = {
-        str(row.get("review_id") or row.get("object_key") or "")
-        for row in as_list(configuration.get("rows"))
-        if row.get("external_evidence_status") == "runtime_handoff_required"
-    }
-    candidate_refs = {
-        str(candidate.get("source_reference") or "") for candidate in candidates
-    }
-    missing_configuration_refs = explicit_configuration_refs - candidate_refs
-    for source_reference in sorted(missing_configuration_refs):
-        row = next(
-            (
-                item
-                for item in as_list(configuration.get("rows"))
-                if str(item.get("review_id") or item.get("object_key") or "")
-                == source_reference
-            ),
-            {},
-        )
-        object_key = str(row.get("object_key") or "")
-        if object_key and object_key in deleted_keys:
-            continue
-        text = " ".join(
-            str(row.get(field) or "")
-            for field in (
-                "external_evidence_summary",
-                "external_evidence_next_action",
-            )
-        )
-        category, required_evidence, default_action = classify(text) or (
-            "live_runtime",
-            evidence_by_category["live_runtime"],
-            "Test the unresolved live behavior and create a corrective operation only if it fails.",
-        )
-        candidates.append(
-            {
-                "source_reference": source_reference,
-                "source_run": "configuration_correctness",
-                "affected_object_keys": [object_key] if object_key else [],
-                "test_object_keys": sorted(
-                    {
-                        str(item.get("consumer_key") or "")
-                        for item in as_list(row.get("export_consumers"))
-                        if isinstance(item, dict)
-                        and str(item.get("consumer_key") or "").startswith("tag:")
-                        and str(item.get("consumer_key") or "") not in deleted_keys
-                    }
-                )
-                or ([object_key] if object_key else []),
-                "category": category,
-                "vendor": str(row.get("detected_vendor") or ""),
-                "route_hosts": sorted(
-                    {
-                        str(value)
-                        for value in as_list(
-                            (row.get("effective_consent_route_facts") or {}).get(
-                                "server_routing_hosts"
-                            )
-                        )
-                        if str(value)
-                    }
-                ),
-                "configured_events": sorted(
-                    {
-                        str(value)
-                        for topic in as_list(row.get("required_contract_topics"))
-                        for value in as_list(topic.get("configured_event_values"))
-                        if str(value)
-                    }
-                ),
-                "unproven_boundary": str(
-                    row.get("external_evidence_summary")
-                    or "Live outcome is not proven by the container export."
-                ),
-                "required_evidence": required_evidence,
-                "next_action": str(
-                    row.get("external_evidence_next_action") or default_action
-                ),
-                "blocking_scope": "nonblocking_for_unrelated_cleanup",
-            }
-        )
-
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for candidate in candidates:
-        key = stable_hash(
-            {
-                "category": candidate["category"],
-                "vendor": candidate["vendor"],
-                "route_hosts": candidate["route_hosts"],
-                "configured_events": candidate["configured_events"],
-                "required_evidence": candidate["required_evidence"],
-                "next_action": candidate["next_action"],
-            },
-            24,
-        )
-        grouped[key].append(candidate)
-
-    items = []
-    for index, key in enumerate(sorted(grouped), start=1):
-        members = grouped[key]
-        source_references = sorted(
-            {
-                str(member.get("source_reference") or "")
-                for member in members
-                if str(member.get("source_reference") or "")
-            }
-        )
-        source_runs = sorted(
-            {
-                str(member.get("source_run") or "")
-                for member in members
-                if str(member.get("source_run") or "")
-            }
-        )
-        affected_keys = sorted(
-            {
-                str(value)
-                for member in members
-                for value in as_list(member.get("affected_object_keys"))
-                if str(value)
-            }
-        )
-        test_keys = sorted(
-            {
-                str(value)
-                for member in members
-                for value in as_list(member.get("test_object_keys"))
-                if str(value)
-            }
-        )
-        boundaries = list(
-            dict.fromkeys(
-                str(member.get("unproven_boundary") or "")
-                for member in members
-                if str(member.get("unproven_boundary") or "")
-            )
-        )
-        first = members[0]
-        route_contract = "; ".join(
-            value
-            for value in (
-                f"vendor={first['vendor']}" if first["vendor"] else "",
-                (
-                    "route=" + ",".join(first["route_hosts"])
-                    if first["route_hosts"]
-                    else ""
-                ),
-                (
-                    "events=" + ",".join(first["configured_events"])
-                    if first["configured_events"]
-                    else ""
-                ),
-            )
-            if value
-        ) or "affected container-visible route(s)"
-        items.append(
-            {
-                "handoff_id": f"RUNTIME-QA-{index:04d}",
-                "test_contract_id": f"TEST-{key.upper()}",
-                "source_reference": source_references[0] if source_references else "",
-                "source_references": source_references,
-                "source_run": ", ".join(source_runs),
-                "source_runs": source_runs,
-                "affected_object_keys": affected_keys,
-                "test_object_keys": test_keys,
-                "category": first["category"],
-                "vendor": first["vendor"],
-                "route_hosts": first["route_hosts"],
-                "configured_events": first["configured_events"],
-                "route_contract": route_contract,
-                "unproven_boundary": " | ".join(boundaries),
-                "unproven_boundaries": boundaries,
-                "required_evidence": first["required_evidence"],
-                "next_action": first["next_action"],
-                "verification_owner_skill": "gtm-preview-recette",
-                **verification_recipes[first["category"]],
-                "blocking_scope": "nonblocking_for_unrelated_cleanup",
-                "affected_publication_gate": "required_before_publication",
-            }
-        )
-    return {
-        "scope": (
-            "Optional runtime acceptance work that the container export cannot prove. "
-            "These items do not relabel a container-visible defect and do not block "
-            "unrelated approved cleanup. Route them to gtm-preview-recette when runtime "
-            "acceptance is authorised."
-        ),
-        "item_count": len(items),
-        "items": items,
-    }
-
-
 def target_organization_summary(
     operational: dict[str, Any],
     packets: list[dict[str, Any]],
@@ -3537,6 +3197,9 @@ def compile_operations(
     architecture: dict[str, Any],
     route: str,
     catalog: dict[str, dict[str, str]] | None = None,
+    expected_consumers: dict[str, set[str]] | None = None,
+    object_names: dict[str, str] | None = None,
+    source_paths_by_key: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     errors, hashes, fact_hashes, context_hashes = validate_review_bundle(
         operational, configuration, architecture, route
@@ -3546,6 +3209,15 @@ def compile_operations(
     ledger = decision_ledger(operational, configuration, architecture)
     errors.extend(ledger_link_errors(ledger, merged))
     errors.extend(validate_cross_run_reconciliation(operational, architecture, merged))
+    errors.extend(
+        validate_operation_set(
+            merged,
+            expected_consumers=expected_consumers,
+            object_names=object_names,
+            label="compiled cross-run operation set",
+        )
+    )
+    errors.extend(mutation_path_errors(merged, source_paths_by_key))
     errors.extend(validate_mutation_conflicts(merged))
     catalog = catalog or {}
     packets = packetize_operations(
@@ -3574,12 +3246,6 @@ def compile_operations(
         architecture, packets
     )
     annotate_operation_preservation(packets, measurement_preservation)
-    # This skill is intentionally container-only. A separate explicitly invoked
-    # recette workflow may consume the audit later, but audit compilation must
-    # not turn every export-visible limitation into a runtime-test workload.
-    runtime_handoff = runtime_qa_handoff(
-        reconciled_ledger, configuration, packets, enabled=False
-    )
     target_organization = target_organization_summary(
         operational, packets, catalog
     )
@@ -3611,7 +3277,6 @@ def compile_operations(
         "projected_object_counts": projected_object_counts(catalog, packets),
         "measurement_preservation": measurement_preservation,
         "target_organization": target_organization,
-        "runtime_qa_handoff": runtime_handoff,
         "decision_ledger": reconciled_ledger,
         "operations": packets,
     }, errors
@@ -3653,6 +3318,9 @@ def main() -> int:
         architecture,
         args.route,
         source_object_catalog(args.export),
+        object_consumer_map(args.export),
+        object_name_map(args.export),
+        object_source_path_map(args.export),
     )
     if errors:
         for error in errors:

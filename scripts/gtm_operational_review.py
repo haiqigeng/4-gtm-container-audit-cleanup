@@ -167,7 +167,8 @@ def matching_owner_exception(
         } | {str(value) for value in as_list(exception.get("object_ids"))}
         if finding_id in identifiers or signature_key in identifiers:
             return exception
-        if exception_objects and exception_objects <= (object_names | object_ids):
+        finding_objects = object_names | object_ids
+        if finding_objects and finding_objects <= exception_objects:
             return exception
     return None
 
@@ -372,11 +373,17 @@ def finding_sets(
     supplied: dict[str, Any], expected: dict[str, Any]
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[str]]:
     expected_by_id = {row["finding_id"]: row for row in expected["findings"]}
+    raw_supplied_rows = as_list(supplied.get("findings"))
+    supplied_rows = [row for row in raw_supplied_rows if isinstance(row, dict)]
     supplied_by_id = {
         str(row.get("finding_id") or ""): row
-        for row in as_list(supplied.get("findings"))
+        for row in supplied_rows
     }
     errors: list[str] = []
+    if len(supplied_rows) != len(raw_supplied_rows):
+        errors.append("operational findings contain malformed rows")
+    if len(supplied_by_id) != len(supplied_rows) or "" in supplied_by_id:
+        errors.append("operational finding IDs must be unique and nonblank")
     missing = sorted(set(expected_by_id) - set(supplied_by_id))
     unknown = sorted(set(supplied_by_id) - set(expected_by_id))
     if missing:
@@ -737,7 +744,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
     expected = scaffold_review(export_path, expected_shared)
     errors: list[str] = []
     warnings: list[str] = []
-    errors.extend(mandatory_module_errors(audit_export(export_path)))
+    errors.extend(mandatory_module_errors({"modules": expected.get("module_results", [])}))
     descriptor = source_descriptor(export_path)
     valid_keys = object_keys(export_path)
     expected_consumers = object_consumer_map(export_path)
