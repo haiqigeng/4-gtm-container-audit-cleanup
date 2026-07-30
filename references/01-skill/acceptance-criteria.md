@@ -303,6 +303,13 @@ A web analyst can call the result done only when:
   browser/server consent/deduplication candidates cannot receive a generic
   `Keep`. Visible deterministic relationships cannot be hidden wholly behind a
   container-evidence limit.
+- Same-payload/different-route is generated only when at least two tags have
+  different source-visible execution-control signatures; equal payload with
+  equal controls does not create a route question.
+- When exact configuration and same-logic/different-consent-purpose types
+  coexist on one comparison, the consent-purpose policy takes precedence and
+  permits a precise owner decision. Ordinary exact-configuration comparisons
+  still require an exact consolidation operation.
 - An actionable verdict contains a structured operation that affects a
   relationship member's behavior; unrelated, name-only, no-op, or object/path-
   mismatched changes do not count. Unsafe owner questions identify at least two
@@ -396,13 +403,52 @@ A web analyst can call the result done only when:
 
 ## Human Output
 
-- The cleanup workbook has at most eight tabs. `02 Cleanup Plan` has exactly
+The canonical `cleanup_plan.xlsx` continues to satisfy all existing workbook
+criteria:
+
+- It has at most eight tabs. `02 Cleanup Plan` has exactly
   seven canonical columns; every other tab has six or fewer.
 - Every visible plan row has one supported `General problem category` derived
   from its exact problem type. The filter spans all seven columns, and
   `Affected object(s)` retains filterable GTM layer prefixes.
 - Only `01 Summary` and `02 Cleanup Plan` are visible; hidden proof tabs remain
   available by unhiding.
+
+The derived `cleanup_plan.analyst.xlsx` is accepted only when:
+
+- it is built from a canonical workbook that already passed
+  `gtm_audit_gate_check.py` and the all-sheet privacy scan;
+- `A1 Overview`, `A2 Audit Register`, `A3 Actions`, `A4 Decisions`, and
+  `A5 Custom HTML` precede all eight unchanged canonical tabs;
+- A2 has exactly six visible columns and every decision-ledger record exactly
+  once;
+- A3 has exactly six visible columns and every atomic operation exactly once,
+  in authoritative execution order, with deterministic action direction and a
+  complete structured-mutation note;
+- A4 has exactly four visible columns and every
+  `owner_decision_needed` source record exactly once under one decision topic;
+- A5 has exactly four visible columns and every source Custom HTML tag exactly
+  once, including source-qualified dataLayer candidates and planned-deletion
+  conflicts;
+- presentation grouping never replaces a finding, operation, owner-decision
+  source record, or Custom HTML tag;
+- links target visible human tabs only; stable IDs and A1 unhide/filter
+  instructions provide access to unchanged technical proof;
+- its manifest binds every consumed input, the canonical workbook, original
+  sheet hashes, and the derived workbook by SHA-256;
+- original-sheet preservation covers values, formulas, comments, hyperlinks,
+  dimensions, and visibility; the gate cannot write to an audit input path;
+- its separate gate passes preservation, coverage, direction, links,
+  readability, reopen, and all-sheet privacy checks.
+
+A failed derived build or gate never changes completion of the underlying
+audit. Reject that derived file, retain and deliver the already validated
+canonical workbook, and report the readability failure separately. Genuine
+owner decisions remain complete audit outcomes and do not block either
+workbook from being generated.
+
+The following criteria apply to the corresponding canonical or derived visible
+plan without weakening either contract:
 - Each distinct actionable issue has its own atomic operation. Exact duplicate,
   unused, naming, and other homogeneous hygiene operations may share one
   presentation row only when every operation ID, action, affected object,
@@ -431,8 +477,9 @@ A web analyst can call the result done only when:
   Summary counts retained/no-change decisions and names retained business-family
   architecture so the target state is not represented only by defects.
 - Cleanup plan and change log remain separate.
-- When action completeness fails, the visible Cleanup Plan contains only one
-  `BLOCKED-001` draft row; no partial operation list is approval-ready.
+- When action completeness fails, the canonical visible Cleanup Plan contains
+  only one `BLOCKED-001` draft row; no partial operation list is
+  approval-ready, and the derived readability step does not run.
 - Every change-log tab uses six or fewer columns and preserves one field-level
   row per actual difference without duplicating the same payload under aliases.
 - Every completed stage ends with one concrete next action.

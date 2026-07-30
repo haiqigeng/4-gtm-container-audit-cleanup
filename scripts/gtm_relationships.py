@@ -65,6 +65,20 @@ TAG_ROUTE_FIELDS = {
     "consentSettings",
     "malwareDisabled",
 }
+TAG_EXECUTION_CONTROL_FIELDS = {
+    "firingTriggerId",
+    "blockingTriggerId",
+    "setupTag",
+    "teardownTag",
+    "tagFiringOption",
+    "priority",
+    "liveOnly",
+    "paused",
+    "scheduleStartMs",
+    "scheduleEndMs",
+    "consentSettings",
+    "malwareDisabled",
+}
 DESTINATION_KEY_RE = re.compile(
     r"(?:measurement|property|pixel|advertiser|conversion|destination|tag|account).*id$",
     re.I,
@@ -909,6 +923,17 @@ def add_exact_candidates(
             )
         ),
     ):
+        execution_control_signatures = {
+            stable_hash(
+                {
+                    field: record["object"].get(field)
+                    for field in sorted(TAG_EXECUTION_CONTROL_FIELDS)
+                }
+            )
+            for record in group
+        }
+        if len(execution_control_signatures) < 2:
+            continue
         builder.add(
             "same_tag_payload_different_route",
             group,

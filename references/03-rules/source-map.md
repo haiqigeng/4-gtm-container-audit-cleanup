@@ -20,7 +20,8 @@
 | Naming | `naming-standardization.md` |
 | Operations | `operation-schema.md` |
 | Direct/API/JSON execution | `mutation-playbook.md` |
-| Cleanup workbook | `workbook-architecture.md` |
+| Canonical cleanup workbook | `workbook-architecture.md` |
+| Derived analyst workbook | `workbook-output-contract.md` |
 | Change log | `change-log-template.md` |
 | Severity | `severity-calibration.md` |
 | Commands | `../02-commands/validation-commands.md` |

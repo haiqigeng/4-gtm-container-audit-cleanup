@@ -1,5 +1,12 @@
 # Cleanup Workbook Architecture
 
+This contract governs the canonical eight-tab `cleanup_plan.xlsx` only. Its
+tab-count and visibility limits are intentionally unchanged. A derived
+analyst-facing copy may be created only after this workbook passes its existing
+gate and privacy scan; that copy is governed separately by
+`workbook-output-contract.md` and `gtm_workbook_readability_gate.py`. Never run
+the canonical eight-tab gate against the derived workbook.
+
 The cleanup plan is a decision document for web analysts and marketing teams,
 not a dump of agent internals.
 

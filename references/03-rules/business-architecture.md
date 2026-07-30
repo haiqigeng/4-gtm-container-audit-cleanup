@@ -148,6 +148,12 @@ export cannot be classified wholly as `Container evidence limit`; conclude the
 visible architecture and use that boundary only for a named unseen runtime or
 external fact.
 
+Create `same_tag_payload_different_route` only when at least two candidate tags
+have different source-visible execution controls: firing/blocking triggers,
+setup/teardown sequence, firing option, priority, live/paused state, schedule,
+consent settings, or malware state. Matching payload alone is not a route
+difference and must not manufacture an owner decision.
+
 An actionable verdict must contain an operation that changes at least one
 relationship member's behavior. An unrelated object change or metadata-only
 rename does not resolve the candidate. A before/after no-op does not count, and
@@ -164,6 +170,15 @@ container-visible consumers, then a name without copy/duplicate/old/legacy/
 backup/test/temp markers; use the stable object key only as the final
 deterministic tie-breaker. State the ranking evidence and cover every surviving
 consumer remap before deleting another member.
+
+A comparison may carry more than one deterministic type. When
+`exact_configuration` coexists with
+`different_consent_purposes_same_logic`, the source-visible consent-purpose
+distinction is the more specific policy: do not force an exact-duplicate
+cleanup verdict through it. Require a source-bound cleanup conclusion or a
+precise owner decision with a recommendation. This exception does not apply to
+an ordinary exact-configuration comparison without that semantic type.
+
 Retained variants require a positive source-visible event, route, destination,
 payload, consent, sequence, or dependency distinction for each member. An
 opaque behavior-signature hash, a higher consumer count, or the absence of a

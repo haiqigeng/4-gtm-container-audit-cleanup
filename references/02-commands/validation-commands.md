@@ -154,6 +154,27 @@ python -B scripts/gtm_privacy_scan.py cleanup_plan.xlsx
 The privacy command scans visible and hidden tabs by default. Use
 `--visible-only` only for an explicit diagnostic, never for the delivery gate.
 
+Only after those canonical checks pass, build and gate the derived analyst
+workbook:
+
+```powershell
+python -B scripts/gtm_workbook_readability.py audit-package reconciled_operations.json cleanup_plan.xlsx cleanup_plan.analyst.xlsx --future-state future_state_gate.json --completion-gate completion_gate.json --manifest cleanup_plan.analyst.manifest.json --pretty
+python -B scripts/gtm_workbook_readability_gate.py audit-package reconciled_operations.json cleanup_plan.xlsx cleanup_plan.analyst.xlsx --future-state future_state_gate.json --completion-gate completion_gate.json --manifest cleanup_plan.analyst.manifest.json --pretty
+```
+
+Use `--language fr-FR` when French builder-owned labels are explicitly wanted.
+An analyst-authored decision-topic map may be supplied to both commands with
+`--decision-topics decision_topics.json`; it may group only records requiring
+the same answer and must cover every owner-decision source ID exactly once.
+Without it, the builder conservatively groups only identical normalized
+questions and recommendations.
+
+Do not run `gtm_audit_gate_check.py` against the derived workbook: its eight-tab
+contract applies only to `cleanup_plan.xlsx`. Deliver
+`cleanup_plan.analyst.xlsx` only when its own gate returns `pass`. Otherwise
+discard the derived file, deliver the unchanged `cleanup_plan.xlsx`, and report
+the readability-step failure without rerunning any audit stage.
+
 The cleanup workbook is not a change log.
 
 ## Validate A Generated GTM JSON

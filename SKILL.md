@@ -32,7 +32,8 @@ Then load the detailed contract immediately before its stage:
 | Business architecture | `references/03-rules/business-architecture.md` |
 | Reconciliation and structured actions | `references/03-rules/operation-schema.md` |
 | Priority and approval | `references/03-rules/severity-calibration.md` |
-| Workbook | `references/03-rules/workbook-architecture.md` |
+| Canonical workbook | `references/03-rules/workbook-architecture.md` |
+| Post-gate analyst workbook | `references/03-rules/workbook-output-contract.md` |
 | Naming and mutation | `references/03-rules/naming-standardization.md`, `references/03-rules/mutation-playbook.md` |
 | Separate post-execution log | `references/03-rules/change-log-template.md` |
 | Exact commands | `references/02-commands/validation-commands.md` |
@@ -138,7 +139,17 @@ Every substantiated cleanup disposition becomes the simplest exact operation. Ev
 
 ## Build The Human Cleanup Plan
 
-Read `references/03-rules/workbook-architecture.md`, then build and gate the workbook with the exact commands in `references/02-commands/validation-commands.md`.
+Read `references/03-rules/workbook-architecture.md`, then build and gate the
+canonical eight-tab workbook with the existing exact commands in
+`references/02-commands/validation-commands.md`. Do not change that workflow,
+tab contract, or gate.
+
+Only after the canonical workbook and its all-sheet privacy scan pass, read
+`references/03-rules/workbook-output-contract.md`. Run the readability builder
+and its independent gate as the final output step. The derived workbook is a
+copy with five analyst tabs at the front; it is never an input to a review,
+validator, reconciliation, compiler, future-state simulation, or completion
+gate.
 
 The visible workbook is an analyst decision document, not a proof dump:
 
@@ -151,6 +162,28 @@ The visible workbook is an analyst decision document, not a proof dump:
 - keep the cleanup plan and post-execution change log separate.
 
 Do not weaken or omit actions to make the workbook shorter. Consolidate presentation only where every atomic operation, object, approval choice, and verification remains explicit.
+
+In the derived analyst workbook, preserve complete coverage with rows rather
+than extra columns:
+
+- include every decision-ledger record in `A2 Audit Register`;
+- include every atomic operation with deterministic exact action direction in
+  `A3 Actions`;
+- include every owner-decision source record under exactly one topic in
+  `A4 Decisions`; an unanswered owner question never blocks output generation;
+- inventory every Custom HTML tag in `A5 Custom HTML`, including long or legacy
+  code, potential source-qualified dataLayer replacements, proof limits, and
+  conflicts where a candidate variable is also scheduled for deletion;
+- retain all eight canonical tabs unchanged.
+
+Use the conservative automatic decision grouping unless the analyst can author
+a complete topic map whose records genuinely require the same answer. Do not
+add a traceability tab or link into hidden sheets; use stable IDs, links among
+visible analyst tabs, notes for complete long scopes, and A1 unhide/filter
+instructions. If the derived build or gate fails, reject only that file,
+deliver the already validated canonical workbook, and report the readability
+failure separately. Never rerun or loosen an audit stage to make the
+presentation pass.
 
 ## Approval And Optional Execution
 

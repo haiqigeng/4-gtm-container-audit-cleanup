@@ -53,7 +53,8 @@ raw container evidence
   -> contradiction-aware operation reconciliation
   -> measurement-preservation and target-state projection
   -> future-state graph simulation
-  -> human cleanup plan
+  -> canonical human cleanup plan and existing gates
+  -> post-gate analyst readability transformation
   -> explicit operation approval and route selection
   -> optional execution or import JSON
   -> complete readback certification
@@ -294,6 +295,27 @@ The gate also reports projected before/after/delta counts by GTM layer. An
 unexpected broad count change is a review blocker even when references remain
 technically valid.
 
+## Post-Gate Analyst Workbook
+
+After the canonical eight-tab workbook passes its existing workbook gate and
+all-sheet privacy scan, run the readability transformation defined in
+`workbook-output-contract.md`. This is one final output step, not another audit
+workflow:
+
+1. copy the validated canonical workbook;
+2. add the five lean analyst tabs;
+3. project every decision-ledger record, operation, owner-decision source
+   record, and Custom HTML tag;
+4. run the independent readability gate.
+
+The transformation cannot change a source fact, review verdict, disposition,
+priority, operation, canonical-object direction, future-state result, or
+completion state, and none of its output may feed back into the three runs.
+Owner decisions are valid nonblocking output records. When the transformation
+or its gate fails, reject only the derived workbook, keep and deliver the
+canonical workbook, report the readability failure separately, and do not
+rerun the audit.
+
 ## Plan And Operation Approval
 
 Audit and recommendation depth are always full. Before approval, the route may
@@ -331,10 +353,14 @@ cleanup and cannot inherit the full plan's completion claim.
 - no reconciliation contradiction;
 - action completeness `pass`;
 - future-state gate `pass`;
-- cleanup workbook and privacy gate `pass`.
+- canonical cleanup workbook and privacy gate `pass`;
 - no formula cell or unscanned hidden proof tab in a delivered workbook;
 - a separate completed change log, when requested, links only exact
   field-level mutations to approved operation IDs.
+
+A passing derived analyst workbook is the preferred deliverable but is not a
+precondition for audit completion: its documented fallback is the already
+passing canonical workbook.
 
 For executed work, `Complete` additionally requires a complete workspace/export
 readback that exactly equals the approved simulated future state and contains

@@ -20,6 +20,7 @@ venv/
 *.json
 !tests/fixtures/
 !tests/fixtures/analyst_cases.json
+!tests/fixtures/readability_case.json
 *.zip
 artifacts/
 exports/

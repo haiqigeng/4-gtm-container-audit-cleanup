@@ -94,6 +94,9 @@ NON_RETENTION_COMPARISON_TYPES = {
     "cyclic_trigger_group_dependency",
     "browser_server_consent_deduplication_review",
 }
+EXACT_CONFIGURATION_SEMANTIC_POLICY_TYPES = {
+    "different_consent_purposes_same_logic",
+}
 DISCOVERY_INHERITED_POLICY_TYPES = NON_RETENTION_COMPARISON_TYPES | {
     "exact_configuration",
     "different_consent_purposes_same_logic",
@@ -2137,9 +2140,13 @@ def deterministic_comparison_policy_errors(
 ) -> list[str]:
     errors: list[str] = []
     comparison_types = as_list(expected_row.get("comparison_types"))
+    comparison_type_set = set(comparison_types)
     verdict = row.get("relationship_verdict")
     disposition = row.get("disposition")
-    if "exact_configuration" in comparison_types:
+    if (
+        "exact_configuration" in comparison_type_set
+        and not comparison_type_set & EXACT_CONFIGURATION_SEMANTIC_POLICY_TYPES
+    ):
         recommended = str(expected_row.get("recommended_canonical_object_key") or "")
         if recommended not in as_list(expected_row.get("candidate_object_keys")):
             errors.append(f"{label}: exact duplicate lacks a valid canonical recommendation")

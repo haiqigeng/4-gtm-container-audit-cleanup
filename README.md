@@ -173,9 +173,15 @@ forwarding requires both a server route and a behavior-bearing payload chain.
 
 ## Outputs
 
-- An audit summary and a separate cleanup-plan XLSX workbook.
-- Two visible decision tabs and compact, unprotected proof tabs that analysts
-  can unhide when needed.
+- An audit summary and a validated canonical `cleanup_plan.xlsx`.
+- A preferred `cleanup_plan.analyst.xlsx` when its separate post-gate
+  transformation passes, with five lean human tabs followed by every canonical
+  technical tab unchanged.
+- A complete Audit Register, exact atomic Actions, grouped-but-lossless owner
+  Decisions, and a full Custom HTML inventory without a separate traceability
+  tab.
+- The canonical workbook retains its two visible decision tabs and compact,
+  unprotected proof tabs that analysts can unhide when needed.
 - An operational synopsis with priority counts, owner decisions, clean scan
   modules, measurement-family target states, projected object deltas, and the
   next analyst action.
@@ -200,6 +206,8 @@ forwarding requires both a server route and a behavior-bearing payload chain.
 - A separate field-level change log after changes or an import artifact exist.
 
 The cleanup plan says what should change. The change log says what did change.
+If the analyst-workbook transformation fails, the validated canonical workbook
+remains the deliverable; no audit scan is rerun or weakened.
 
 ## What It Does Not Do
 
@@ -278,7 +286,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.6.0
+python -B scripts/check_release.py --tag v1.7.0
 git diff --check
 ```
 

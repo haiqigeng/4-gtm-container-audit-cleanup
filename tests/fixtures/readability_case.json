@@ -1,0 +1,331 @@
+{
+  "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "audit_package_manifest": {
+    "kind": "gtm_audit_package_manifest",
+    "status": "pass",
+    "source_file": "synthetic-web-container.json",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "skill_runtime_identity": {
+      "project_version": "test"
+    }
+  },
+  "context": {
+    "kind": "gtm_context",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "context": {
+      "website_url": "https://example.test/"
+    }
+  },
+  "source_model": {
+    "kind": "gtm_source_model",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "variable_sources": [
+      {
+        "object_id": "10",
+        "object_name": "DLV - App State - Duplicate",
+        "data_layer_path": "isReactNativeApp"
+      },
+      {
+        "object_id": "20",
+        "object_name": "DLV - App State",
+        "data_layer_path": "isReactNativeApp"
+      }
+    ]
+  },
+  "operational_review": {
+    "kind": "gtm_operational_review",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rows": []
+  },
+  "configuration_review": {
+    "kind": "gtm_configuration_review",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rows": [
+      {
+        "review_id": "CFG-0001",
+        "object_key": "tag:1",
+        "object_name": "Legacy app bridge",
+        "paused": false,
+        "source_facts": [
+          {
+            "json_path": "$.tag[0].parameter[0].value",
+            "value_preview": "return cookie === \"_pc_isReactNativeApp=true\";"
+          }
+        ]
+      },
+      {
+        "review_id": "CFG-0002",
+        "object_key": "tag:2",
+        "object_name": "Paused dataLayer reader",
+        "paused": true,
+        "source_facts": []
+      }
+    ]
+  },
+  "architecture_review": {
+    "kind": "gtm_architecture_review",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rows": []
+  },
+  "technical_code_findings": {
+    "kind": "gtm_technical_code_findings",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rows": [
+      {
+        "layer": "tag",
+        "type": "html",
+        "object_id": "1",
+        "object_name": "Legacy app bridge",
+        "code_length": 820,
+        "technical_current_behavior": "Reads a mobile-app flag from a cookie.",
+        "technical_plain_language_summary": "Routes events for the mobile application.",
+        "dataLayer_reads": false,
+        "dataLayer_pushes_or_writes": false,
+        "localStorage_use": [],
+        "sessionStorage_use": [],
+        "cookies_read_written": true,
+        "dom_selector_reads": [],
+        "dom_mutations": false,
+        "event_listeners_registered": false,
+        "external_scripts_loaded": [],
+        "network_calls": [],
+        "referenced_gtm_variables": [],
+        "return_expressions": [
+          {
+            "expression": "cookie === \"_pc_isReactNativeApp=true\""
+          }
+        ]
+      },
+      {
+        "layer": "tag",
+        "type": "html",
+        "object_id": "2",
+        "object_name": "Paused dataLayer reader",
+        "code_length": 240,
+        "technical_current_behavior": "Reads a configured GTM variable.",
+        "technical_plain_language_summary": "Uses the configured source for routing.",
+        "dataLayer_reads": true,
+        "dataLayer_pushes_or_writes": false,
+        "localStorage_use": [],
+        "sessionStorage_use": [],
+        "cookies_read_written": false,
+        "dom_selector_reads": [],
+        "dom_mutations": false,
+        "event_listeners_registered": false,
+        "external_scripts_loaded": [],
+        "network_calls": [],
+        "referenced_gtm_variables": [
+          "DLV - App State"
+        ],
+        "return_expressions": []
+      }
+    ]
+  },
+  "reconciled_operations": {
+    "kind": "gtm_reconciled_operations",
+    "plan_status": "complete",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "object_catalog": {
+      "variable:10": {
+        "object_name": "DLV - App State - Duplicate"
+      },
+      "variable:20": {
+        "object_name": "DLV - App State"
+      },
+      "trigger:30": {
+        "object_name": "Event - App"
+      },
+      "builtInVariable:clickElement": {
+        "object_name": "Click Element"
+      },
+      "tag:1": {
+        "object_name": "Legacy app bridge"
+      },
+      "tag:2": {
+        "object_name": "Paused dataLayer reader"
+      }
+    },
+    "decision_ledger": [
+      {
+        "decision_id": "OPS-0001",
+        "disposition": "cleanup_operation",
+        "area": "Duplication",
+        "problem_type": "Duplicate variable",
+        "summary": "A duplicate dataLayer variable can be consolidated after its consumer is repointed.",
+        "affected_objects": "variable:10; variable:20; trigger:30",
+        "source_object_keys": [
+          "variable:10",
+          "variable:20",
+          "trigger:30"
+        ],
+        "compiled_operation_ids": [
+          "OP-0001"
+        ]
+      },
+      {
+        "decision_id": "OPS-0002",
+        "disposition": "cleanup_operation",
+        "area": "Sanitation",
+        "problem_type": "Unused built-in variable",
+        "summary": "An enabled built-in variable is not needed by retained objects.",
+        "affected_objects": "builtInVariable:clickElement",
+        "source_object_keys": [
+          "builtInVariable:clickElement"
+        ],
+        "compiled_operation_ids": [
+          "OP-0002"
+        ]
+      },
+      {
+        "decision_id": "CFG-0001",
+        "disposition": "owner_decision_needed",
+        "area": "Custom HTML",
+        "problem_type": "Legacy app routing",
+        "summary": "The source proves cookie-based app routing but does not establish the future route owner.",
+        "affected_objects": "tag:1; variable:10; variable:20",
+        "source_object_keys": [
+          "tag:1",
+          "variable:10",
+          "variable:20"
+        ],
+        "compiled_operation_ids": [],
+        "owner_question": "Which source should own app routing once live equivalence is verified?",
+        "recommended_action": "Choose the canonical route only after comparing value, timing, consent state and consumers."
+      },
+      {
+        "decision_id": "CFG-0002",
+        "disposition": "keep",
+        "area": "Custom HTML",
+        "problem_type": "Paused implementation",
+        "summary": "The paused tag remains documented until its lifecycle is confirmed.",
+        "affected_objects": "tag:2",
+        "source_object_keys": [
+          "tag:2"
+        ],
+        "compiled_operation_ids": []
+      },
+      {
+        "decision_id": "ARC-0002",
+        "disposition": "owner_decision_needed",
+        "area": "Routing",
+        "problem_type": "Legacy app routing",
+        "summary": "The architecture review reaches the same unresolved future-route question from the routing lens.",
+        "affected_objects": "tag:1; variable:10; variable:20",
+        "source_object_keys": [
+          "tag:1",
+          "variable:10",
+          "variable:20"
+        ],
+        "compiled_operation_ids": [],
+        "owner_question": "Should the app bridge use the canonical dataLayer value after live equivalence is verified?",
+        "recommended_action": "Verify value, format, timing, consent state and consumers before selecting the future source."
+      },
+      {
+        "decision_id": "ARC-0001",
+        "disposition": "documented_exception",
+        "area": "Architecture",
+        "problem_type": "Documented route",
+        "summary": "The distinct route is source-supported and retained as a documented exception.",
+        "affected_objects": "tag:2",
+        "source_object_keys": [
+          "tag:2"
+        ],
+        "compiled_operation_ids": []
+      }
+    ],
+    "operations": [
+      {
+        "operation_id": "OP-0001",
+        "execution_order": 1,
+        "priority": "High",
+        "affected_objects": "variable:10; variable:20; trigger:30",
+        "canonical_object_key": "variable:20",
+        "creations": [],
+        "additions": [],
+        "changes": [
+          {
+            "object_key": "trigger:30",
+            "json_path": "$.containerVersion.trigger[0].customEventFilter[0].parameter[1].value",
+            "before": "legacy-route-value-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "after": "canonical-route-value-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "remaps": [
+          {
+            "from_object_key": "variable:10",
+            "to_object_key": "variable:20",
+            "consumer_object_keys": [
+              "trigger:30"
+            ]
+          }
+        ],
+        "renames": [],
+        "deletions": [
+          {
+            "object_key": "variable:10"
+          }
+        ],
+        "blocker": "",
+        "qa_steps": "Read back the export and verify every listed mutation.",
+        "source_references": [
+          "OPS-0001"
+        ]
+      },
+      {
+        "operation_id": "OP-0002",
+        "execution_order": 2,
+        "priority": "Low",
+        "affected_objects": "builtInVariable:clickElement",
+        "canonical_object_key": "",
+        "creations": [],
+        "additions": [],
+        "changes": [],
+        "remaps": [],
+        "renames": [],
+        "deletions": [
+          {
+            "object_key": "builtInVariable:clickElement"
+          }
+        ],
+        "blocker": "",
+        "qa_steps": "Read back the export and verify every listed mutation.",
+        "source_references": [
+          "OPS-0002"
+        ]
+      }
+    ],
+    "projected_object_counts": {
+      "variable": {
+        "before": 2,
+        "after": 1,
+        "delta": -1
+      },
+      "builtInVariable": {
+        "before": 1,
+        "after": 0,
+        "delta": -1
+      }
+    }
+  },
+  "future_state_gate": {
+    "kind": "gtm_future_state_gate",
+    "status": "pass",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "completion_gate": {
+    "kind": "gtm_three_run_completion_gate",
+    "status": "pass",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "three_required_runs": [
+      "operational_sanitation",
+      "configuration_correctness",
+      "business_architecture"
+    ],
+    "completion_mode": "audit_and_cleanup_plan",
+    "future_state": {
+      "kind": "gtm_future_state_validation",
+      "status": "pass",
+      "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

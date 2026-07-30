@@ -55,9 +55,19 @@ visible findings and do not reduce the remaining scan scope.
 Every full run produces:
 
 - a complete audit summary;
-- an exact cleanup plan as a dedicated XLSX workbook;
+- an exact canonical cleanup plan as `cleanup_plan.xlsx`;
+- a derived `cleanup_plan.analyst.xlsx` as the preferred analyst deliverable
+  when its separate readability gate passes;
 - a simulated future-state quality result across sanitation, configuration, and
   business architecture.
+
+The canonical workbook is generated and validated first and remains the
+unchanged technical record and fallback. The derived workbook copies it, adds
+five lean human-readable tabs, and retains every original technical tab. If the
+derived build or gate fails, deliver the canonical workbook and report only the
+readability-step failure; do not rerun or alter any audit scan. There is one
+client-facing choice per run: the gated analyst workbook when valid, otherwise
+the canonical fallback.
 
 When requested and authorised, it may additionally produce:
 
@@ -71,8 +81,9 @@ The audit evidence package contains `context.json`, `source_model.json`,
 run-specific input contracts and completion attestations, reconciled operations
 with a decision ledger, projected object counts, measurement-family
 preservation and target-state mapping, and the future-state gate. These are
-working/proof artifacts; the visible workbook remains concise.
-The visible Cleanup Plan uses a stable broad problem category before the exact
+working/proof artifacts; the workbook entry layer remains concise.
+The canonical visible Cleanup Plan uses a stable broad problem category before
+the exact
 area/problem type and preserves GTM layer prefixes in `Affected object(s)` so
 analysts can filter the plan without losing source-specific detail.
 Each visible operation uses analyst language: the literal GTM problem, why the
@@ -90,7 +101,15 @@ boundaries, but does not create or run Preview, browser, CMP, network, vendor,
 or other runtime-QA tasks. Those are a separately scoped `gtm-preview-recette`
 workflow if later requested.
 
-The visible plan includes every proposed operation and genuine unresolved owner
+The derived analyst workbook is a post-gate projection only. Its Audit Register
+contains every reconciled decision-ledger record, its Actions tab contains every
+atomic operation, its Decisions tab accounts for every owner-decision source
+record, and its Custom HTML tab inventories every source Custom HTML tag. It
+uses stable IDs, visible-sheet links, outline groups, and cell notes rather than
+adding a separate traceability tab or extra visible columns. The authoritative
+JSON package and unchanged technical tabs retain the full proof.
+
+The visible plans include every proposed operation and genuine unresolved owner
 question with a concrete recommendation. Nonblocking container-evidence limits
 are summarized once as a scope boundary, while each exact per-object next action
 remains in hidden proof and the audit package. The plan leads with the concrete
