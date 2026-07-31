@@ -14,10 +14,11 @@ The result must contain the complete justified action set and a projected
 container that satisfies the three review lenses.
 
 Structural gates prove source binding, exact obligation coverage, mutation-set
-consistency, and deterministic reconstruction. They cannot prove the quality of
-self-authored semantic prose or make a reasoning-context identifier independent
-by declaration alone. Human approval remains responsible for challenging
-material judgments before mutation.
+consistency, and deterministic reconstruction. Physical allowlisted bundles,
+validator-only grading data, and post-validation seals make cross-run input
+leakage and post-seal edits rejectable, although no file format can prove the
+private cognition of an external agent. Human approval remains responsible for
+challenging material judgments before mutation.
 
 ## Operational Definition Of Done
 
@@ -41,7 +42,9 @@ A web analyst can call the result done only when:
 - The source export hash is locked and every in-scope source object is inventoried.
 - The audit package records the exact runnable skill version and deterministic
   runtime-tree hash. A copied, stale, or locally divergent installation is
-  identified before its output is compared with another run.
+  identified before intake. An installed/bundled tree requires a matching
+  declared runtime manifest; a clean Git checkout may use its exact tracked
+  commit and runtime file set instead.
 - The source is a valid ContainerVersion (wrapped or direct), every recognized
   entity layer is an array, every object has a unique layer ID, and no unknown
   entity-like top-level layer is silently ignored. A failure blocks all three
@@ -55,12 +58,13 @@ A web analyst can call the result done only when:
   references, consumers, raw leaves, terminal sources, trigger logic, formula
   signals, consent routes, and behavior signatures.
 - All three reviews bind to the same source, context, and shared-fact hashes.
-- Each run carries the source-generated input contract and a completed
+- Each run is authored from its own physical allowlisted bundle by a distinct
+  fresh reasoning context, carries the source-generated input contract and a completed
   attestation covering every required role, only declared optional roles, and
   no prohibited artifact, foreign verdict, repository test fixture, or test
-  completion helper. Prefer a fresh reasoning context; sequential execution
-  reloads only the permitted source/fact inputs.
-- Every run has a distinct reasoning-context identity. Deterministic scaffolds
+  completion helper. There is no same-context certification fallback.
+- Every run has a distinct reasoning-context identity and a validator-passing
+  seal bound to its input bundle and unchanged canonical review. Deterministic scaffolds
   and shard tools cannot bulk-author semantic decisions; any declared semantic
   bulk-completion artifact fails the run.
 - Built-in/system references are distinguished from missing references.
@@ -127,6 +131,13 @@ A web analyst can call the result done only when:
 - Every semantic statement cites only the generated source paths relevant to
   that field and names source-derived behavior facts; citations plus generic
   prose fail.
+- Reviewer artifacts do not contain the validator's field-by-field grading
+  terms. Repeated hollow decision templates fail semantic-integrity checks.
+- Exhaustive evidence and obligation coverage applies to every object. Only a
+  deterministically low-risk folder, built-in, constant, or Data Layer
+  Variable may use the locked concise representation; any complex behavior,
+  risk, finding, ambiguity, uncertainty, owner decision, or cleanup action
+  requires deep review.
 - Every object completes the exact generated D3 cross-check set for
   purpose/output, execution/scope, input/output/consumer, consent/sequence, and,
   when applicable, custom-code behavior and official-vendor-contract alignment.
@@ -427,6 +438,8 @@ The derived `cleanup_plan.analyst.xlsx` is accepted only when:
   complete structured-mutation note;
 - A4 has exactly four visible columns and every
   `owner_decision_needed` source record exactly once under one decision topic;
+  above 15 source records, a complete analyst-authored topic map is mandatory
+  and must meaningfully consolidate at least one shared owner answer;
 - A5 has exactly four visible columns and every source Custom HTML tag exactly
   once, including source-qualified dataLayer candidates and planned-deletion
   conflicts;

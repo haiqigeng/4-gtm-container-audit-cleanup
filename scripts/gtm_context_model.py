@@ -22,6 +22,7 @@ from gtm_lib import (
     source_integrity_findings,
     stable_hash,
 )
+from gtm_skill_identity import declared_identity_errors
 
 CMP_PATTERNS = {
     "Didomi": re.compile(r"\bdidomi\b", re.I),
@@ -565,6 +566,22 @@ def main() -> int:
     parser.add_argument("--provided", type=Path)
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
+    _identity_report, identity_errors = declared_identity_errors(
+        Path(__file__).resolve().parents[1]
+    )
+    if identity_errors:
+        print(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "stage": "runtime_identity_before_intake",
+                    "errors": identity_errors,
+                },
+                ensure_ascii=False,
+                indent=2 if args.pretty else None,
+            )
+        )
+        return 2
     result = build_context_model(args.export, args.provided)
     print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
     return 0

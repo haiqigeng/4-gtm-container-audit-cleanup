@@ -25,6 +25,10 @@ Record the runnable skill's project version and deterministic runtime-tree hash
 in the package manifest. When an installed copy and a development checkout are
 both present, compare their runtime identities before choosing one. A git branch
 name or matching version string alone does not prove equal skill content.
+Before intake, require `.skill-build-manifest.json` to match the actual runtime
+tree exactly for an installed/bundled copy. A clean Git checkout may establish
+the same exact identity from its tracked commit and runtime file set; a dirty
+checkout or an unverifiable tree blocks package creation.
 
 Generate and present the context preflight before semantic review. Distinguish
 analyst-provided context, high-confidence deterministic inference, and
@@ -66,27 +70,30 @@ terminal sources, trigger logic, code/formula signals, consent routes, and
 behavior signatures. It may not contain correctness, necessity, duplication,
 consolidation, or cleanup judgments.
 
-The three runs may execute in parallel after source lock. Each may read the raw
-export and shared deterministic facts, but must not read or copy another run's
-verdicts. Each completes its own artifact and passes its own validator. Sharing
-facts removes extraction drift; keeping judgments separate preserves genuine
-independent challenge.
+The three runs may execute in parallel after source lock. Package creation
+builds one physical allowlisted `review-bundles/<run>/` directory per run. Give
+each complete directory, and no other audit output, to a distinct fresh
+reasoning context. The root orchestrator coordinates, validates, and seals; it
+does not author a run. Each run may read its raw export copy, locked context,
+shared deterministic facts, run rules, and own scaffold, but must not read or
+copy another run's verdicts. Sharing facts removes extraction drift; physical
+input separation and independent judgments preserve genuine challenge.
 
 The package manifest locks one input contract per run: required, optional, and
 prohibited artifact roles plus source, context, and shared-fact hashes. Each
 completed review attests its actual roles. A missing role, undeclared role,
 foreign verdict artifact, reconciled output, or repository test helper fails
 that run before reconciliation.
-Deterministic tools may scaffold, shard, merge, and validate source obligations;
+Deterministic tools may scaffold, shard, merge, validate, and seal source obligations;
 they may not bulk-author semantic verdicts, rationales, dispositions, or
 operations. Every completed run records a distinct reasoning-context identity.
-Reusing one identity across two runs, or declaring a semantic bulk-completion
-artifact, fails before reconciliation.
-
-Prefer a fresh reasoning context for each run. If only one context is
-available, exclude completed verdict artifacts from the next run's inputs and
-reload only the export, context, shared facts, and current scaffold. This is an
-input-discipline rule; it does not add another verdict or completion engine.
+The root seals a validator-passing bundle-local review with that real context
+identity and promotes it to the canonical package. The completion gate requires
+three distinct seals, matching input-bundle hashes, and review hashes that have
+not changed after sealing. Reusing one identity, bypassing the bundle, changing
+a sealed review, or declaring a semantic bulk-completion artifact fails before
+reconciliation. When three fresh contexts are unavailable, report the full
+audit as blocked; there is no same-context certification fallback.
 
 Package creation automatically uses source-locked shards when a run contains
 more than 40 primary review items or one configuration obligation group exceeds
@@ -167,6 +174,17 @@ generic statement. Every object also completes the exact generated D3
 cross-check set for purpose/output, execution/scope, input/output/consumer, and
 consent/sequence, plus code and vendor-contract alignment when applicable. A
 failed cross-check links to a concrete defect.
+
+The reviewer artifact contains evidence and allowed source paths, not the
+validator's field-by-field grading terms. The validator reconstructs those
+terms independently from the locked source. Evidence acquisition, branch
+coverage, traces, contracts, technical facts, and D3 checks remain exhaustive.
+Only a deterministically eligible simple folder, built-in, constant, or Data
+Layer Variable may use the locked `structured_simple` rendering of the same
+seven semantic dimensions. Any code, formula, lookup, regex, consent/vendor/
+server role, finding, ambiguity, owner decision, unresolved dependency, high
+fan-out, or unknown risk requires `deep` review. Discovery of any issue in a
+simple row forces deep escalation.
 
 Run rules: `configuration-correctness.md` and `domain-contracts.md`.
 
@@ -347,6 +365,7 @@ cleanup and cannot inherit the full plan's completion claim.
 - source-model coverage `pass` or `pass_with_integrity_findings`, with every
   integrity finding retained in the operational review;
 - matching source, context, and shared-fact hashes across all three runs;
+- three distinct validator-passing isolation seals whose bundle and canonical-review hashes match;
 - all three run statuses `complete`;
 - complete architecture open-discovery attestation and decision ledger;
 - no review validator error;

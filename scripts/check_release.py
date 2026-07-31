@@ -55,6 +55,7 @@ ALLOWED_ROOT_ENTRIES = {
     ".gitattributes",
     ".github",
     ".gitignore",
+    ".skill-build-manifest.json",
     "LICENSE",
     "README.md",
     "SKILL.md",

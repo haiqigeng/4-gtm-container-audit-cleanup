@@ -35,6 +35,22 @@ when available, such as the event, trigger, condition, dataLayer path, return
 expression, destination, consumer, or consent control. A valid citation attached
 to reusable prose does not pass.
 
+The scaffold exposes the evidence and allowed paths but not the validator's
+field-by-field required-term answer key. The validator regenerates that key
+from the locked source. Evidence collection and every branch, trace, consumer,
+contract, technical, and D3 obligation remain exhaustive for every object.
+
+`minimum_semantic_review_depth` is deterministic. `structured_simple` is
+permitted only for folders, built-ins, constants, and Data Layer Variables
+whose complete facts show no code, formula/lookup/regex, consent/vendor/server
+role, technical finding, configuration obligation, unresolved dependency,
+security signal, or high consumer fan-out. Its generated concise fields still
+cover all seven dimensions and remain source-cited. Tags, triggers, templates,
+custom code, complex variables, ambiguous or borderline objects, and every row
+with a finding, uncertainty, owner decision, or proposed cleanup require
+`deep`. A reviewer may always escalate a simple row to deep, but must then
+replace the concise summary with authored source-specific reasoning.
+
 Use the object's actual event, path, identifier, formula, selector, cookie,
 endpoint, return value, or vendor field. Do not use broad substitutes such as
 `computed value`, `helper`, `loader`, or `payload mapper` without first stating

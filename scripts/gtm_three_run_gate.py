@@ -21,7 +21,9 @@ from gtm_review_common import (
     object_name_map,
     object_source_path_map,
 )
+from gtm_review_isolation import review_seal_errors
 from gtm_shared_facts import build_shared_facts, shared_content_hash
+from gtm_skill_identity import build_identity, declared_identity_errors
 
 REQUIRED_PACKAGE_FILES = {
     "context": "context.json",
@@ -176,11 +178,33 @@ def validate_package_structure(export: Path, package_dir: Path) -> list[str]:
         return errors
     manifest = load_json(paths["manifest"])
     errors.extend(manifest_errors(manifest, paths, descriptor["source_sha256"]))
+    skill_root = Path(__file__).resolve().parents[1]
+    identity_report, identity_errors = declared_identity_errors(skill_root)
+    errors.extend(f"runtime identity: {error}" for error in identity_errors)
+    actual_identity = build_identity(skill_root)
+    recorded_identity = manifest.get("skill_runtime_identity") or {}
+    for field in (
+        "project_version",
+        "runtime_tree_sha256",
+        "runtime_file_count",
+    ):
+        if recorded_identity.get(field) != actual_identity.get(field):
+            errors.append(
+                f"package runtime identity {field} differs from the executing skill"
+            )
+    declared_identity = identity_report.get("declared") or {}
+    for field in ("source_git_commit", "source_git_dirty"):
+        expected_provenance = declared_identity.get(field)
+        if expected_provenance is None:
+            expected_provenance = actual_identity.get(field)
+        if recorded_identity.get(field) != expected_provenance:
+            errors.append(f"package runtime provenance {field} differs from its source")
     shared = load_json(paths["shared_facts"])
     context = load_json(paths["context"])
     errors.extend(context_integrity_errors(export, context))
     errors.extend(shared_integrity_errors(export, shared, context, manifest))
     errors.extend(review_binding_errors(paths, shared, context, manifest))
+    errors.extend(review_seal_errors(package_dir, manifest))
     return errors
 
 

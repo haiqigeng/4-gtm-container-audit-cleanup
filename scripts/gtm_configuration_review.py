@@ -53,7 +53,9 @@ from gtm_review_common import (
     object_source_path_map,
     pending_completion_attestation,
     precise_question,
+    repeated_semantic_template_errors,
     review_input_contract,
+    source_specific_owner_question_errors,
     specific_text,
     validate_challenge,
     validate_operation_set,
@@ -189,7 +191,6 @@ GENERATED_FIELDS = {
     "technical_code_facts",
     "required_technical_findings",
     "shared_behavior_signatures",
-    "field_evidence_requirements",
     "field_evidence_paths",
     "effective_consent_route_facts",
     "execution_dependency_traces",
@@ -201,6 +202,8 @@ GENERATED_FIELDS = {
     "source_absence_facts",
     "required_logic_cross_checks",
     "required_configuration_obligations",
+    "minimum_semantic_review_depth",
+    "semantic_review_basis",
 }
 SEMANTIC_TEXT_FIELDS = (
     "purpose",
@@ -2507,10 +2510,184 @@ def required_configuration_obligations(
     return [obligations[key] for key in sorted(obligations)]
 
 
+def simple_review_eligibility(
+    row: dict[str, Any], obj: dict[str, Any]
+) -> tuple[bool, list[str]]:
+    """Select only source-provably simple objects after exhaustive fact acquisition."""
+
+    layer = str(row.get("layer") or "")
+    variable_type = str(obj.get("type") or "")
+    allowed_shape = layer in {"folder", "builtInVariable"} or (
+        layer == "variable" and variable_type in {"c", "v"}
+    )
+    reasons = [
+        "complete source leaves and absence facts were collected",
+        "recursive dependencies and consumers were collected",
+    ]
+    blockers: list[str] = []
+    if not allowed_shape:
+        blockers.append("object type requires deep semantic review")
+    for field, message in (
+        ("required_code_line_hashes", "custom or executable code is present"),
+        ("required_technical_findings", "a technical finding is present"),
+        ("required_contract_topics", "an official contract review is required"),
+        ("required_configuration_obligations", "a configuration obligation is present"),
+        ("reference_trace_requirements", "a recursive reference chain is present"),
+        ("execution_dependency_traces", "execution dependencies are present"),
+        ("destination_peer_contexts", "destination peer routing is present"),
+        ("vendor_contexts", "vendor behavior context is present"),
+    ):
+        if as_list(row.get(field)):
+            blockers.append(message)
+    if len(as_list(row.get("export_consumers"))) > 4:
+        blockers.append("the object is heavily shared")
+    risk_text = " ".join(
+        [
+            str(row.get("object_name") or ""),
+            str(row.get("object_type") or ""),
+            *[
+                str(fact.get("json_path") or "")
+                + " "
+                + str(fact.get("value_preview") or "")
+                for fact in as_list(row.get("source_facts"))
+                if isinstance(fact, dict)
+            ],
+        ]
+    ).lower()
+    if re.search(
+        r"\b(?:consent|cmp|cookie|tcf|optanon|didomi|axeptio|secret|password|"
+        r"authorization|private[ _-]?key|lookup|regex|formula|javascript|html)\b",
+        risk_text,
+    ):
+        blockers.append("source content has consent, security, code, or formula risk")
+    if blockers:
+        return False, list(dict.fromkeys(blockers))
+    reasons.extend(
+        [
+            "no code, contract, formula, consent, routing, or ambiguity signal is present",
+            "consumer fan-out is below the high-sharing threshold",
+        ]
+    )
+    return True, reasons
+
+
+def structured_simple_semantics(
+    row: dict[str, Any], requirements: dict[str, list[str]]
+) -> tuple[dict[str, str], dict[str, list[str]]]:
+    """Render seven locked semantic dimensions without repetitive analyst prose."""
+
+    def terms(field: str) -> list[str]:
+        values = [
+            " ".join(str(value or "").split())
+            for value in as_list(requirements.get(field))
+            if str(value or "").strip()
+        ]
+        while len(values) < 2:
+            fallback = str(row.get("object_name") or row.get("object_key") or "source object")
+            if fallback not in values:
+                values.append(fallback)
+            else:
+                values.append(str(row.get("object_type") or "simple configuration"))
+        return values[:2]
+
+    object_label = str(row.get("object_name") or row.get("object_key") or "source object")
+    object_key_value = str(row.get("object_key") or object_label)
+    purpose_terms = terms("purpose")
+    execution_terms = terms("execution_logic")
+    input_terms = terms("inputs_and_terminal_sources")
+    output_terms = terms("configured_output_or_side_effect")
+    consumer_terms = terms("consumer_contract")
+    consent_terms = terms("consent_and_sequence")
+    basis_terms = terms("correctness_basis")
+    layer = str(row.get("layer") or "")
+    if layer == "folder":
+        purpose = (
+            f"{object_label} organises container objects under folder identity "
+            f"{purpose_terms[0]} with type {purpose_terms[1]}."
+        )
+        execution = (
+            f"It has no runtime firing route; {execution_terms[0]} and "
+            f"{execution_terms[1]} describe only exported folder metadata."
+        )
+        inputs = (
+            f"It has no runtime input; {input_terms[0]} and {input_terms[1]} record the "
+            "complete source-visible folder state."
+        )
+        output = (
+            f"It produces no measurement or browser side effect; {output_terms[0]} and "
+            f"{output_terms[1]} identify its organisational output only."
+        )
+    elif layer == "builtInVariable":
+        purpose = (
+            f"{object_label} exposes the GTM built-in value identified by "
+            f"{purpose_terms[0]} and {purpose_terms[1]}."
+        )
+        execution = (
+            f"It is resolved when a consumer reads it, with exported built-in shape "
+            f"{execution_terms[0]} and {execution_terms[1]}."
+        )
+        inputs = (
+            f"Its terminal source is GTM itself rather than another custom variable: "
+            f"{input_terms[0]} and {input_terms[1]}."
+        )
+        output = (
+            f"It returns the built-in value {output_terms[0]} for {output_terms[1]} and "
+            "has no executable browser side effect."
+        )
+    else:
+        variable_action = (
+            "reads the Data Layer and returns"
+            if str(row.get("object_type") or "") == "v"
+            else "returns"
+        )
+        purpose = (
+            f"{object_label} {variable_action} the simple configured value represented by "
+            f"{purpose_terms[0]} and {purpose_terms[1]}."
+        )
+        execution = (
+            f"{object_label} has the simple exported execution shape {execution_terms[0]}; "
+            f"its configuration type is {execution_terms[1]}."
+        )
+        inputs = (
+            f"Its exported input state is {input_terms[0]}, with terminal source type "
+            f"{input_terms[1]}."
+        )
+        output = (
+            f"It returns the configured output {output_terms[0]} for {output_terms[1]} and "
+            "contains no executable side-effect branch."
+        )
+    semantics = {
+        "purpose": purpose,
+        "execution_logic": execution,
+        "inputs_and_terminal_sources": inputs,
+        "configured_output_or_side_effect": output,
+        "consumer_contract": (
+            f"The complete source graph records consumer context {consumer_terms[0]} for "
+            f"{consumer_terms[1]}; no unexported consumer is inferred."
+        ),
+        "consent_and_sequence": (
+            f"The export records {consent_terms[0]} for this simple object of type "
+            f"{consent_terms[1]}, with no separate sequence claim."
+        ),
+        "correctness_basis": (
+            f"Structured review of {object_key_value} covers {basis_terms[0]} and "
+            f"{basis_terms[1]}; exhaustive scans found no deep-review risk signal."
+        ),
+    }
+    paths = row.get("field_evidence_paths") or {}
+    citations = {
+        field: list(as_list(paths.get(field)))[: 2 if field == "correctness_basis" else 1]
+        for field in SEMANTIC_TEXT_FIELDS
+    }
+    return semantics, citations
+
+
 def scaffold_review(
     export_path: Path,
     technical_payload: dict[str, Any] | None = None,
     shared_facts: dict[str, Any] | None = None,
+    *,
+    include_validator_answer_key: bool = False,
 ) -> dict[str, Any]:
     descriptor = source_descriptor(export_path)
     data = json.loads(export_path.read_text(encoding="utf-8"))
@@ -2677,8 +2854,7 @@ def scaffold_review(
                         ]
                     )
                 )[:160]
-        rows.append(
-            {
+        row = {
                 "review_id": f"CFG-{number:05d}",
                 "object_key": current_key,
                 "layer": layer,
@@ -2716,7 +2892,6 @@ def scaffold_review(
                 "technical_code_facts": technical,
                 "required_technical_findings": required_technical_findings,
                 "shared_behavior_signatures": shared.get("behavior_signatures", {}),
-                "field_evidence_requirements": evidence_requirements,
                 "field_evidence_paths": evidence_paths,
                 "effective_consent_route_facts": shared.get("effective_consent_route", {}),
                 "execution_dependency_traces": as_list(
@@ -2738,8 +2913,20 @@ def scaffold_review(
                     shared.get("destination_peer_facts")
                 ),
                 "source_absence_facts": as_list(shared.get("source_absence_facts")),
-                "required_logic_cross_checks": logic_requirements,
+                "required_logic_cross_checks": [
+                    {
+                        key: value
+                        for key, value in requirement.items()
+                        if key != "required_terms"
+                    }
+                    for requirement in logic_requirements
+                ]
+                if not include_validator_answer_key
+                else logic_requirements,
                 "required_configuration_obligations": configuration_obligations,
+                "minimum_semantic_review_depth": "",
+                "semantic_review_basis": [],
+                "semantic_review_depth": "",
                 "review_status": "pending",
                 "purpose": "",
                 "execution_logic": "",
@@ -2770,7 +2957,19 @@ def scaffold_review(
                 "confidence": "",
                 "evidence_citations": {},
             }
+        eligible, review_basis = simple_review_eligibility(row, obj)
+        row["minimum_semantic_review_depth"] = (
+            "structured_simple" if eligible else "deep"
         )
+        row["semantic_review_basis"] = review_basis
+        row["semantic_review_depth"] = row["minimum_semantic_review_depth"]
+        if eligible:
+            semantics, citations = structured_simple_semantics(row, evidence_requirements)
+            row.update(semantics)
+            row["evidence_citations"] = citations
+        if include_validator_answer_key:
+            row["field_evidence_requirements"] = evidence_requirements
+        rows.append(row)
     input_contract = review_input_contract(
         "configuration_correctness",
         descriptor["source_sha256"],
@@ -2797,7 +2996,9 @@ def scaffold_review(
     }
 
 
-def semantic_text_errors(row: dict[str, Any], label: str) -> list[str]:
+def semantic_text_errors(
+    row: dict[str, Any], expected_row: dict[str, Any], label: str
+) -> list[str]:
     errors: list[str] = []
     for field in SEMANTIC_TEXT_FIELDS:
         if not specific_text(row.get(field), 6):
@@ -2805,7 +3006,7 @@ def semantic_text_errors(row: dict[str, Any], label: str) -> list[str]:
         requirements = [
             str(value).lower()
             for value in as_list(
-                (row.get("field_evidence_requirements") or {}).get(field)
+                (expected_row.get("field_evidence_requirements") or {}).get(field)
             )
             if str(value).strip()
         ]
@@ -2852,8 +3053,13 @@ def citation_errors(row: dict[str, Any], label: str) -> list[str]:
     return errors
 
 
-def review_text_errors(row: dict[str, Any], label: str) -> list[str]:
-    return [*semantic_text_errors(row, label), *citation_errors(row, label)]
+def review_text_errors(
+    row: dict[str, Any], expected_row: dict[str, Any], label: str
+) -> list[str]:
+    return [
+        *semantic_text_errors(row, expected_row, label),
+        *citation_errors(row, label),
+    ]
 
 
 def branch_required_role(path: str) -> str | None:
@@ -3389,10 +3595,12 @@ def validate_code_blocks(row: dict[str, Any], label: str) -> list[str]:
     return errors
 
 
-def validate_logic_cross_checks(row: dict[str, Any], label: str) -> list[str]:
+def validate_logic_cross_checks(
+    row: dict[str, Any], expected_row: dict[str, Any], label: str
+) -> list[str]:
     required = {
         str(item.get("check_key") or ""): item
-        for item in as_list(row.get("required_logic_cross_checks"))
+        for item in as_list(expected_row.get("required_logic_cross_checks"))
     }
     raw_supplied = as_list(row.get("logic_cross_checks"))
     supplied_rows = [
@@ -4220,17 +4428,80 @@ def validate_row_identity_and_evidence(
     errors = [
         f"{label}: generated field {field} differs from source"
         for field in GENERATED_FIELDS
-        if row.get(field) != expected_row.get(field)
+        if field != "required_logic_cross_checks"
+        and row.get(field) != expected_row.get(field)
     ]
+    expected_visible_checks = [
+        {key: value for key, value in item.items() if key != "required_terms"}
+        for item in as_list(expected_row.get("required_logic_cross_checks"))
+    ]
+    if row.get("required_logic_cross_checks") != expected_visible_checks:
+        errors.append(f"{label}: generated D3 cross-check scaffold differs from source")
+    if any(
+        "required_terms" in item
+        for item in as_list(row.get("required_logic_cross_checks"))
+        if isinstance(item, dict)
+    ):
+        errors.append(
+            f"{label}: validator-only D3 required terms must not be present in a "
+            "reviewer artifact"
+        )
     for field, valid, message in (
         ("review_status", {"complete"}, "review_status must be complete"),
+        (
+            "semantic_review_depth",
+            {"structured_simple", "deep"},
+            "semantic_review_depth is invalid",
+        ),
         ("correctness_verdict", VALID_VERDICTS, "correctness_verdict is invalid"),
         ("disposition", VALID_DISPOSITIONS, "disposition is invalid"),
         ("confidence", VALID_CONFIDENCE, "confidence is invalid"),
     ):
         if row.get(field) not in valid:
             errors.append(f"{label}: {message}")
-    errors.extend(review_text_errors(row, label))
+    minimum_depth = str(expected_row.get("minimum_semantic_review_depth") or "deep")
+    supplied_depth = str(row.get("semantic_review_depth") or "")
+    if "field_evidence_requirements" in row:
+        errors.append(
+            f"{label}: validator-only field_evidence_requirements must not be present "
+            "in a reviewer artifact"
+        )
+    if minimum_depth == "deep" and supplied_depth != "deep":
+        errors.append(f"{label}: source risk requires deep semantic review")
+    if supplied_depth == "structured_simple":
+        for field in SEMANTIC_TEXT_FIELDS:
+            if row.get(field) != expected_row.get(field):
+                errors.append(
+                    f"{label}: structured-simple {field} differs from its deterministic summary"
+                )
+        if row.get("evidence_citations") != expected_row.get("evidence_citations"):
+            errors.append(
+                f"{label}: structured-simple citations differ from source-derived citations"
+            )
+        if row.get("correctness_verdict") != "Correct" or row.get("disposition") != "keep":
+            errors.append(
+                f"{label}: any issue, uncertainty, decision, or cleanup outcome must "
+                "escalate to deep semantic review"
+            )
+        if (
+            as_list(row.get("defects"))
+            or row.get("owner_question")
+            or row.get("recommended_action")
+            or row.get("operation")
+        ):
+            errors.append(
+                f"{label}: structured-simple review cannot carry a defect, owner decision, "
+                "recommendation, or operation; escalate it to deep"
+            )
+    else:
+        errors.extend(review_text_errors(row, expected_row, label))
+        if minimum_depth == "structured_simple" and all(
+            row.get(field) == expected_row.get(field) for field in SEMANTIC_TEXT_FIELDS
+        ):
+            errors.append(
+                f"{label}: deep escalation retained the generated concise summary instead "
+                "of an authored source-specific assessment"
+            )
     available = set(expected_row["available_evidence_anchors"])
     anchors = {str(value) for value in as_list(row.get("evidence_anchors"))}
     if not anchors:
@@ -4251,6 +4522,47 @@ def validate_row_identity_and_evidence(
     if supplied_consumers != expected_consumers:
         errors.append(f"{label}: consumer evidence must exactly match the source graph")
     return errors
+
+
+def configuration_owner_question_errors(
+    row: dict[str, Any], expected_row: dict[str, Any], label: str
+) -> list[str]:
+    if row.get("disposition") != "owner_decision_needed":
+        return []
+    evidence_terms: list[Any] = []
+    for obligation in as_list(expected_row.get("required_configuration_obligations")):
+        evidence_terms.extend(
+            [
+                obligation.get("obligation_key"),
+                *as_list(obligation.get("affected_contract_topics")),
+            ]
+        )
+    for topic in as_list(expected_row.get("required_contract_topics")):
+        evidence_terms.extend([topic.get("topic_key"), topic.get("topic")])
+    for finding in as_list(expected_row.get("required_technical_findings")):
+        evidence_terms.extend([finding.get("finding_key"), finding.get("category")])
+    for trace in as_list(expected_row.get("reference_trace_requirements")):
+        evidence_terms.append(trace.get("reference"))
+    for defect in as_list(row.get("defects")):
+        evidence_terms.extend(
+            [defect.get("defect_id"), *as_list(defect.get("evidence_anchors"))]
+        )
+    if row.get("external_evidence_status") == "runtime_handoff_required":
+        evidence_terms.extend(
+            [
+                row.get("external_evidence_summary"),
+                *[
+                    topic.get("topic_key")
+                    for topic in as_list(expected_row.get("required_contract_topics"))
+                ],
+            ]
+        )
+    return source_specific_owner_question_errors(
+        row.get("owner_question"),
+        [row.get("object_key"), row.get("object_name"), row.get("object_id")],
+        evidence_terms,
+        label,
+    )
 
 
 def direct_unique_reference_repairs(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -4571,12 +4883,13 @@ def validate_configuration_row(
     label = f"configuration {expected_row['object_key']}"
     errors = validate_row_identity_and_evidence(row, expected_row, label)
     validators = (
+        lambda: configuration_owner_question_errors(row, expected_row, label),
         lambda: validate_reference_traces(row, expected_row, label),
         lambda: validate_configuration_branches(row, expected_row, label),
         lambda: validate_contract_checks(row, label),
         lambda: validate_code_blocks(row, label),
         lambda: validate_technical_findings(row, label),
-        lambda: validate_logic_cross_checks(row, label),
+        lambda: validate_logic_cross_checks(row, expected_row, label),
         lambda: validate_required_configuration_obligations(row, label),
         lambda: validate_defects(row, label),
         lambda: validate_operation(
@@ -4648,7 +4961,11 @@ def validate_identical_code_decisions(rows: list[dict[str, Any]]) -> list[str]:
 def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], list[str]]:
     supplied = json.loads(review_path.read_text(encoding="utf-8"))
     expected_context, expected_shared = canonical_review_facts(export_path, supplied)
-    expected = scaffold_review(export_path, shared_facts=expected_shared)
+    expected = scaffold_review(
+        export_path,
+        shared_facts=expected_shared,
+        include_validator_answer_key=True,
+    )
     errors: list[str] = []
     warnings: list[str] = []
     descriptor = source_descriptor(export_path)
@@ -4680,6 +4997,19 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             )
         )
     errors.extend(validate_identical_code_decisions(list(supplied_by_key.values())))
+    deep_rows = [
+        row
+        for row in supplied_by_key.values()
+        if row.get("semantic_review_depth") == "deep"
+    ]
+    errors.extend(
+        repeated_semantic_template_errors(
+            deep_rows,
+            ("correctness_basis", "owner_question", "recommended_action"),
+            ("object_key", "object_name", "object_id", "review_id"),
+            "configuration review",
+        )
+    )
     errors.extend(
         validate_operation_set(
             [

@@ -19,9 +19,17 @@ python -m pip install -e ".[analysis,dev]"
 Verify that the runtime being used is the intended source tree:
 
 ```powershell
+python -B scripts/gtm_skill_identity.py check --root . --pretty
 python -B scripts/gtm_skill_identity.py identity --root . --pretty
 python -B scripts/gtm_skill_identity.py verify C:\path\to\development-source C:\path\to\installed-skill --pretty
 ```
+
+`check` is mandatory and fail-closed before intake. Regenerate the declared
+manifest only as part of a deliberate validated skill build; never overwrite it
+to hide an unexplained runtime difference.
+A clean Git checkout may satisfy the same check from its exact tracked commit
+and runtime file set. A dirty checkout or a non-Git installed/bundled tree still
+requires a matching declared manifest.
 
 ## Build The Source-Locked Package
 
@@ -56,6 +64,9 @@ This creates:
 - `configuration_review.json`
 - `architecture_review.json`
 - `audit_package_manifest.json`
+- `review-bundles/operational_sanitation/`
+- `review-bundles/configuration_correctness/`
+- `review-bundles/business_architecture/`
 - `operational-shards/`, `configuration-shards/`, or
   `architecture-shards/` when the corresponding review is automatically
   sharded
@@ -66,10 +77,14 @@ the absence of review scaffolds is intentional. Supply a complete, unedited
 ContainerVersion export rather than treating the blocked result as a reduced
 audit mode.
 
-Complete the three review JSON files. Do not alter generated source fields.
-Each scaffold includes its immutable `input_contract` and a pending
+Assign each complete `review-bundles/<run>/` directory to a distinct fresh
+reasoning context. The root orchestrator must not author a review. Complete the
+review JSON only inside that directory and do not alter generated source
+fields. Each scaffold includes its immutable `input_contract` and a pending
 `completion_attestation`. Record the artifact roles actually used; do not load
-another run's verdict or repository test completion helper.
+anything outside the bundle except current official documentation explicitly
+permitted by the contract. The bundle deliberately omits validator-only field
+grading terms.
 
 ## Complete Automatically Sharded Reviews
 
@@ -84,8 +99,8 @@ Check each completed shard using its exact manifest filename, then merge the
 complete run back to its canonical package path:
 
 ```powershell
-python -B scripts/gtm_review_shards.py check audit-package/configuration_review.json audit-package/configuration-shards configuration_review.rows.0001.json
-python -B scripts/gtm_review_shards.py merge audit-package/configuration_review.json audit-package/configuration-shards audit-package/configuration_review.json
+python -B scripts/gtm_review_shards.py check audit-package/review-bundles/configuration_correctness/configuration_review.json audit-package/review-bundles/configuration_correctness/configuration-shards configuration_review.rows.0001.json
+python -B scripts/gtm_review_shards.py merge audit-package/review-bundles/configuration_correctness/configuration_review.json audit-package/review-bundles/configuration_correctness/configuration-shards audit-package/review-bundles/configuration_correctness/configuration_review.json
 ```
 
 The merge fails on missing, duplicated, pending, wrong-kind, or wrong-source
@@ -110,15 +125,28 @@ and exact completion coverage; custom-code lines must also remain in source
 order. It is an early corruption check, not a replacement for the complete run
 validator after merge.
 
-## Validate The Three Independent Runs
+## Validate And Seal The Three Independent Runs
 
 ```powershell
-python -B scripts/gtm_operational_review.py validate container.json audit-package/operational_review.json
-python -B scripts/gtm_configuration_review.py validate container.json audit-package/configuration_review.json
-python -B scripts/gtm_architecture_review.py validate container.json audit-package/architecture_review.json
+python -B scripts/gtm_operational_review.py validate container.json audit-package/review-bundles/operational_sanitation/operational_review.json
+python -B scripts/gtm_configuration_review.py validate container.json audit-package/review-bundles/configuration_correctness/configuration_review.json
+python -B scripts/gtm_architecture_review.py validate container.json audit-package/review-bundles/business_architecture/architecture_review.json
 ```
 
-Any failure means the audit is incomplete.
+Any failure means the run is incomplete. After each validator passes, the root
+orchestrator supplies the exact identity of the fresh context that authored
+that bundle. Sealing revalidates the bundle-local review, promotes it to the
+canonical package path, and records immutable bundle/review hashes:
+
+```powershell
+python -B scripts/gtm_review_isolation.py seal container.json audit-package operational_sanitation --context-id "<actual-run-1-context-id>" --pretty
+python -B scripts/gtm_review_isolation.py seal container.json audit-package configuration_correctness --context-id "<actual-run-2-context-id>" --pretty
+python -B scripts/gtm_review_isolation.py seal container.json audit-package business_architecture --context-id "<actual-run-3-context-id>" --pretty
+```
+
+The three context IDs must be real, distinct, and identical to their completed
+review attestations. A review edited after sealing, a changed immutable bundle
+input, or a review supplied from outside its bundle fails the completion gate.
 
 ## Compile And Simulate The Plan
 
@@ -167,7 +195,9 @@ An analyst-authored decision-topic map may be supplied to both commands with
 `--decision-topics decision_topics.json`; it may group only records requiring
 the same answer and must cover every owner-decision source ID exactly once.
 Without it, the builder conservatively groups only identical normalized
-questions and recommendations.
+questions and recommendations when there are at most 15 owner decisions. More
+than 15 requires a complete analyst-authored map that meaningfully reduces the
+topic count by grouping at least one shared decision.
 
 Do not run `gtm_audit_gate_check.py` against the derived workbook: its eight-tab
 contract applies only to `cleanup_plan.xlsx`. Deliver

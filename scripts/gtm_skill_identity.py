@@ -82,6 +82,61 @@ def git_commit(root: Path) -> str:
         return ""
 
 
+def git_dirty(root: Path) -> bool | None:
+    """Return source worktree state without treating a bundle as a clean checkout."""
+
+    if not (root / ".git").exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return bool(result.stdout.strip())
+
+
+def git_tracked_files(root: Path) -> set[str] | None:
+    """Return repository-relative tracked paths for a source checkout."""
+
+    if not (root / ".git").exists():
+        return None
+    try:
+        output = subprocess.check_output(
+            ["git", "ls-files", "-z"],
+            cwd=root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return {value for value in output.split("\0") if value}
+
+
+def clean_git_identity_errors(root: Path, actual: dict[str, Any]) -> list[str]:
+    """Verify a manifest-free development checkout from Git itself."""
+
+    if not git_commit(root):
+        return ["no readable Git commit identifies this source checkout"]
+    dirty = git_dirty(root)
+    if dirty is not False:
+        return ["the Git source checkout is dirty or its state cannot be verified"]
+    tracked = git_tracked_files(root)
+    if tracked is None:
+        return ["Git tracked files cannot be read for this source checkout"]
+    untracked_runtime = sorted(set(actual.get("files") or {}) - tracked)
+    if untracked_runtime:
+        return [
+            "runtime files are not tracked by the clean Git checkout: "
+            + ", ".join(untracked_runtime)
+        ]
+    return []
+
+
 def build_identity(root: Path, source_root: Path | None = None) -> dict[str, Any]:
     resolved = root.resolve()
     files = {
@@ -102,6 +157,7 @@ def build_identity(root: Path, source_root: Path | None = None) -> dict[str, Any
         "runtime_tree_sha256": hashlib.sha256(tree_payload).hexdigest(),
         "runtime_file_count": len(files),
         "source_git_commit": git_commit(source),
+        "source_git_dirty": git_dirty(source),
         "files": files,
     }
 
@@ -118,6 +174,80 @@ def write_manifest(
         encoding="utf-8",
     )
     return identity
+
+
+def declared_identity_errors(
+    root: Path,
+    *,
+    require_manifest: bool = True,
+) -> tuple[dict[str, Any], list[str]]:
+    """Verify that the runnable tree exactly matches its release manifest."""
+
+    actual = build_identity(root)
+    manifest_path = root / MANIFEST_NAME
+    errors: list[str] = []
+    declared: dict[str, Any] = {}
+    identity_basis = "declared_manifest"
+    if not manifest_path.is_file():
+        if require_manifest:
+            git_errors = clean_git_identity_errors(root, actual)
+            if git_errors:
+                errors.append(
+                    f"{MANIFEST_NAME} is missing and the source checkout cannot replace it: "
+                    + "; ".join(git_errors)
+                )
+            else:
+                identity_basis = "clean_git_checkout"
+    else:
+        try:
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            declared = raw if isinstance(raw, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            errors.append(f"{MANIFEST_NAME} is not valid JSON")
+        if declared:
+            if declared.get("kind") != "gtm_skill_runtime_identity":
+                errors.append(f"{MANIFEST_NAME} kind is invalid")
+            if declared.get("schema_version") != 1:
+                errors.append(f"{MANIFEST_NAME} schema_version must be 1")
+            for field in (
+                "project_version",
+                "runtime_tree_sha256",
+                "runtime_file_count",
+                "files",
+            ):
+                if declared.get(field) != actual.get(field):
+                    errors.append(
+                        f"{MANIFEST_NAME} {field} does not match the actual runtime tree"
+                    )
+    report = {
+        "kind": "gtm_declared_runtime_identity_check",
+        "schema_version": 1,
+        "status": "pass" if not errors else "fail",
+        "identity_basis": identity_basis,
+        "manifest": str(manifest_path),
+        "declared": {
+            key: declared.get(key)
+            for key in (
+                "project_version",
+                "runtime_tree_sha256",
+                "runtime_file_count",
+                "source_git_commit",
+                "source_git_dirty",
+            )
+        },
+        "actual": {
+            key: actual.get(key)
+            for key in (
+                "project_version",
+                "runtime_tree_sha256",
+                "runtime_file_count",
+                "source_git_commit",
+                "source_git_dirty",
+            )
+        },
+        "errors": errors,
+    }
+    return report, errors
 
 
 def verify_identity(
@@ -169,6 +299,7 @@ def verify_identity(
                 "runtime_tree_sha256",
                 "runtime_file_count",
                 "source_git_commit",
+                "source_git_dirty",
             )
         },
         "actual": {
@@ -178,6 +309,7 @@ def verify_identity(
                 "runtime_tree_sha256",
                 "runtime_file_count",
                 "source_git_commit",
+                "source_git_dirty",
             )
         },
         "declared_manifest_present": declared_path.is_file(),
@@ -207,6 +339,10 @@ def main() -> int:
     verify_parser.add_argument("actual_root", type=Path)
     verify_parser.add_argument("--pretty", action="store_true")
 
+    check_parser = subparsers.add_parser("check")
+    check_parser.add_argument("--root", type=Path, default=Path.cwd())
+    check_parser.add_argument("--pretty", action="store_true")
+
     args = parser.parse_args()
     if args.command == "identity":
         result = build_identity(args.root)
@@ -230,6 +366,16 @@ def main() -> int:
             )
         )
         return 0
+    if args.command == "check":
+        report, errors = declared_identity_errors(args.root)
+        print(
+            json.dumps(
+                report,
+                ensure_ascii=False,
+                indent=2 if args.pretty else None,
+            )
+        )
+        return 1 if errors else 0
 
     report, errors = verify_identity(args.expected_root, args.actual_root)
     print(

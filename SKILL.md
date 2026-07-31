@@ -57,7 +57,7 @@ Persist supplied, inferred, confirmed-empty, and unresolved values in `context.j
 
 Before semantic review:
 
-1. identify the runnable skill tree and record its project version and runtime-tree hash;
+1. run `scripts/gtm_skill_identity.py check`; stop before intake unless a matching release manifest or exact clean Git checkout proves the runnable tree;
 2. compare development and installed trees with `scripts/gtm_skill_identity.py verify` when both exist;
 3. run `scripts/gtm_context_model.py` and present supplied, high-confidence inferred, and unresolved fields separately;
 4. ask only material generated questions and rebuild with confirmed context;
@@ -81,7 +81,7 @@ A full audit has three independent runs against the same source, context, and sh
 
 Build one deterministic, judgment-free fact layer for identity, leaves, references, consumers, terminal sources, trigger logic, code/formula facts, consent routes, and behavior signatures. Each run may read the export, locked context, shared facts, and its own scaffold. Its prohibited inputs include foreign verdicts, reconciled output, and test helpers.
 
-Use a fresh reasoning context for each run when possible. Otherwise exclude completed verdict artifacts and reload only the permitted inputs. Semantic decisions must be authored independently; scripts may scaffold, shard, merge, and validate but may not bulk-fill judgments. Record a distinct reasoning-context identity for each run.
+Use the three physical allowlisted directories under `review-bundles/`. Assign each directory to a different fresh reasoning context; the root orchestrator must not author any of the three reviews. There is no same-context fallback for a certified full audit. Semantic decisions must be authored independently; scripts may scaffold, shard, merge, validate, and seal but may not bulk-fill judgments. Promote a run into the canonical package only through `gtm_review_isolation.py seal`, using the real distinct context identity. Reconciliation is blocked until all three sealed review hashes match the canonical reviews.
 
 Reconcile only after every run passes its own validator.
 
@@ -91,11 +91,11 @@ Package creation automatically reuses `scripts/gtm_review_shards.py` when a run 
 
 For a sharded run:
 
-- complete every primary and obligation shard declared by its `shard_manifest.json`;
+- work only in that run's `review-bundles/<run>/` directory and complete every primary and obligation shard declared by its `shard_manifest.json`;
 - keep operational, configuration, and architecture shards separate;
 - check each completed shard immediately against the canonical base review;
 - complete the dedicated architecture open-discovery shard and attestation;
-- merge the complete run back to its canonical package review path before the run validator;
+- merge the complete run back to the bundle-local review file, validate it, then seal it into the canonical package;
 - never treat sharding as reduced scope or as additional verdict runs.
 
 Use manual `split` only for a legacy package or when a lower bound is needed for an unusually dense object. A missing, pending, duplicated, or source-mismatched shard leaves that run incomplete.
@@ -114,6 +114,8 @@ Read `references/03-rules/configuration-correctness.md` and every applicable top
 
 Explain literal configured behavior with allowed source anchors. A source-visible Issue requires a concrete defect and exact operation when the target state is known; a genuine unknown retains the precise evidence boundary, owner question where applicable, and analyst recommendation. Do not use generic summaries, inferred runtime behavior, or `Not applicable` as fallback.
 
+Evidence acquisition is exhaustive for every object. Only folders, built-ins, simple constants, and simple Data Layer Variables that pass the deterministic low-risk test may use the generated `structured_simple` representation of the same seven semantic dimensions. All tags, triggers, code/templates, formulas/lookups/regex, consent/vendor/server routing, findings, ambiguity, owner decisions, unresolved dependencies, and heavily shared objects require `deep` review. A simple row that reveals any issue or uncertainty must be escalated to `deep`; unknown or borderline objects never receive the concise path. The reviewer scaffold does not expose validator-only field grading terms.
+
 Use the bundled official vendor registry first. For an unknown integration, perform current official-source research, update and validate the registry, rebuild the scaffold, and only then certify the contract.
 
 ### Run 3: Business Architecture
@@ -128,10 +130,11 @@ An actionable relationship verdict must change a candidate member's behavior. Re
 
 Follow `references/02-commands/validation-commands.md` in this order:
 
-1. validate each canonical completed review;
-2. compile the three reviews into one contradiction-aware operation packet;
-3. simulate every structured operation on a copy of the export;
-4. run the three-run completion gate with the operation packet.
+1. validate each completed bundle-local review and seal it into the canonical package;
+2. validate the three sealed canonical reviews;
+3. compile the three reviews into one contradiction-aware operation packet;
+4. simulate every structured operation on a copy of the export;
+5. run the three-run completion gate with the operation packet and all three seals.
 
 Do not average or vote across runs. Merge only identical complete structured mutations and preserve every lens's rationale. Block contradictory mutations, unsafe deletions/remaps, behavior changes through preserved or unresolved architecture, incomplete decisions, broken references, newly generated findings, unexplained broad count changes, or missing measurement-family target states.
 
@@ -176,8 +179,9 @@ than extra columns:
   conflicts where a candidate variable is also scheduled for deletion;
 - retain all eight canonical tabs unchanged.
 
-Use the conservative automatic decision grouping unless the analyst can author
-a complete topic map whose records genuinely require the same answer. Do not
+Use conservative automatic decision grouping only when there are at most 15
+owner-decision source records. Above 15, author a complete meaningful topic map
+whose records genuinely require the same answer. Do not
 add a traceability tab or link into hidden sheets; use stable IDs, links among
 visible analyst tabs, notes for complete long scopes, and A1 unhide/filter
 instructions. If the derived build or gate fails, reject only that file,

@@ -33,12 +33,14 @@ REVIEW_INPUT_ROLES = {
     "operational_sanitation": {
         "required": (
             "raw_export",
+            "run_instructions",
+            "run_rules",
             "audit_context",
             "shared_facts",
             "operational_scan",
             "operational_review_scaffold",
         ),
-        "optional": (),
+        "optional": ("review_work_units",),
         "prohibited": (
             "configuration_review",
             "architecture_review",
@@ -52,13 +54,16 @@ REVIEW_INPUT_ROLES = {
     "configuration_correctness": {
         "required": (
             "raw_export",
+            "run_instructions",
+            "run_rules",
+            "domain_contracts",
             "audit_context",
             "shared_facts",
             "technical_code_facts",
             "configuration_review_scaffold",
             "vendor_registry",
         ),
-        "optional": ("official_documentation",),
+        "optional": ("official_documentation", "review_work_units"),
         "prohibited": (
             "operational_review",
             "architecture_review",
@@ -72,11 +77,13 @@ REVIEW_INPUT_ROLES = {
     "business_architecture": {
         "required": (
             "raw_export",
+            "run_instructions",
+            "run_rules",
             "audit_context",
             "shared_facts",
             "architecture_review_scaffold",
         ),
-        "optional": (),
+        "optional": ("review_work_units",),
         "prohibited": (
             "operational_review",
             "configuration_review",
@@ -117,6 +124,11 @@ GENERIC_PHRASES = {
     "candidates retain distinct roles after route and source comparison",
     "keeps separate paths because no common target is proven",
     "members have no proven duplicate firing in this export",
+    "given the source-specific condition recorded in this finding",
+    "based on the source-specific condition recorded in this finding",
+    "resolve the source-specific condition recorded in this finding",
+    "review the evidence package for the exact retained route and payload",
+    "see the evidence package for each exact retained route and payload",
 }
 
 
@@ -290,6 +302,103 @@ def precise_question(value: Any, minimum: int = 5) -> bool:
             re.I,
         )
     )
+
+
+def source_specific_owner_question_errors(
+    question: Any,
+    identities: list[Any],
+    evidence_terms: list[Any],
+    label: str,
+) -> list[str]:
+    """Require a real decision question tied to the affected source condition."""
+
+    text = " ".join(str(question or "").split()).strip()
+    lowered = text.casefold()
+    identity_values = [
+        " ".join(str(value or "").split()).strip().casefold()
+        for value in identities
+        if str(value or "").strip()
+    ]
+    errors: list[str] = []
+    if identity_values and not any(value in lowered for value in identity_values):
+        errors.append(f"{label}: owner question must name the affected source object")
+    ignored = {
+        *identity_values,
+        "source",
+        "configuration",
+        "configured",
+        "condition",
+        "finding",
+        "evidence",
+        "review",
+        "object",
+        "owner",
+        "decision",
+    }
+    candidates = []
+    for value in evidence_terms:
+        term = " ".join(str(value or "").split()).strip().casefold()
+        if len(term) < 3 or term in ignored or term in candidates:
+            continue
+        candidates.append(term)
+    if candidates and not any(term in lowered for term in candidates):
+        errors.append(
+            f"{label}: owner question must name the exact source condition, contract, "
+            "reference, route, or defect that needs an answer"
+        )
+    return errors
+
+
+def repeated_semantic_template_errors(
+    rows: list[dict[str, Any]],
+    text_fields: tuple[str, ...],
+    identity_fields: tuple[str, ...],
+    label: str,
+    *,
+    threshold: int = 8,
+) -> list[str]:
+    """Reject bulk-authored judgment prose whose only variation is object identity."""
+
+    groups: dict[tuple[str, str], list[str]] = {}
+    for index, row in enumerate(rows, start=1):
+        identities = [
+            " ".join(str(row.get(field) or "").split()).strip()
+            for field in identity_fields
+            if str(row.get(field) or "").strip()
+        ]
+        row_id = str(
+            row.get("review_id")
+            or row.get("family_id")
+            or row.get("comparison_id")
+            or row.get("object_key")
+            or index
+        )
+        for field in text_fields:
+            text = " ".join(str(row.get(field) or "").split()).strip().casefold()
+            if words(text) < 8:
+                continue
+            skeleton = text
+            for identity in sorted(identities, key=len, reverse=True):
+                if identity:
+                    skeleton = re.sub(re.escape(identity.casefold()), " <object> ", skeleton)
+            skeleton = re.sub(r"\$[.\w\[\]-]+", " <path> ", skeleton)
+            skeleton = re.sub(
+                r"\b(?:cfg|fam|cmp|disc|op|run)[-_]?[a-z0-9_-]+\b",
+                " <id> ",
+                skeleton,
+            )
+            skeleton = re.sub(r"\b\d+\b", " <number> ", skeleton)
+            skeleton = re.sub(r"\s+", " ", skeleton).strip()
+            groups.setdefault((field, skeleton), []).append(row_id)
+    errors: list[str] = []
+    for (field, _skeleton), row_ids in sorted(groups.items()):
+        if len(row_ids) >= threshold:
+            errors.append(
+                f"{label}: {field} repeats one hollow semantic template across "
+                f"{len(row_ids)} records ({', '.join(row_ids[:8])}); author each "
+                "judgment from its source condition"
+            )
+    return errors
 
 
 def _validate_creations(

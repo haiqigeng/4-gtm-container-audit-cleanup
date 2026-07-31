@@ -45,7 +45,9 @@ from gtm_review_common import (
     object_source_path_map,
     pending_completion_attestation,
     precise_question,
+    repeated_semantic_template_errors,
     review_input_contract,
+    source_specific_owner_question_errors,
     specific_text,
     validate_challenge,
     validate_operation_set,
@@ -972,6 +974,8 @@ def add_canonical_recommendations(
 def scaffold_review(
     export_path: Path,
     shared_facts: dict[str, Any] | None = None,
+    *,
+    include_validator_answer_key: bool = False,
 ) -> dict[str, Any]:
     descriptor = source_descriptor(export_path)
     data = json.loads(export_path.read_text(encoding="utf-8"))
@@ -1004,9 +1008,11 @@ def scaffold_review(
             key: object_evidence_terms(shared_by_key.get(key, {}))
             for key in family["chain_object_keys"]
         }
-        family["field_evidence_requirements"] = field_evidence_requirements(
+        requirements = field_evidence_requirements(
             family["chain_object_keys"], shared_by_key
         )
+        if include_validator_answer_key:
+            family["field_evidence_requirements"] = requirements
         family["member_behavior_signatures"] = {
             key: shared_by_key.get(key, {}).get("behavior_signatures", {})
             for key in family["member_object_keys"]
@@ -1025,9 +1031,11 @@ def scaffold_review(
             key: object_evidence_terms(shared_by_key.get(key, {}))
             for key in comparison["candidate_object_keys"]
         }
-        comparison["field_evidence_requirements"] = field_evidence_requirements(
+        requirements = field_evidence_requirements(
             comparison["candidate_object_keys"], shared_by_key
         )
+        if include_validator_answer_key:
+            comparison["field_evidence_requirements"] = requirements
         comparison["candidate_behavior_signatures"] = {
             key: shared_by_key.get(key, {}).get("behavior_signatures", {})
             for key in comparison["candidate_object_keys"]
@@ -1175,10 +1183,13 @@ def validate_member_assessments(
 
 
 def validate_field_evidence_text(
-    row: dict[str, Any], fields: tuple[str, ...], label: str
+    row: dict[str, Any],
+    fields: tuple[str, ...],
+    label: str,
+    requirements: dict[str, Any] | None = None,
 ) -> list[str]:
     errors: list[str] = []
-    requirements = row.get("field_evidence_requirements") or {}
+    requirements = requirements or row.get("field_evidence_requirements") or {}
     for field in fields:
         if not specific_text(row.get(field), 6):
             errors.append(f"{label}: {field} lacks a concrete assessment")
@@ -1481,6 +1492,27 @@ def validate_decision(
         verdict == "Owner decision needed" or disposition == "owner_decision_needed"
     ) and not precise_question(row.get("owner_question"), 5):
         errors.append(f"{label}: owner decision requires one precise question")
+    if verdict == "Owner decision needed" or disposition == "owner_decision_needed":
+        identities = [
+            value
+            for key in sorted(relationship_key_set)
+            for value in [key, *as_list(relationship_identity_terms.get(key))]
+        ]
+        evidence_terms = [
+            token
+            for policy_type in sorted(policy_type_set)
+            for token in [policy_type.replace("_", " "), *policy_type.split("_")]
+        ]
+        evidence_terms.extend(
+            caution.get("caution_key")
+            for caution in as_list(caution_states)
+            if isinstance(caution, dict)
+        )
+        errors.extend(
+            source_specific_owner_question_errors(
+                row.get("owner_question"), identities, evidence_terms, label
+            )
+        )
     if disposition in {
         "owner_decision_needed",
         "container_evidence_limit",
@@ -1945,7 +1977,12 @@ def family_source_specificity_errors(
         "analyst_rationale",
         "target_architecture",
     )
-    errors = validate_field_evidence_text(row, family_fields, label)
+    errors = validate_field_evidence_text(
+        row,
+        family_fields,
+        label,
+        expected_row.get("field_evidence_requirements") or {},
+    )
     family_text = " ".join(str(row.get(field) or "") for field in family_fields).lower()
     source_tokens = [
         str(token).lower() for token in as_list(expected_row["chain_specificity_tokens"])
@@ -1997,13 +2034,17 @@ def validate_families(
         "chain_evidence_terms",
         "chain_edges",
         "chain_specificity_tokens",
-        "field_evidence_requirements",
     )
     for family_id, expected_row in expected_rows.items():
         row = supplied_rows.get(family_id)
         if not row:
             continue
         label = f"family {family_id}"
+        if "field_evidence_requirements" in row:
+            errors.append(
+                f"{label}: validator-only field_evidence_requirements must not be present "
+                "in a reviewer artifact"
+            )
         errors.extend(
             f"{label}: generated field {field} differs from source"
             for field in generated_fields
@@ -2124,7 +2165,6 @@ GENERATED_COMPARISON_FIELDS = {
     "candidate_behavior_signatures",
     "candidate_distinguishing_terms",
     "candidate_evidence_terms",
-    "field_evidence_requirements",
     "comparison_types",
     "comparison_type",
     "candidate_basis",
@@ -2242,6 +2282,11 @@ def validate_deterministic_comparisons(
         if not row:
             continue
         label = f"comparison {comparison_id}"
+        if "field_evidence_requirements" in row:
+            errors.append(
+                f"{label}: validator-only field_evidence_requirements must not be present "
+                "in a reviewer artifact"
+            )
         errors.extend(
             f"{label}: generated field {field} differs from source"
             for field in GENERATED_COMPARISON_FIELDS
@@ -2251,7 +2296,10 @@ def validate_deterministic_comparisons(
             errors.append(f"{label}: review_status must be complete")
         errors.extend(
             validate_field_evidence_text(
-                row, ("analyst_rationale", "architecture_effect"), label
+                row,
+                ("analyst_rationale", "architecture_effect"),
+                label,
+                expected_row.get("field_evidence_requirements") or {},
             )
         )
         errors.extend(
@@ -2516,7 +2564,11 @@ def validate_discovery(
 def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], list[str]]:
     supplied = json.loads(review_path.read_text(encoding="utf-8"))
     expected_context, expected_shared = canonical_review_facts(export_path, supplied)
-    expected = scaffold_review(export_path, expected_shared)
+    expected = scaffold_review(
+        export_path,
+        expected_shared,
+        include_validator_answer_key=True,
+    )
     errors: list[str] = []
     warnings: list[str] = []
     descriptor = source_descriptor(export_path)
@@ -2577,6 +2629,37 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
             valid_keys,
             expected_consumers,
             source_paths_by_key,
+        )
+    )
+    semantic_rows = [
+        *[
+            row
+            for row in as_list(supplied.get("families"))
+            if isinstance(row, dict)
+        ],
+        *[
+            row
+            for row in as_list(supplied.get("comparisons"))
+            if isinstance(row, dict)
+        ],
+    ]
+    errors.extend(
+        repeated_semantic_template_errors(
+            semantic_rows,
+            (
+                "analyst_rationale",
+                "architecture_effect",
+                "owner_question",
+                "recommended_action",
+                "target_architecture",
+            ),
+            (
+                "family_id",
+                "family_key",
+                "family_label",
+                "comparison_id",
+            ),
+            "architecture review",
         )
     )
     errors.extend(

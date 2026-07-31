@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -26,7 +27,11 @@ from gtm_relationships import (  # noqa: E402
     near_event_name,
     relationship_candidates,
 )
-from gtm_skill_identity import verify_identity, write_manifest  # noqa: E402
+from gtm_skill_identity import (  # noqa: E402
+    declared_identity_errors,
+    verify_identity,
+    write_manifest,
+)
 from gtm_vendor_registry import load_registry  # noqa: E402
 
 
@@ -90,6 +95,43 @@ class UtilityEvolutionTests(unittest.TestCase):
         self.assertEqual("fail", report["status"])
         self.assertTrue(any("runtime files differ" in value for value in errors))
         self.assertTrue(any("manifest" in value for value in errors))
+
+    def test_clean_git_checkout_is_an_exact_manifest_free_identity(self) -> None:
+        checkout = self.root / "checkout"
+        (checkout / "scripts").mkdir(parents=True)
+        (checkout / "SKILL.md").write_text("# Skill\n", encoding="utf-8")
+        (checkout / "pyproject.toml").write_text(
+            '[project]\nname="x"\nversion="1.0.0"\n',
+            encoding="utf-8",
+        )
+        runtime_script = checkout / "scripts" / "run.py"
+        runtime_script.write_text("VALUE = 1\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=checkout, check=True)
+        subprocess.run(["git", "add", "."], cwd=checkout, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Identity Test",
+                "-c",
+                "user.email=identity-test.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "identity fixture",
+            ],
+            cwd=checkout,
+            check=True,
+        )
+
+        report, errors = declared_identity_errors(checkout)
+        self.assertEqual([], errors)
+        self.assertEqual("clean_git_checkout", report["identity_basis"])
+
+        runtime_script.write_text("VALUE = 2\n", encoding="utf-8")
+        report, errors = declared_identity_errors(checkout)
+        self.assertEqual("fail", report["status"])
+        self.assertTrue(any("source checkout is dirty" in error for error in errors))
 
     def test_extended_intake_is_source_locked_and_execution_ready(self) -> None:
         export = self.write_export(minimal_export())

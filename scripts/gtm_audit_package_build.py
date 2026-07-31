@@ -20,6 +20,7 @@ from gtm_context_model import build_context_model
 from gtm_custom_code_extract import extract_export
 from gtm_lib import source_descriptor
 from gtm_operational_review import scaffold_review as scaffold_operational_review
+from gtm_review_isolation import prepare_review_bundles
 from gtm_review_shards import (
     DEFAULT_MAX_ITEMS,
     DEFAULT_MAX_OBLIGATIONS,
@@ -28,7 +29,7 @@ from gtm_review_shards import (
     split_review,
 )
 from gtm_shared_facts import build_shared_facts
-from gtm_skill_identity import build_identity
+from gtm_skill_identity import build_identity, declared_identity_errors
 from gtm_source_model import build_model
 
 
@@ -95,8 +96,26 @@ def build_package(
     pretty: bool = False,
     context_path: Path | None = None,
 ) -> dict[str, Any]:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    skill_identity = build_identity(Path(__file__).resolve().parents[1])
+    skill_root = Path(__file__).resolve().parents[1]
+    identity_report, identity_errors = declared_identity_errors(skill_root)
+    if identity_errors:
+        raise RuntimeError(
+            "runtime identity preflight failed before intake: "
+            + "; ".join(identity_errors)
+        )
+    if out_dir.exists():
+        if not out_dir.is_dir() or any(out_dir.iterdir()):
+            raise RuntimeError(
+                "audit package out-dir must be a new or empty directory; existing "
+                "artifacts are never overwritten"
+            )
+    else:
+        out_dir.mkdir(parents=True)
+    skill_identity = build_identity(skill_root)
+    declared_identity = identity_report.get("declared") or {}
+    for field in ("source_git_commit", "source_git_dirty"):
+        if declared_identity.get(field) is not None:
+            skill_identity[field] = declared_identity[field]
 
     source_model = build_model(export_path)
     if source_model.get("coverage_gate") == "blocked_source_integrity":
@@ -113,6 +132,7 @@ def build_package(
                     "runtime_tree_sha256",
                     "runtime_file_count",
                     "source_git_commit",
+                    "source_git_dirty",
                 )
             },
             "source_model_coverage_gate": source_model.get("coverage_gate"),
@@ -186,6 +206,7 @@ def build_package(
                 "runtime_tree_sha256",
                 "runtime_file_count",
                 "source_git_commit",
+                "source_git_dirty",
             )
         },
         "status": (
@@ -249,6 +270,7 @@ def build_package(
             "completed operational_review.json",
             "completed configuration_review.json",
             "completed architecture_review.json",
+            "three isolated review seals",
         ],
         "files": {key: path.name for key, path in files.items() if key != "manifest"},
         "notes": [
@@ -260,6 +282,7 @@ def build_package(
                 else "Intake has no unresolved material question; semantic review may start."
             ),
             "The three review artifacts are independent and all are mandatory.",
+            "Complete each review only inside its physical review-bundles directory.",
             "All verdict engines use the same immutable shared facts and source hash.",
             "Unresolved references remain operational findings and do not stop other audit checks.",
             "Technical code findings support configuration review and do not replace it.",
@@ -308,13 +331,23 @@ def build_package(
             "Large reviews were automatically sharded for: "
             + ", ".join(sharded_runs)
             + ". Complete and check every declared shard, then merge each run "
-            "back to its canonical review file before validation."
+            "back to its bundle-local review file before validation and sealing."
         )
     else:
         manifest["notes"].append(
             "All reviews are below the automatic shard limits; complete the "
-            "canonical review files directly."
+            "bundle-local review files directly."
         )
+    manifest["review_bundles"] = prepare_review_bundles(
+        export_path,
+        out_dir,
+        skill_root,
+        pretty=pretty,
+    )
+    manifest["notes"].append(
+        "A root orchestrator must assign each review-bundles directory to a distinct "
+        "fresh reasoning context, then validate and seal that bundle-local output."
+    )
     write_json(files["manifest"], manifest, pretty)
     return manifest
 
@@ -336,7 +369,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result = build_package(args.export, args.out_dir, args.pretty, args.context)
+    try:
+        result = build_package(args.export, args.out_dir, args.pretty, args.context)
+    except RuntimeError as exc:
+        print(json.dumps({"status": "blocked", "errors": [str(exc)]}))
+        return 2
     print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
     return 0 if result["status"] == "pass" else 2
 

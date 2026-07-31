@@ -6,6 +6,8 @@
 | Inputs, outputs, lifecycle | `references/01-skill/inputs-outputs.md` |
 | Completion/failure | `references/01-skill/acceptance-criteria.md` |
 | Full pipeline | `execution-contract.md` |
+| Release/runtime identity | `scripts/gtm_skill_identity.py` and `.skill-build-manifest.json` |
+| Independent run bundles and seals | `scripts/gtm_review_isolation.py` |
 | Persistent context | `scripts/gtm_context_model.py` |
 | Source identity and modeled layers | `scripts/gtm_source_model.py` and `scripts/gtm_lib.py` |
 | Canonical deterministic facts | `scripts/gtm_shared_facts.py` |

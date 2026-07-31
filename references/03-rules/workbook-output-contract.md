@@ -59,9 +59,10 @@ Read:
 - passing future-state gate; and
 - passing three-run completion gate.
 
-An optional decision-topic JSON may group owner decisions. It is presentation
-input only. It cannot change a source disposition, question, recommendation,
-priority, operation, or affected object.
+A decision-topic JSON may group owner decisions. It is optional only when the
+decision ledger has at most 15 owner-decision source records and is mandatory
+above that threshold. It is presentation input only. It cannot change a source
+disposition, question, recommendation, priority, operation, or affected object.
 
 Use this minimal shape:
 
@@ -84,6 +85,10 @@ Use this minimal shape:
 Every owner-decision source ID must occur once across the topic list. Do not
 include keep, evidence-limit, or cleanup-operation records. The builder rejects
 unknown, duplicate, missing, empty, or source-mismatched mappings.
+Above 15 owner decisions, omission of the topic file is also rejected. Group
+only decisions that genuinely require the same owner answer; do not use
+single-record topics merely to satisfy the file shape. The map must reduce the
+topic count by grouping at least one genuinely shared decision.
 
 Context, source model, all three reviews, technical-code findings, reconciled
 operations, and the future-state gate must each carry the locked source

@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCRIPTS))
 from gtm_workbook_readability import (  # noqa: E402
     HUMAN_SHEETS,
     ORIGINAL_SHEETS,
+    decision_topics,
     sha256_file,
     workbook_sheet_hashes,
 )
@@ -66,6 +67,69 @@ class WorkbookReadabilityTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_context.cleanup()
+
+    def test_large_owner_register_requires_meaningful_editorial_grouping(self) -> None:
+        owners = [
+            {
+                "decision_id": f"OWNER-{index:02d}",
+                "owner_question": f"Who owns decision {index}?",
+                "recommended_action": f"Confirm decision {index} ownership.",
+                "problem_type": "Ownership",
+            }
+            for index in range(1, 17)
+        ]
+        source_sha256 = "a" * 64
+        with self.assertRaisesRegex(ValueError, "require a complete analyst-authored"):
+            decision_topics(owners, None, source_sha256)
+
+        singleton_topics = [
+            {
+                "topic_id": f"D-{index:02d}",
+                "source_ids": [owner["decision_id"]],
+                "question": owner["owner_question"],
+                "recommendation": owner["recommended_action"],
+            }
+            for index, owner in enumerate(owners, start=1)
+        ]
+        with self.assertRaisesRegex(ValueError, "meaningful consolidation"):
+            decision_topics(
+                owners,
+                {
+                    "kind": "gtm_readability_decision_topics",
+                    "source_sha256": source_sha256,
+                    "topics": singleton_topics,
+                },
+                source_sha256,
+            )
+
+        grouped_topics = [
+            {
+                "topic_id": "D-01",
+                "title": "Shared ownership",
+                "source_ids": ["OWNER-01", "OWNER-02"],
+                "question": "Who owns decisions 1 and 2?",
+                "recommendation": "Confirm one shared owner for decisions 1 and 2.",
+            },
+            *[
+                {
+                    "topic_id": f"D-{index - 1:02d}",
+                    "source_ids": [owner["decision_id"]],
+                    "question": owner["owner_question"],
+                    "recommendation": owner["recommended_action"],
+                }
+                for index, owner in enumerate(owners[2:], start=3)
+            ],
+        ]
+        topics = decision_topics(
+            owners,
+            {
+                "kind": "gtm_readability_decision_topics",
+                "source_sha256": source_sha256,
+                "topics": grouped_topics,
+            },
+            source_sha256,
+        )
+        self.assertEqual(15, len(topics))
 
     def _write_canonical_workbook(self) -> None:
         workbook = Workbook()

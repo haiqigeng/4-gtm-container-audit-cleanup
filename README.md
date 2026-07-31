@@ -55,9 +55,11 @@ The audit then runs three independent reviews against that same fact map and
 the raw export. The map contains evidence, not conclusions, so one review still
 cannot substitute its conclusions for another.
 
-Each review is source-locked to its own permitted input roles and must attest
-what it actually used. Another run's verdict or a repository test helper cannot
-complete a real audit run.
+Each review is source-locked to its own physical allowlisted bundle and must be
+authored in a distinct fresh reasoning context. Another run's verdict or a
+repository test helper cannot complete a real audit run. A validator-passing
+bundle is sealed before promotion to the canonical package; changed inputs,
+reused context identities, or post-seal edits fail completion.
 
 The package gate reconstructs this map and the audit context from source. A
 copied or stale hash is not enough to pass.
@@ -103,6 +105,12 @@ copied or stale hash is not enough to pass.
    require a finding, concrete proposed action, evidence-bound exception basis,
    or source-specific owner question; relabeling the verdict is not resolution.
    A confirmed technical issue links to exactly one concrete defect.
+   Evidence collection remains exhaustive for every object. Provably simple
+   folders, built-ins, constants, and Data Layer Variables may use a concise
+   locked rendering of the same seven semantic dimensions; every complex,
+   risky, ambiguous, uncertain, shared, or actionable object remains deep.
+   Reviewer artifacts expose evidence but not validator-only field grading
+   terms, and repeated hollow bulk prose fails.
 3. **Business architecture** compares complete execution chains and business
    families. It finds functional overlap, conflicting funnel logic, duplicate
    destinations, Zones governing the same child container, unnecessary
@@ -128,7 +136,8 @@ Retention must cite how every member actually differs; verdicts, dispositions,
 owner questions, and zero-discovery attestations are validated as one coherent
 decision rather than independent form fields.
 
-Only after all three validators pass are their actions reconciled and simulated
+Only after all three validators pass and their bundle-local outputs are sealed
+are their actions reconciled and simulated
 against a future copy of the container. The simulation reruns sanitation,
 configuration, and architecture checks so a structurally valid mutation cannot
 silently create a logically worse target state. Identical mutations merge
@@ -140,7 +149,7 @@ coverage, final-name uniqueness, dependency cycles, exact mutation paths, and
 cross-operation conflicts.
 
 Package creation automatically splits large reviews into bounded, source-locked
-shards and records the strategy under `review_work_units` in the package
+shards inside their run-specific bundles and records the strategy under `review_work_units` in the package
 manifest. The current limits are more than 40 primary review items or more than
 30 items in one configuration obligation group. The merge tool refuses missing,
 duplicate, pending, or source-mismatched work, so scaling the execution does not
@@ -230,6 +239,9 @@ python -m pip install -e ".[analysis,dev]"
 
 Use `gtm_skill_identity.py verify` when both a development source and installed
 copy exist; version strings alone do not prove that the runnable trees match.
+Run `gtm_skill_identity.py check` before intake. Installed/bundled copies need a
+matching declared release manifest; a clean Git checkout may prove the same
+exact runtime identity from its tracked commit and file set.
 
 The full audit requires the deterministic Python pipeline and complete
 container evidence. If either is unavailable, report the audit as blocked and
@@ -238,6 +250,7 @@ request the missing prerequisite; there is no reduced audit mode.
 ## Start An Audit
 
 ```powershell
+python -B scripts/gtm_skill_identity.py check --root . --pretty
 python -B scripts/gtm_context_model.py container.json --pretty
 python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
 ```
@@ -247,21 +260,22 @@ context. Resolve material questions in a small JSON file and pass it with
 `--context audit-context.json`; non-material questions remain visible without
 creating another audit gate.
 
-Complete the three generated review files independently, compile the exact
-cleanup operations, then validate the complete audit-and-plan package:
+Complete the three bundle-local review files independently in three fresh
+contexts, validate and seal them, compile the exact cleanup operations, then
+validate the complete audit-and-plan package:
 
 ```powershell
-python -B scripts/gtm_operational_review.py validate container.json audit-package/operational_review.json
-python -B scripts/gtm_configuration_review.py validate container.json audit-package/configuration_review.json
-python -B scripts/gtm_architecture_review.py validate container.json audit-package/architecture_review.json
+python -B scripts/gtm_review_isolation.py seal container.json audit-package operational_sanitation --context-id "<actual-run-1-context-id>" --pretty
+python -B scripts/gtm_review_isolation.py seal container.json audit-package configuration_correctness --context-id "<actual-run-2-context-id>" --pretty
+python -B scripts/gtm_review_isolation.py seal container.json audit-package business_architecture --context-id "<actual-run-3-context-id>" --pretty
 python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json audit-package/operations.json --route "Pending user selection" --pretty
 python -B scripts/gtm_three_run_gate.py container.json audit-package --operations audit-package/operations.json --pretty
 ```
 
-Prefer a fresh reasoning context per run and never provide another run's
+Use a distinct fresh reasoning context per run and never provide another run's
 verdict artifact as input. Follow each run's `review_work_units` strategy. For a
-sharded run, check every declared shard, merge it back to the canonical review
-path, and then run the complete validator.
+sharded run, work inside its bundle, check every declared shard, merge it back
+to the bundle-local review path, and then seal the complete validator-passing run.
 
 The exact compilation, future-state, workbook, privacy, and change-log commands
 are in `references/02-commands/validation-commands.md`. Before approved
@@ -286,7 +300,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.7.0
+python -B scripts/check_release.py --tag v1.8.0
 git diff --check
 ```
 

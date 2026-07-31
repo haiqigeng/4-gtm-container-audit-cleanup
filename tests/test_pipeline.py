@@ -90,6 +90,7 @@ from gtm_review_common import (  # noqa: E402
     validate_operation_set,
     validate_structured_actions,
 )
+from gtm_review_isolation import bundle_integrity_errors, seal_review  # noqa: E402
 from gtm_review_shards import (  # noqa: E402
     merge_review,
     review_requires_sharding,
@@ -488,7 +489,30 @@ def behavior_signal_text(fact: dict) -> str:
 def complete_configuration(
     export_path: Path, shared_facts: dict | None = None
 ) -> dict:
-    review = scaffold_configuration(export_path, shared_facts=shared_facts)
+    review = scaffold_configuration(
+        export_path,
+        shared_facts=shared_facts,
+        include_validator_answer_key=True,
+    )
+    structured_summaries = {
+        row["object_key"]: {
+            **{
+                field: row[field]
+                for field in (
+                    "purpose",
+                    "execution_logic",
+                    "inputs_and_terminal_sources",
+                    "configured_output_or_side_effect",
+                    "consumer_contract",
+                    "consent_and_sequence",
+                    "correctness_basis",
+                )
+            },
+            "evidence_citations": copy.deepcopy(row["evidence_citations"]),
+        }
+        for row in review["rows"]
+        if row.get("minimum_semantic_review_depth") == "structured_simple"
+    }
     for row in review["rows"]:
         row.update(
             {
@@ -1137,6 +1161,12 @@ def complete_configuration(
                     "Which owner can provide the custom-template executable source and permissions, "
                     "or approve removal of the opaque implementation?"
                 )
+    for row in review["rows"]:
+        if row["object_key"] in structured_summaries:
+            row.update(copy.deepcopy(structured_summaries[row["object_key"]]))
+        row.pop("field_evidence_requirements", None)
+        for check in row["required_logic_cross_checks"]:
+            check.pop("required_terms", None)
     review["run_status"] = "complete"
     review["completion_attestation"] = complete_review_attestation(
         review, decision_authoring_method="independent_test_fixture_review"
@@ -1487,7 +1517,11 @@ def exact_duplicate_operation_from_comparison(row: dict) -> dict:
 def complete_architecture(
     export_path: Path, shared_facts: dict | None = None
 ) -> dict:
-    review = scaffold_architecture(export_path, shared_facts=shared_facts)
+    review = scaffold_architecture(
+        export_path,
+        shared_facts=shared_facts,
+        include_validator_answer_key=True,
+    )
     non_retention_types = {
         "same_tag_payload_different_route",
         "shared_zone_child_container",
@@ -1773,6 +1807,8 @@ def complete_architecture(
             ],
         }
     )
+    for row in [*review["families"], *review["comparisons"]]:
+        row.pop("field_evidence_requirements", None)
     review["run_status"] = "complete"
     review["completion_attestation"] = complete_review_attestation(
         review, decision_authoring_method="independent_test_fixture_review"
@@ -3154,6 +3190,23 @@ scenarios:
         )
         self.assertTrue(any("purpose lacks object-specific analysis" in error for error in errors))
 
+    def test_configuration_gate_rejects_bulk_semantic_templates(self) -> None:
+        review = complete_configuration(self.export_path)
+        deep_rows = [
+            row for row in review["rows"] if row["semantic_review_depth"] == "deep"
+        ][:8]
+        self.assertEqual(8, len(deep_rows))
+        for row in deep_rows:
+            row["owner_question"] = (
+                f"Which owner should resolve {row['object_name']} given the "
+                "source-specific condition recorded in this finding?"
+            )
+        errors, _ = validate_configuration(
+            self.export_path,
+            self.write_review("bulk-semantic-template.json", review),
+        )
+        self.assertTrue(any("hollow semantic template" in error for error in errors))
+
     def test_review_context_is_content_locked_not_hash_only(self) -> None:
         review = complete_configuration(self.export_path)
         review["audit_context"]["business_model"] = "publisher"
@@ -4325,6 +4378,71 @@ scenarios:
         ):
             review = json.loads((package_dir / filename).read_text(encoding="utf-8"))
             self.assertEqual(shared["shared_facts_sha256"], review["shared_facts_sha256"])
+        self.assertEqual(
+            {
+                "operational_sanitation",
+                "configuration_correctness",
+                "business_architecture",
+            },
+            set(manifest["review_bundles"]),
+        )
+        bundled_configuration = json.loads(
+            (
+                package_dir
+                / "review-bundles"
+                / "configuration_correctness"
+                / "configuration_review.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertTrue(
+            any(
+                row["minimum_semantic_review_depth"] == "structured_simple"
+                for row in bundled_configuration["rows"]
+            )
+        )
+        self.assertTrue(
+            all(
+                row["minimum_semantic_review_depth"] == "deep"
+                for row in bundled_configuration["rows"]
+                if row["layer"] in {"tag", "trigger", "customTemplate"}
+            )
+        )
+        self.assertTrue(
+            all(
+                "field_evidence_requirements" not in row
+                for row in bundled_configuration["rows"]
+            )
+        )
+        self.assertTrue(
+            all(
+                "required_terms" not in check
+                for row in bundled_configuration["rows"]
+                for check in row["required_logic_cross_checks"]
+            )
+        )
+        bundled_architecture = json.loads(
+            (
+                package_dir
+                / "review-bundles"
+                / "business_architecture"
+                / "architecture_review.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertTrue(
+            all(
+                "field_evidence_requirements" not in row
+                for row in [
+                    *bundled_architecture["families"],
+                    *bundled_architecture["comparisons"],
+                ]
+            )
+        )
+        configuration_bundle = package_dir / "review-bundles" / "configuration_correctness"
+        _bundle_manifest, bundle_errors = bundle_integrity_errors(configuration_bundle)
+        self.assertEqual([], bundle_errors)
+        (configuration_bundle / "foreign-review.json").write_text("{}", encoding="utf-8")
+        _bundle_manifest, bundle_errors = bundle_integrity_errors(configuration_bundle)
+        self.assertTrue(any("undeclared" in error for error in bundle_errors))
 
     def test_package_builder_auto_shards_only_large_reviews(self) -> None:
         small_export = {
@@ -4375,6 +4493,24 @@ scenarios:
         self.assertTrue(
             (large_package / configuration["shard_manifest"]).is_file()
         )
+        large_bundle = large_package / "review-bundles" / "configuration_correctness"
+        _bundle_manifest, bundle_errors = bundle_integrity_errors(large_bundle)
+        self.assertEqual([], bundle_errors)
+        shard_manifest_path = large_bundle / "configuration-shards" / "shard_manifest.json"
+        shard_manifest = json.loads(shard_manifest_path.read_text(encoding="utf-8"))
+        shard_manifest["shards"][0]["filename"] = "foreign-shard.json"
+        shard_manifest_path.write_text(json.dumps(shard_manifest), encoding="utf-8")
+        _bundle_manifest, bundle_errors = bundle_integrity_errors(large_bundle)
+        self.assertTrue(any("shard manifest changed" in error for error in bundle_errors))
+
+    def test_package_builder_never_overwrites_a_nonempty_output_directory(self) -> None:
+        package_dir = self.root / "existing-package"
+        package_dir.mkdir()
+        marker = package_dir / "completed-review.json"
+        marker.write_text('{"status":"complete"}', encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "never overwritten"):
+            build_package(self.export_path, package_dir, pretty=True)
+        self.assertEqual('{"status":"complete"}', marker.read_text(encoding="utf-8"))
 
     def test_single_oversized_configuration_obligation_group_requires_sharding(
         self,
@@ -4435,7 +4571,8 @@ scenarios:
         self.assertIn("from gtm_review_common import", architecture_source)
         self.assertIn("fresh reasoning context", skill_source)
         self.assertIn("prohibited inputs", skill_source)
-        self.assertIn("exclude completed verdict artifacts", execution_contract)
+        self.assertIn("physical allowlisted", execution_contract)
+        self.assertIn("no same-context certification fallback", execution_contract)
 
         completed = complete_configuration(self.export_path)
         self.assertNotIn("related_operational_finding_ids", completed["rows"][0])
@@ -4518,6 +4655,9 @@ scenarios:
         build_package(self.export_path, package_dir, pretty=True)
         pending = run_gate(self.export_path, package_dir)
         self.assertEqual("fail", pending["status"])
+        self.assertTrue(
+            any("missing isolated review seal" in error for error in pending["errors"])
+        )
         operational, configuration, architecture = self.completed_reviews()
         align_duplicate_operation(operational, architecture)
         (package_dir / "operational_review.json").write_text(
@@ -4529,6 +4669,24 @@ scenarios:
         (package_dir / "architecture_review.json").write_text(
             json.dumps(architecture), encoding="utf-8"
         )
+        reviews = {
+            "operational_sanitation": ("operational_review.json", operational),
+            "configuration_correctness": (
+                "configuration_review.json",
+                configuration,
+            ),
+            "business_architecture": ("architecture_review.json", architecture),
+        }
+        for run_name, (filename, review) in reviews.items():
+            bundle_review = package_dir / "review-bundles" / run_name / filename
+            bundle_review.write_text(json.dumps(review), encoding="utf-8")
+            seal_review(
+                self.export_path,
+                package_dir,
+                run_name,
+                review["completion_attestation"]["independent_review_context_id"],
+                bundle_review,
+            )
         payload, compile_errors = compile_operations(
             operational,
             configuration,
@@ -4538,6 +4696,10 @@ scenarios:
         )
         self.assertEqual([], compile_errors)
         self.assertEqual("complete", payload["plan_status"])
+        valid_operations_path = self.write_review("valid-operations.json", payload)
+        valid = run_gate(self.export_path, package_dir, valid_operations_path)
+        self.assertEqual("pass", valid["status"])
+        self.assertEqual([], valid["errors"])
         incomplete = copy.deepcopy(payload)
         incomplete["plan_status"] = "incomplete_actions"
         incomplete["action_completeness"] = {
@@ -4567,6 +4729,16 @@ scenarios:
         rejected = run_gate(self.export_path, package_dir, tampered_path)
         self.assertEqual("fail", rejected["status"])
         self.assertTrue(any("deterministic recompilation" in error for error in rejected["errors"]))
+
+        changed_review_path = package_dir / "configuration_review.json"
+        changed_review = json.loads(changed_review_path.read_text(encoding="utf-8"))
+        changed_review["rows"][0]["purpose"] += " Post-seal edit."
+        changed_review_path.write_text(json.dumps(changed_review), encoding="utf-8")
+        stale_seal = run_gate(self.export_path, package_dir, valid_operations_path)
+        self.assertEqual("fail", stale_seal["status"])
+        self.assertTrue(
+            any("changed after it was sealed" in error for error in stale_seal["errors"])
+        )
 
     def test_action_completeness_accepts_exact_actions_and_genuine_owner_limits(self) -> None:
         ledger = [
@@ -8363,7 +8535,12 @@ contracts = [
     def test_runtime_bundle_is_self_installable_and_excludes_repo_only_files(self) -> None:
         bundle = self.root / "runtime-bundle"
         build_skill_bundle(ROOT, bundle)
-        for filename in ("SKILL.md", "LICENSE", "pyproject.toml"):
+        for filename in (
+            "SKILL.md",
+            "LICENSE",
+            "pyproject.toml",
+            ".skill-build-manifest.json",
+        ):
             self.assertTrue((bundle / filename).is_file())
         self.assertFalse((bundle / "README.md").exists())
         metadata = tomllib.loads((bundle / "pyproject.toml").read_text(encoding="utf-8"))
@@ -8375,6 +8552,7 @@ contracts = [
             "scripts/gtm_architecture_review.py",
             "scripts/gtm_review_common.py",
             "scripts/gtm_review_shards.py",
+            "scripts/gtm_review_isolation.py",
             "scripts/gtm_three_run_gate.py",
         ):
             self.assertTrue((bundle / relative).is_file())
@@ -8413,6 +8591,28 @@ contracts = [
             )
             self.assertTrue(review["input_contract"]["contract_sha256"])
             self.assertEqual("pending", review["completion_attestation"]["status"])
+
+        skill_path = bundle / "SKILL.md"
+        skill_path.write_text(
+            skill_path.read_text(encoding="utf-8") + "\nUnreleased local mutation.\n",
+            encoding="utf-8",
+        )
+        stale_result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(bundle / "scripts" / "gtm_audit_package_build.py"),
+                str(self.export_path),
+                "--out-dir",
+                str(self.root / "stale-runtime-package"),
+            ],
+            cwd=bundle,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(2, stale_result.returncode)
+        self.assertIn("runtime identity preflight failed before intake", stale_result.stdout)
 
 
 if __name__ == "__main__":

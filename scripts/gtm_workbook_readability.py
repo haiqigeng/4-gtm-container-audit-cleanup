@@ -752,6 +752,9 @@ def normalize_topic_text(value: Any) -> str:
     return normalize_space(value).casefold()
 
 
+EDITORIAL_DECISION_THRESHOLD = 15
+
+
 def default_decision_topics(owner_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for record in owner_records:
@@ -788,6 +791,12 @@ def decision_topics(
     source_sha256: str,
 ) -> list[dict[str, Any]]:
     if editorial is None:
+        if len(owner_records) > EDITORIAL_DECISION_THRESHOLD:
+            raise ValueError(
+                f"{len(owner_records)} owner decisions require a complete analyst-authored "
+                "decision-topic map; automatic literal grouping is limited to "
+                f"{EDITORIAL_DECISION_THRESHOLD} or fewer decisions"
+            )
         return default_decision_topics(owner_records)
     if editorial.get("kind") not in {
         "gtm_readability_decision_topics",
@@ -861,6 +870,14 @@ def decision_topics(
     missing = sorted(expected - seen)
     if missing:
         raise ValueError(f"Decision-topic artifact omits owner decisions: {missing}")
+    if (
+        len(owner_records) > EDITORIAL_DECISION_THRESHOLD
+        and len(topics) >= len(owner_records)
+    ):
+        raise ValueError(
+            "Large decision registers require meaningful consolidation: at least one "
+            "topic must group source records that genuinely need the same owner answer"
+        )
     return topics
 
 

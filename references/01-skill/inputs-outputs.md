@@ -78,12 +78,12 @@ When requested and authorised, it may additionally produce:
 
 The audit evidence package contains `context.json`, `source_model.json`,
 `shared_facts.json`, three independent review artifacts, technical code facts,
+three physical run-specific input bundles, validator-bound review seals,
 run-specific input contracts and completion attestations, reconciled operations
 with a decision ledger, projected object counts, measurement-family
 preservation and target-state mapping, and the future-state gate. These are
 working/proof artifacts; the workbook entry layer remains concise.
-The canonical visible Cleanup Plan uses a stable broad problem category before
-the exact
+The canonical visible Cleanup Plan uses a stable broad problem category before the exact
 area/problem type and preserves GTM layer prefixes in `Affected object(s)` so
 analysts can filter the plan without losing source-specific detail.
 Each visible operation uses analyst language: the literal GTM problem, why the
