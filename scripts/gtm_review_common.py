@@ -63,7 +63,11 @@ REVIEW_INPUT_ROLES = {
             "configuration_review_scaffold",
             "vendor_registry",
         ),
-        "optional": ("official_documentation", "review_work_units"),
+        "optional": (
+            "official_documentation",
+            "approved_requirement_evidence",
+            "review_work_units",
+        ),
         "prohibited": (
             "operational_review",
             "architecture_review",
@@ -83,7 +87,7 @@ REVIEW_INPUT_ROLES = {
             "shared_facts",
             "architecture_review_scaffold",
         ),
-        "optional": ("review_work_units",),
+        "optional": ("approved_requirement_evidence", "review_work_units"),
         "prohibited": (
             "operational_review",
             "configuration_review",
@@ -231,6 +235,16 @@ def validate_review_provenance(
         errors.append(f"{label}: completion used undeclared input roles: {', '.join(unknown)}")
     if blocked := sorted(used & prohibited):
         errors.append(f"{label}: completion used prohibited input roles: {', '.join(blocked)}")
+    requirement_role = "approved_requirement_evidence"
+    has_requirement_evidence = bool(supplied.get(requirement_role))
+    if has_requirement_evidence and requirement_role not in used:
+        errors.append(
+            f"{label}: completion omitted the supplied approved requirement evidence role"
+        )
+    if not has_requirement_evidence and requirement_role in used:
+        errors.append(
+            f"{label}: completion attests approved requirement evidence that is not present"
+        )
 
     foreign = [str(value) for value in as_list(attestation.get("foreign_verdict_artifacts_used"))]
     if foreign:

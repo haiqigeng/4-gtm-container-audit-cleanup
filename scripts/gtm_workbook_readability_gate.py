@@ -13,12 +13,9 @@ from typing import Any
 from gtm_privacy import privacy_findings
 from gtm_privacy_scan import scan_xlsx
 from gtm_workbook_readability import (
-    HUMAN_SHEETS,
     MANIFEST_KIND,
     MANIFEST_SCHEMA_VERSION,
-    ORIGINAL_SHEETS,
     PLACEHOLDER_RE,
-    SECTION_MARKER,
     UNSUPPORTED_CLAIMS,
     artifact_paths,
     build_model,
@@ -30,6 +27,27 @@ from gtm_workbook_readability import (
     validate_manifest_path,
     workbook_sheet_hashes,
 )
+
+# Keep the delivery contract local to the gate.  A builder-side sheet-order or
+# navigation regression must not redefine what the validator accepts.
+HUMAN_SHEETS = [
+    "A1 Overview",
+    "A2 Actions",
+    "A3 Decisions",
+    "A4 Audit Register",
+    "A5 Custom HTML",
+]
+ORIGINAL_SHEETS = [
+    "01 Summary",
+    "02 Cleanup Plan",
+    "03 Operational Review",
+    "04 Configuration Review",
+    "05 Architecture Review",
+    "06 Custom Code Review",
+    "07 Reconciled Operations",
+    "08 Source & Gates",
+]
+SECTION_MARKER = "—"
 
 LINK_RE = re.compile(
     r"^#(?:(?:'(?P<quoted>(?:[^']|'')+)')|(?P<plain>[^!]+))!"
@@ -60,6 +78,8 @@ def expected_action_rows(model: dict[str, Any]) -> list[list[str]]:
         rows.append(
             [
                 model["labels"]["shared_validation"],
+                "",
+                "",
                 "",
                 "",
                 "",
@@ -129,13 +149,61 @@ def action_note_errors(sheet: Any, model: dict[str, Any]) -> list[str]:
     start_row = 3 if model["common_validation"] else 2
     for offset, row in enumerate(model["action_rows"]):
         row_number = start_row + offset
-        expected = str(row["notes"].get(3) or "")
-        comment = sheet.cell(row_number, 4).comment
+        expected = str(row["notes"].get(5) or "")
+        comment = sheet.cell(row_number, 6).comment
         actual = str(comment.text or "") if comment else ""
         if actual != expected:
             errors.append(
-                f"A3 Actions!{row_number}: exact structured-action note differs "
+                f"A2 Actions!{row_number}: exact structured-action note differs "
                 "from the authoritative operation"
+            )
+    return errors
+
+
+def independent_action_utility_errors(sheet: Any) -> list[str]:
+    """Check the human contract without trusting the builder's projected rows."""
+
+    errors: list[str] = []
+    generic_markers = (
+        "reduces maintenance risk without changing unrelated",
+        "preserves affected measurement families",
+        "improves maintainability",
+        "reduces maintenance risk",
+        "keeps the container clean",
+    )
+    for row_number in range(2, sheet.max_row + 1):
+        operation_cell = cell_value(sheet.cell(row_number, 1))
+        if "OP-" not in operation_cell:
+            continue
+        problem = cell_value(sheet.cell(row_number, 4)).strip()
+        consequence = cell_value(sheet.cell(row_number, 5)).strip()
+        exact_change = cell_value(sheet.cell(row_number, 6)).strip()
+        verification = cell_value(sheet.cell(row_number, 8)).strip()
+        for label, value in (
+            ("literal problem", problem),
+            ("consequence", consequence),
+            ("exact change", exact_change),
+            ("static verification and rollback", verification),
+        ):
+            if len(value.split()) < 5:
+                errors.append(
+                    f"A2 Actions!{row_number}: {label} is not standalone and readable"
+                )
+        if problem.casefold() == consequence.casefold():
+            errors.append(
+                f"A2 Actions!{row_number}: problem and consequence repeat the same text"
+            )
+        if any(marker in consequence.casefold() for marker in generic_markers):
+            errors.append(
+                f"A2 Actions!{row_number}: consequence uses generic impact boilerplate"
+            )
+        if "static readback:" not in verification.casefold():
+            errors.append(
+                f"A2 Actions!{row_number}: static readback is not explicit"
+            )
+        if not sheet.cell(row_number, 6).comment:
+            errors.append(
+                f"A2 Actions!{row_number}: exact structured mutation note is missing"
             )
     return errors
 
@@ -207,22 +275,23 @@ def workbook_structure_errors(workbook: Any, model: dict[str, Any]) -> list[str]
         return errors
     errors.extend(
         table_errors(
-            workbook["A2 Audit Register"],
+            workbook["A4 Audit Register"],
             model["headers"]["audit"],
             expected_audit_rows(model),
         )
     )
     errors.extend(
         table_errors(
-            workbook["A3 Actions"],
+            workbook["A2 Actions"],
             model["headers"]["actions"],
             expected_action_rows(model),
         )
     )
-    errors.extend(action_note_errors(workbook["A3 Actions"], model))
+    errors.extend(action_note_errors(workbook["A2 Actions"], model))
+    errors.extend(independent_action_utility_errors(workbook["A2 Actions"]))
     errors.extend(
         table_errors(
-            workbook["A4 Decisions"],
+            workbook["A3 Decisions"],
             model["headers"]["decisions"],
             expected_decision_rows(model),
         )
@@ -267,6 +336,8 @@ def workbook_structure_errors(workbook: Any, model: dict[str, Any]) -> list[str]
             model["projected_object_counts"],
             labels["counts"]["no_delta"],
         ),
+        model["first_actions"],
+        model["measurement_summary"],
     }
     for value in sorted(required_overview):
         if value not in overview_values:
@@ -287,8 +358,20 @@ def hyperlink_errors(
     workbook: Any,
     manifest: dict[str, Any],
 ) -> list[str]:
+    from openpyxl.utils.cell import coordinate_to_tuple
+
     errors: list[str] = []
     actual: set[tuple[str, str]] = set()
+    allowed_directions = {
+        ("A4 Audit Register", "A2 Actions"),
+        ("A4 Audit Register", "A3 Decisions"),
+        ("A4 Audit Register", "A5 Custom HTML"),
+        ("A2 Actions", "A4 Audit Register"),
+        ("A3 Decisions", "A4 Audit Register"),
+        ("A3 Decisions", "A5 Custom HTML"),
+        ("A5 Custom HTML", "A4 Audit Register"),
+        ("A5 Custom HTML", "A3 Decisions"),
+    }
     for sheet_name in HUMAN_SHEETS:
         sheet = workbook[sheet_name]
         for row in sheet.iter_rows():
@@ -316,10 +399,26 @@ def hyperlink_errors(
                         f"{sheet_name}!{cell.coordinate}: unknown target sheet {target_sheet!r}"
                     )
                     continue
-                target_cell = workbook[target_sheet][coordinate]
-                if target_cell.row > workbook[target_sheet].max_row:
+                target_row, target_column = coordinate_to_tuple(coordinate)
+                target_tab = workbook[target_sheet]
+                if (
+                    target_row > target_tab.max_row
+                    or target_column > target_tab.max_column
+                ):
                     errors.append(
-                        f"{sheet_name}!{cell.coordinate}: target is outside used rows"
+                        f"{sheet_name}!{cell.coordinate}: target is outside used cells"
+                    )
+                    continue
+                target_cell = target_tab.cell(target_row, target_column)
+                if target_cell.value in {None, ""}:
+                    errors.append(
+                        f"{sheet_name}!{cell.coordinate}: target cell is empty"
+                    )
+                    continue
+                if (sheet_name, target_sheet) not in allowed_directions:
+                    errors.append(
+                        f"{sheet_name}!{cell.coordinate}: invalid analyst-navigation "
+                        f"direction to {target_sheet!r}"
                     )
                 actual.add(
                     (
@@ -496,17 +595,17 @@ def validate(
             errors["audit_coverage"].extend(
                 message
                 for message in structure
-                if message.startswith("A2 Audit Register")
+                if message.startswith("A4 Audit Register")
             )
             errors["action_coverage_and_direction"].extend(
                 message
                 for message in structure
-                if message.startswith("A3 Actions")
+                if message.startswith("A2 Actions")
             )
             errors["decision_coverage"].extend(
                 message
                 for message in structure
-                if message.startswith("A4 Decisions")
+                if message.startswith("A3 Decisions")
             )
             errors["custom_html_coverage"].extend(
                 message

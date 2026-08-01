@@ -34,6 +34,7 @@ from gtm_relationships import (
     tag_business_event_key,
     tag_contract,
 )
+from gtm_requirement_evidence import object_requirement_links
 from gtm_review_common import (
     VALID_CONFIDENCE,
     VALID_PRIORITIES,
@@ -975,6 +976,7 @@ def scaffold_review(
     export_path: Path,
     shared_facts: dict[str, Any] | None = None,
     *,
+    requirement_evidence: dict[str, Any] | None = None,
     include_validator_answer_key: bool = False,
 ) -> dict[str, Any]:
     descriptor = source_descriptor(export_path)
@@ -997,6 +999,19 @@ def scaffold_review(
     shared_by_key = {
         str(row.get("object_key") or ""): row
         for row in as_list(shared_facts.get("objects"))
+    }
+    source_records = {
+        record["object_key"]: record
+        for records in object_records(cv, root_path).values()
+        for record in records
+    }
+    requirement_links_by_key = {
+        key: object_requirement_links(
+            record["object"],
+            str(record.get("object_name") or ""),
+            requirement_evidence,
+        )
+        for key, record in source_records.items()
     }
     families = scaffold_families(cv, root_path)
     for family in families:
@@ -1024,6 +1039,15 @@ def scaffold_review(
         family["member_distinguishing_terms"] = distinguishing_terms_for_keys(
             family["member_object_keys"], shared_by_key
         )
+        family["approved_requirement_links"] = sorted(
+            {
+                str(link.get("requirement_id") or ""): link
+                for key in family["chain_object_keys"]
+                for link in as_list(requirement_links_by_key.get(key))
+                if str(link.get("requirement_id") or "")
+            }.values(),
+            key=lambda link: str(link.get("requirement_id") or ""),
+        )
     comparisons = scaffold_comparisons(cv, root_path)
     add_canonical_recommendations(comparisons, object_consumer_map(export_path))
     for comparison in comparisons:
@@ -1042,6 +1066,15 @@ def scaffold_review(
         }
         comparison["candidate_distinguishing_terms"] = distinguishing_terms_for_keys(
             comparison["candidate_object_keys"], shared_by_key
+        )
+        comparison["approved_requirement_links"] = sorted(
+            {
+                str(link.get("requirement_id") or ""): link
+                for key in comparison["candidate_object_keys"]
+                for link in as_list(requirement_links_by_key.get(key))
+                if str(link.get("requirement_id") or "")
+            }.values(),
+            key=lambda link: str(link.get("requirement_id") or ""),
         )
         comparison["required_caution_states"] = comparison_caution_states(
             comparison, shared_by_key
@@ -1092,7 +1125,7 @@ def scaffold_review(
     return {
         **descriptor,
         "kind": "gtm_business_architecture_review",
-        "schema_version": 3,
+        "schema_version": 4,
         "shared_facts_sha256": shared_facts["shared_facts_sha256"],
         "context_sha256": shared_facts["context_sha256"],
         "input_contract": input_contract,
@@ -1101,6 +1134,7 @@ def scaffold_review(
         "inferred_context": shared_facts.get("inferred_context", {}),
         "provided_context": shared_facts.get("provided_context", {}),
         "provided_context_fields": shared_facts.get("provided_context_fields", []),
+        "approved_requirement_evidence": requirement_evidence or {},
         "unresolved_context_questions": shared_facts.get(
             "unresolved_context_questions", []
         ),
@@ -1919,7 +1953,7 @@ def validate_review_identity(
     checks = (
         ("source_sha256", source_sha256, "source_sha256 does not match the export"),
         ("kind", "gtm_business_architecture_review", "kind is invalid"),
-        ("schema_version", 3, "schema_version must be 3"),
+        ("schema_version", 4, "schema_version must be 4"),
         (
             "shared_facts_sha256",
             expected.get("shared_facts_sha256"),
@@ -1949,6 +1983,11 @@ def validate_review_identity(
             "provided_context_fields",
             expected_context.get("provided_fields"),
             "provided context fields changed",
+        ),
+        (
+            "approved_requirement_evidence",
+            expected.get("approved_requirement_evidence"),
+            "approved requirement evidence changed",
         ),
         (
             "unresolved_context_questions",
@@ -2034,6 +2073,7 @@ def validate_families(
         "chain_evidence_terms",
         "chain_edges",
         "chain_specificity_tokens",
+        "approved_requirement_links",
     )
     for family_id, expected_row in expected_rows.items():
         row = supplied_rows.get(family_id)
@@ -2172,6 +2212,7 @@ GENERATED_COMPARISON_FIELDS = {
     "required_comparison_dimensions",
     "discovery_methods",
     "required_caution_states",
+    "approved_requirement_links",
 }
 
 
@@ -2567,6 +2608,7 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
     expected = scaffold_review(
         export_path,
         expected_shared,
+        requirement_evidence=supplied.get("approved_requirement_evidence") or None,
         include_validator_answer_key=True,
     )
     errors: list[str] = []

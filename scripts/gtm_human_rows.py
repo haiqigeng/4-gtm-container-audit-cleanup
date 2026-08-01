@@ -11,7 +11,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from gtm_lib import as_list
+from gtm_lib import REF_RE, as_list
 from gtm_privacy import redact_text
 from gtm_taxonomy import (
     AREAS,
@@ -44,7 +44,6 @@ OBJECT_KEY_RE = re.compile(
     r"\b(?:tag|trigger|variable|folder|customTemplate|builtInVariable):[^\s,;]+\s*"
 )
 INTERNAL_HASH_RE = re.compile(r"\b[a-f0-9]{32,}\b", re.I)
-GTM_REFERENCE_RE = re.compile(r"\{\{([^{}]+)\}\}")
 NONSTANDARD_SPACE_RE = re.compile(r"[\u00a0\u1680\u2000-\u200b\u202f\u205f\u3000]")
 
 
@@ -164,7 +163,7 @@ def catalog_label(
     object_key: str, catalog: dict[str, dict[str, Any]]
 ) -> str:
     name = str((catalog.get(object_key) or {}).get("object_name") or "")
-    return f"{name} ({object_key})" if name else object_key
+    return f"{object_key} — {name}" if name else object_key
 
 
 def short_labels(
@@ -184,28 +183,6 @@ def short_labels(
     return ", ".join(labels[:limit]) + f", +{len(labels) - limit} more"
 
 
-def family_scope(
-    operation: dict[str, Any], family_by_id: dict[str, str]
-) -> str:
-    labels = list(
-        dict.fromkeys(
-            family_by_id.get(str(family_id), str(family_id))
-            for family_id in as_list(
-                operation.get("affected_measurement_family_ids")
-            )
-            if str(family_id)
-        )
-    )
-    if not labels:
-        return "no active measurement family"
-    if len(labels) == 1:
-        return f"the {labels[0]} measurement family"
-    preview = ", ".join(labels[:3])
-    if len(labels) > 3:
-        preview += f", +{len(labels) - 3} more"
-    return f"{len(labels)} measurement families ({preview})"
-
-
 def changed_reference_details(
     operation: dict[str, Any],
 ) -> tuple[list[str], list[str], list[str]]:
@@ -215,8 +192,8 @@ def changed_reference_details(
     for change in as_list(operation.get("changes")):
         before = str(change.get("before") or "")
         after = str(change.get("after") or "")
-        before_refs = GTM_REFERENCE_RE.findall(before)
-        after_refs = GTM_REFERENCE_RE.findall(after)
+        before_refs = REF_RE.findall(before)
+        after_refs = REF_RE.findall(after)
         for reference in before_refs:
             if NONSTANDARD_SPACE_RE.search(reference) and reference not in after_refs:
                 normalized = NONSTANDARD_SPACE_RE.sub(" ", reference)
@@ -243,10 +220,8 @@ def changed_reference_details(
 def operation_problem_text(
     operation: dict[str, Any],
     catalog: dict[str, dict[str, Any]],
-    family_by_id: dict[str, str],
 ) -> str:
     problem_type = str(operation.get("problem_type") or "")
-    preserved = family_scope(operation, family_by_id)
     deleted = [
         str(item.get("object_key") or "")
         for item in as_list(operation.get("deletions"))
@@ -259,7 +234,7 @@ def operation_problem_text(
             f"reference occurrence(s). The text looks like "
             f"{', '.join('{{' + value + '}}' for value in replacements)}, but GTM "
             "matches variable names exactly, so the configured input can resolve as "
-            f"missing. The repair preserves {preserved}."
+            "missing."
         )
     if problem_type == "Exact duplicate":
         canonical = str(operation.get("canonical_object_key") or "")
@@ -272,8 +247,7 @@ def operation_problem_text(
         return (
             f"{short_labels(deleted, catalog)} has the same exported configuration "
             f"as {catalog_label(canonical, catalog)} and adds no distinct configured "
-            f"measurement behavior. Separate copies can drift later. Consolidation "
-            f"preserves {preserved}."
+            "measurement behavior."
         )
     if problem_type == "Unused object":
         reachability = str(
@@ -287,10 +261,7 @@ def operation_problem_text(
             if reachability == "paused_only"
             else "No active configured consumer or execution path reaches the listed object"
         )
-        return (
-            f"{evidence}. Keeping it adds search, ownership, and accidental-reuse "
-            f"risk without adding measurement; {preserved} remains available."
-        )
+        return f"{evidence}."
     if (
         problem_type == "Custom code risk"
         and "support document.write" in str(
@@ -298,22 +269,25 @@ def operation_problem_text(
         ).lower()
     ):
         return (
-            f"The exported Custom HTML and its Support document.write setting do "
+            "The exported Custom HTML and its Support document.write setting do "
             "not match: the legacy capability is enabled when the code does not use "
-            "it, or disabled when the code requires it. Aligning that one setting "
-            f"preserves the HTML, route, consent controls, and {preserved}."
+            "it, or disabled when the code requires it."
         )
     if problem_type == "Naming inconsistency":
-        return (
-            f"{plain_text(operation.get('problem'), 260)} The configured behavior "
-            "does not change; the cleanup makes the retained object easier to find "
-            "and own."
-        )
+        return plain_text(operation.get("problem"), 420)
     problem = plain_text(operation.get("problem"), 300)
-    impact = plain_text(operation.get("why_it_matters"), 220)
-    return (
-        f"{problem} Impact: {impact} The approved target state preserves {preserved}."
-    ).strip()
+    if problem:
+        return problem
+    title = plain_text(operation.get("title"), 220)
+    affected = short_labels(
+        [
+            str(value)
+            for value in as_list(operation.get("affected_object_keys"))
+            if str(value)
+        ],
+        catalog,
+    )
+    return f"{title or problem_type or 'Configured issue'} affects {affected}."
 
 
 def static_verification_text(operation: dict[str, Any]) -> str:
@@ -352,7 +326,12 @@ def operation_action_text(
         if str(item.get("object_key") or "")
     ]
     broken, replacements, changed_objects = changed_reference_details(operation)
-    if problem_type == "Broken reference" and broken:
+    if deleted and all(key.startswith("builtInVariable:") for key in deleted):
+        action = (
+            "Disable/deselect the listed built-in variable(s) in GTM; the exported "
+            "target state removes them from the enabled builtInVariable list."
+        )
+    elif problem_type == "Broken reference" and broken:
         action = (
             f"Retype {', '.join('{{' + value + '}}' for value in replacements)} "
             f"with ordinary spaces in {short_labels(changed_objects, catalog)}. Keep "
@@ -361,19 +340,24 @@ def operation_action_text(
         )
     elif problem_type == "Exact duplicate":
         canonical = str(operation.get("canonical_object_key") or "")
-        consumers = [
-            str(key)
-            for remap in as_list(operation.get("remaps"))
-            for key in as_list(remap.get("consumer_object_keys"))
-            if str(key)
-        ]
         if not canonical and not deleted:
             action = plain_text(operation.get("exact_proposed_action"), 280)
         elif canonical:
-            action = f"Keep {catalog_label(canonical, catalog)}"
-            if consumers:
-                action += f"; repoint {short_labels(consumers, catalog)} to it"
-            action += f"; delete {short_labels(deleted, catalog)}."
+            sentences = [f"Keep {catalog_label(canonical, catalog)}."]
+            for remap in as_list(operation.get("remaps")):
+                consumers = [
+                    str(key)
+                    for key in as_list(remap.get("consumer_object_keys"))
+                    if str(key)
+                ]
+                sentences.append(
+                    f"Repoint {short_labels(consumers, catalog)} from "
+                    f"{catalog_label(str(remap.get('from_object_key') or ''), catalog)} "
+                    f"to {catalog_label(str(remap.get('to_object_key') or canonical), catalog)}."
+                )
+            if deleted:
+                sentences.append(f"Delete {short_labels(deleted, catalog)}.")
+            action = " ".join(sentences)
         else:
             action = (
                 f"Delete {short_labels(deleted, catalog)} because the complete "
@@ -454,7 +438,7 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
         for key, value in (payload.get("object_catalog") or {}).items()
         if isinstance(value, dict)
     }
-    family_by_id = {
+    family_label_by_id = {
         str(family.get("family_id") or ""): str(
             family.get("family_label") or family.get("family_id") or ""
         )
@@ -463,7 +447,6 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
         )
         if str(family.get("family_id") or "")
     }
-
     action_completeness = payload.get("action_completeness")
     if isinstance(action_completeness, dict) and action_completeness.get("status") != "pass":
         action_errors = [
@@ -555,22 +538,9 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
             errors.append(
                 f"operation {operation.get('operation_id')}: unsupported problem type {problem_type!r}"
             )
-        problem = operation_problem_text(operation, catalog, family_by_id)
+        problem = operation_problem_text(operation, catalog)
         impact = ""
         action = operation_action_text(operation, catalog)
-        deletion_keys = [
-            str(item.get("object_key") or "")
-            for item in as_list(operation.get("deletions"))
-            if str(item.get("object_key") or "")
-        ]
-        if deletion_keys and all(
-            key.startswith("builtInVariable:") for key in deletion_keys
-        ):
-            action = (
-                "Disable/deselect the listed built-in variable(s) in GTM; in the "
-                "export target state this removes them from the enabled "
-                "builtInVariable list."
-            )
         qa = static_verification_text(operation)
         blocker = redact_text(operation.get("blocker"))
         operation_id = str(operation.get("operation_id") or f"OP-{index:04d}")
@@ -581,7 +551,11 @@ def build_rows(payload: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]
             else "Proposed action"
         )
         family_values = [
-            str(value)
+            (
+                f"{family_label_by_id[str(value)]} ({value})"
+                if family_label_by_id.get(str(value)) not in {None, "", str(value)}
+                else str(value)
+            )
             for value in as_list(operation.get("affected_measurement_family_ids"))
             if str(value)
         ]

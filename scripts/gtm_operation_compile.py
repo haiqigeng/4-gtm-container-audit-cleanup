@@ -14,11 +14,19 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from gtm_approval_response import approval_contract
 from gtm_architecture_review import validate_review as validate_architecture_review
 from gtm_baseline_audit import build_execution_reachability
 from gtm_configuration_review import validate_review as validate_configuration_review
 from gtm_consent_model import server_route_hosts
-from gtm_lib import ID_KEYS, container_version, load_json, source_integrity_findings, stable_hash
+from gtm_lib import (
+    ID_KEYS,
+    REF_RE,
+    container_version,
+    load_json,
+    source_integrity_findings,
+    stable_hash,
+)
 from gtm_operational_review import validate_review as validate_operational_review
 from gtm_review_common import (
     as_list,
@@ -55,7 +63,6 @@ TEXT_FIELDS = (
     "execution_readiness",
     "canonical_selection_rationale",
 )
-GTM_REFERENCE_RE = re.compile(r"\{\{([^{}]+)\}\}")
 
 
 def source_object_catalog(export_path: Path) -> dict[str, dict[str, Any]]:
@@ -2603,10 +2610,10 @@ def reference_repairs_by_source(
             continue
         for change in as_list(packet.get("changes")):
             object_key = str(change.get("object_key") or "")
-            before_references = GTM_REFERENCE_RE.findall(
+            before_references = REF_RE.findall(
                 str(change.get("before") or "")
             )
-            after_references = GTM_REFERENCE_RE.findall(
+            after_references = REF_RE.findall(
                 str(change.get("after") or "")
             )
             for before in before_references:
@@ -3249,9 +3256,9 @@ def compile_operations(
     target_organization = target_organization_summary(
         operational, packets, catalog
     )
-    return {
+    payload = {
         "kind": "gtm_reconciled_operations",
-        "schema_version": 3,
+        "schema_version": 4,
         "source_file": operational.get("source_file"),
         "source_sha256": next(iter(hashes), ""),
         "shared_facts_sha256": next(iter(fact_hashes), ""),
@@ -3279,7 +3286,9 @@ def compile_operations(
         "target_organization": target_organization,
         "decision_ledger": reconciled_ledger,
         "operations": packets,
-    }, errors
+    }
+    payload["approval_contract"] = approval_contract(payload)
+    return payload, errors
 
 
 def main() -> int:

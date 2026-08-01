@@ -105,12 +105,15 @@ copied or stale hash is not enough to pass.
    require a finding, concrete proposed action, evidence-bound exception basis,
    or source-specific owner question; relabeling the verdict is not resolution.
    A confirmed technical issue links to exactly one concrete defect.
-   Evidence collection remains exhaustive for every object. Provably simple
-   folders, built-ins, constants, and Data Layer Variables may use a concise
-   locked rendering of the same seven semantic dimensions; every complex,
-   risky, ambiguous, uncertain, shared, or actionable object remains deep.
-   Reviewer artifacts expose evidence but not validator-only field grading
-   terms, and repeated hollow bulk prose fails.
+   Evidence collection remains exhaustive for every object. The source-locked
+   ledger retains every leaf, recursive trace, code segment, contract topic,
+   technical finding, and D3 check exactly once. Related evidence is presented
+   as meaningful behavior groups, so the reviewer authors an object-level
+   correctness basis and escalated conclusions instead of repeating seven
+   near-identical paragraphs. Generated branch and trace narration is evidence
+   rendering, not an automated correctness verdict; every complex, risky,
+   ambiguous, uncertain, shared, or actionable object still requires substantive
+   judgment.
 3. **Business architecture** compares complete execution chains and business
    families. It finds functional overlap, conflicting funnel logic, duplicate
    destinations, Zones governing the same child container, unnecessary
@@ -149,12 +152,15 @@ coverage, final-name uniqueness, dependency cycles, exact mutation paths, and
 cross-operation conflicts.
 
 Package creation automatically splits large reviews into bounded, source-locked
-shards inside their run-specific bundles and records the strategy under `review_work_units` in the package
-manifest. The current limits are more than 40 primary review items or more than
-30 items in one configuration obligation group. The merge tool refuses missing,
-duplicate, pending, or source-mismatched work, so scaling the execution does not
-reduce audit coverage. Architecture shards include a separate open-discovery
-file for added `DISC-*` comparisons and the final all-object attestation.
+shards inside their run-specific bundles and records evidence, authored-work,
+and shard metrics under `review_work_units`. The current limits are more than 40
+primary review items or, for Run 2, more than 120 authored behavior work units.
+Current Run-2 shards contain source-hashed completion overlays; the full exact
+evidence ledger remains in the adjacent bundle-local base review. The merge tool
+refuses missing, duplicate, pending, changed-source, or incomplete work. Current
+packages create no per-obligation micro-shards; legacy shards remain readable for
+resumability. Architecture shards include a separate open-discovery file for
+added `DISC-*` comparisons and the final all-object attestation.
 
 ## Inputs
 
@@ -180,15 +186,22 @@ requires its own complete export for a server-side audit.
 Consent-like names/events and arbitrary blockers are only candidates; proof of
 forwarding requires both a server route and a behavior-bearing payload chain.
 
+An analyst may additionally provide an explicitly approved tracking plan in
+JSON, CSV, XLSX, or XLSM format. It is preserved row by row as separately
+labelled external requirement evidence and is available only to configuration
+and architecture review. It never enters the container-only shared facts or
+operational scan, and exact identifiers may be matched without inferring that a
+similar name is an intended replacement.
+
 ## Outputs
 
 - An audit summary and a validated canonical `cleanup_plan.xlsx`.
 - A preferred `cleanup_plan.analyst.xlsx` when its separate post-gate
   transformation passes, with five lean human tabs followed by every canonical
   technical tab unchanged.
-- A complete Audit Register, exact atomic Actions, grouped-but-lossless owner
-  Decisions, and a full Custom HTML inventory without a separate traceability
-  tab.
+- A stakeholder Overview, exact atomic Actions first, grouped-but-lossless owner
+  Decisions second, the complete Audit Register, and a full Custom HTML inventory
+  without a separate traceability tab.
 - The canonical workbook retains its two visible decision tabs and compact,
   unprotected proof tabs that analysts can unhide when needed.
 - An operational synopsis with priority counts, owner decisions, clean scan
@@ -201,6 +214,8 @@ forwarding requires both a server route and a behavior-bearing payload chain.
 - Lossless hidden proof: long evidence continues onto another row instead of
   being silently truncated.
 - Exact reconciled operations with preconditions, QA, and rollback.
+- A hash-locked row-level approval response in which every exact operation is
+  approved, rejected, or amended before execution.
 - Evidence-based priority dimensions, server/activation safety, and risk-based
   approval/decommission treatment. Runtime QA is out of scope; invoke
   `gtm-preview-recette` separately only when that work is requested.
@@ -213,6 +228,9 @@ forwarding requires both a server route and a behavior-bearing payload chain.
   limit preserved in the hidden reviews instead of presented as a cleanup task.
 - On request and after approval, direct GTM changes or a valid import JSON.
 - A separate field-level change log after changes or an import artifact exist.
+- On request, an objective delta between two independently completed full audits:
+  added/removed/changed objects and new/resolved/recurring findings, operations,
+  decisions, and families. Previous verdicts are never carried into the new run.
 
 The cleanup plan says what should change. The change log says what did change.
 If the analyst-workbook transformation fails, the validated canonical workbook
@@ -258,7 +276,8 @@ python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-pack
 Present the preflight's provided, high-confidence inferred, and unresolved
 context. Resolve material questions in a small JSON file and pass it with
 `--context audit-context.json`; non-material questions remain visible without
-creating another audit gate.
+creating another audit gate. Add `--requirements approved-plan.xlsx` only when
+the analyst explicitly approves that file as requirement evidence.
 
 Complete the three bundle-local review files independently in three fresh
 contexts, validate and seal them, compile the exact cleanup operations, then
@@ -268,8 +287,8 @@ validate the complete audit-and-plan package:
 python -B scripts/gtm_review_isolation.py seal container.json audit-package operational_sanitation --context-id "<actual-run-1-context-id>" --pretty
 python -B scripts/gtm_review_isolation.py seal container.json audit-package configuration_correctness --context-id "<actual-run-2-context-id>" --pretty
 python -B scripts/gtm_review_isolation.py seal container.json audit-package business_architecture --context-id "<actual-run-3-context-id>" --pretty
-python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json audit-package/operations.json --route "Pending user selection" --pretty
-python -B scripts/gtm_three_run_gate.py container.json audit-package --operations audit-package/operations.json --pretty
+python -B scripts/gtm_operation_compile.py container.json audit-package/operational_review.json audit-package/configuration_review.json audit-package/architecture_review.json reconciled_operations.json --route "Pending user selection" --pretty
+python -B scripts/gtm_three_run_gate.py container.json audit-package --operations reconciled_operations.json --pretty
 ```
 
 Use a distinct fresh reasoning context per run and never provide another run's
@@ -282,6 +301,29 @@ are in `references/02-commands/validation-commands.md`. Before approved
 mutation or import generation, `gtm_execution_guard.py` enforces exact
 do-not-touch, server-route, activation, quarantine, source, and future-state
 preconditions.
+
+Create and validate the exact row-level approval surface before mutation:
+
+```powershell
+python -B scripts/gtm_approval_response.py template reconciled_operations.json approval_response.json --pretty
+python -B scripts/gtm_approval_response.py validate reconciled_operations.json approval_response.json --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --approval-response approval_response.json --pretty
+```
+
+Compare two independently completed full audits without reusing old conclusions:
+
+```powershell
+python -B scripts/gtm_audit_delta.py previous-audit-package current-audit-package --output audit_delta.json --pretty
+```
+
+## Scalability Without Reduced Coverage
+
+On a representative 319-row messy container, the v1.9 package retained 15,096
+exact configuration evidence obligations and exposed 2,647 authored behavior
+work units while reducing the generated artifact set from 2,092 files and about
+606 MB in v1.8 to 69 files and about 352 MB. Per-obligation shards fell from
+1,008 to zero. These metrics are regression gates for packaging cost; they do
+not cap objects, evidence, findings, or any of the three independent scans.
 
 ## Repository Map
 
@@ -300,7 +342,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.8.0
+python -B scripts/check_release.py --tag v1.9.0
 git diff --check
 ```
 

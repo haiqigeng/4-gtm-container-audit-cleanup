@@ -254,8 +254,8 @@ def run_gate(
         expected_hash = source_descriptor(export)["source_sha256"]
         if operations.get("source_sha256") != expected_hash:
             errors.append("operations source hash differs from the export")
-        elif operations.get("schema_version") != 3:
-            errors.append("operations schema_version must be 3")
+        elif operations.get("schema_version") != 4:
+            errors.append("operations schema_version must be 4")
         elif set((operations.get("run_statuses") or {}).values()) != {"complete"}:
             errors.append("operations do not record three complete input runs")
         else:

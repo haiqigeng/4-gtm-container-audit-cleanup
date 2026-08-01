@@ -17,60 +17,69 @@ not conclusions.
 
 ## Required Object Proof
 
-For each tag, trigger, variable, Zone, template, client, Google tag
-configuration, and transformation state:
+For every tag, trigger, variable, Zone, template, client, Google tag
+configuration, and transformation, the scaffold preserves two distinct layers:
 
-1. exact purpose;
-2. execution logic and timing;
-3. inputs and recursive terminal sources;
-4. configured output, payload, state change, or side effect and data type;
-5. consumers and their expected meaning;
-6. consent, blocking, sequencing, and server-routing context;
-7. correctness verdict and source-bound basis;
-8. concrete defects and cleanup operation, or a precise non-action disposition.
+1. an exact deterministic evidence ledger covering purpose, execution, inputs,
+   terminal sources, output/side effects, consumers, consent/sequence/routing,
+   every owned leaf, recursive trace, code segment, technical finding, D3 check,
+   and official-contract topic; and
+2. analyst judgment: one object-level correctness verdict and source-bound basis,
+   conclusions for every escalated behavior group, then concrete defects and an
+   exact operation or precise non-action disposition.
 
-Each of the seven semantic statements cites the generated source paths allowed
-for that claim. It must also name at least two relevant source-derived facts
-when available, such as the event, trigger, condition, dataLayer path, return
-expression, destination, consumer, or consent control. A valid citation attached
-to reusable prose does not pass.
+The scaffold's neutral purpose, execution, input, output, consumer, consent,
+branch, and trace text is deterministic evidence rendering. It is not an
+automated claim that the configuration is correct and it does not replace
+reviewer inspection of the exact ledger. When the evidence exposes a defect,
+risk, ambiguity, or unsupported assumption, override the relevant completion
+conclusion and link it to the exact source anchor and defect.
 
-The scaffold exposes the evidence and allowed paths but not the validator's
-field-by-field required-term answer key. The validator regenerates that key
-from the locked source. Evidence collection and every branch, trace, consumer,
+The scaffold exposes evidence and allowed paths but not the validator's
+field-by-field required-term answer key. The validator regenerates that key from
+the locked source. Evidence collection and every branch, trace, consumer,
 contract, technical, and D3 obligation remain exhaustive for every object.
 
 `minimum_semantic_review_depth` is deterministic. `structured_simple` is
 permitted only for folders, built-ins, constants, and Data Layer Variables
 whose complete facts show no code, formula/lookup/regex, consent/vendor/server
 role, technical finding, configuration obligation, unresolved dependency,
-security signal, or high consumer fan-out. Its generated concise fields still
-cover all seven dimensions and remain source-cited. Tags, triggers, templates,
-custom code, complex variables, ambiguous or borderline objects, and every row
-with a finding, uncertainty, owner decision, or proposed cleanup require
-`deep`. A reviewer may always escalate a simple row to deep, but must then
-replace the concise summary with authored source-specific reasoning.
+security signal, or high consumer fan-out. Tags, triggers, templates, custom
+code, complex variables, ambiguous or borderline objects, and every row with a
+finding, uncertainty, owner decision, or proposed cleanup require `deep`.
+Reducing repetitive authored prose never reduces the evidence read or the
+correctness decision.
 
 Use the object's actual event, path, identifier, formula, selector, cookie,
 endpoint, return value, or vendor field. Do not use broad substitutes such as
 `computed value`, `helper`, `loader`, or `payload mapper` without first stating
 literal behavior.
 
-Complete every generated D3 logic cross-check exactly once:
+Complete every generated behavior group exactly once. Groups combine related
+evidence without deleting its exact identities:
 
 - purpose versus configured output or side effect;
 - intended scope versus firing, blocking, conditions, and sequencing;
 - recursive terminal inputs versus output type/shape and consumer meaning;
 - effective consent route versus execution and sequence;
 - custom-code behavior versus configured output or side effect, when present;
+- destination and server routing, when present;
 - exported vendor fields, route, values, types, and consent versus the official
   contract, when present.
 
-Each cross-check has a source-specific conclusion, verdict, and only the
-generated evidence anchors allowed for that object. An Issue must link to a
-concrete defect and force the object's overall Issue verdict. An Unclear result
-must remain a precise owner decision, container-evidence limit, or Issue; it
-cannot be converted to Correct through generic prose.
+Each escalated group has a source-specific authored conclusion and verdict using
+only the generated evidence anchors allowed for that object. Routine groups may
+retain deterministic source rendering only when no risk, issue, ambiguity,
+contract, code, routing, consent, or technical signal requires escalation. An
+Issue must link to a concrete defect and force the object's overall Issue
+verdict. An Unclear result must remain a precise owner decision,
+container-evidence limit, or Issue; it cannot be converted to Correct through
+generic prose.
+
+When explicitly approved tracking-plan evidence is provided, treat it as an
+external requirement layer. Preserve its file/sheet/row/raw-field identity,
+surface exact object/event/destination links in Runs 2 and 3, and never mix it
+into shared container facts or infer a semantic replacement from name similarity.
 
 ## Branch Coverage
 

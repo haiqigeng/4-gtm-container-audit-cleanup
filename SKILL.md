@@ -70,6 +70,11 @@ python -B scripts/gtm_audit_package_build.py container.json --context audit-cont
 ```
 
 Omit `--context` only when no analyst context is available and the preflight has no pending material question.
+Add `--requirements approved-plan.xlsx` only when the analyst explicitly identifies
+that file as an approved tracking-plan requirement. It is normalized as separately
+labelled external requirement evidence for Runs 2 and 3; it never enters the
+container-only shared facts or Run 1, and exact source rows are preserved without
+inventing semantic matches.
 
 ## Non-Negotiable Architecture
 
@@ -87,18 +92,29 @@ Reconcile only after every run passes its own validator.
 
 ## Automatic Work Sharding
 
-Package creation automatically reuses `scripts/gtm_review_shards.py` when a run has more than 40 primary review items or one configuration obligation group has more than 30 items. It records each run's `single_file` or `sharded` strategy in `audit_package_manifest.json` under `review_work_units`.
+Package creation automatically reuses `scripts/gtm_review_shards.py` when a run
+has more than 40 primary review items or Run 2 exceeds 120 authored behavior
+work units. It records each run's `single_file` or `sharded` strategy, exact
+evidence-obligation count, authored-work count, and shard count in
+`audit_package_manifest.json`. These are execution metrics, never audit limits.
 
 For a sharded run:
 
-- work only in that run's `review-bundles/<run>/` directory and complete every primary and obligation shard declared by its `shard_manifest.json`;
+- work only in that run's `review-bundles/<run>/` directory and complete every
+  primary shard declared by its `shard_manifest.json`;
 - keep operational, configuration, and architecture shards separate;
-- check each completed shard immediately against the canonical base review;
+- for current Run-2 schema, inspect the complete adjacent base review and edit
+  only the source-hashed completion overlay in each shard; raw branches, traces,
+  code facts, contracts, and findings remain losslessly available in the base;
+- check each completed shard immediately against that bundle-local base review;
 - complete the dedicated architecture open-discovery shard and attestation;
 - merge the complete run back to the bundle-local review file, validate it, then seal it into the canonical package;
 - never treat sharding as reduced scope or as additional verdict runs.
 
-Use manual `split` only for a legacy package or when a lower bound is needed for an unusually dense object. A missing, pending, duplicated, or source-mismatched shard leaves that run incomplete.
+Current packages never create per-obligation micro-shards; those remain supported
+only for resumability of legacy packages. Use manual `split` only for a legacy
+package or when a lower row bound is needed for an unusually dense object. A
+missing, pending, duplicated, or source-mismatched shard leaves that run incomplete.
 
 ## Three Audit Runs
 
@@ -112,9 +128,26 @@ Do not delete or consolidate from a signature alone. Prove reachability, every s
 
 Read `references/03-rules/configuration-correctness.md` and every applicable topic in `references/03-rules/domain-contracts.md`. Complete every semantic object, source-owned logic leaf, recursive reference trace, consumer/peer context, D3 cross-check, applicable official contract, technical finding, and executable custom-code line exactly once.
 
-Explain literal configured behavior with allowed source anchors. A source-visible Issue requires a concrete defect and exact operation when the target state is known; a genuine unknown retains the precise evidence boundary, owner question where applicable, and analyst recommendation. Do not use generic summaries, inferred runtime behavior, or `Not applicable` as fallback.
+Explain literal configured behavior with allowed source anchors. The scaffold keeps
+an exact deterministic ledger of every leaf, trace, code segment, contract topic,
+technical finding, and D3 check, then groups related evidence into meaningful
+behavior questions such as purpose/output, execution/scope, inputs/consumers,
+consent/sequence, routing, code, and vendor contract. Inspect the full ledger.
+Generated branch or trace narration is evidence rendering, not a correctness
+verdict; replace its completion conclusion whenever the evidence shows a defect,
+risk, ambiguity, or unsupported assumption.
 
-Evidence acquisition is exhaustive for every object. Only folders, built-ins, simple constants, and simple Data Layer Variables that pass the deterministic low-risk test may use the generated `structured_simple` representation of the same seven semantic dimensions. All tags, triggers, code/templates, formulas/lookups/regex, consent/vendor/server routing, findings, ambiguity, owner decisions, unresolved dependencies, and heavily shared objects require `deep` review. A simple row that reveals any issue or uncertainty must be escalated to `deep`; unknown or borderline objects never receive the concise path. The reviewer scaffold does not expose validator-only field grading terms.
+Author one object-level correctness basis plus conclusions for every escalated
+behavior group. Routine source-proven structure may retain its deterministic
+completion rendering, but all tags, triggers, code/templates, formulas/lookups/
+regex, consent/vendor/server routing, findings, ambiguity, owner decisions,
+unresolved dependencies, and heavily shared objects require substantive judgment.
+A source-visible Issue requires a concrete defect and exact operation when the
+target state is known; a genuine unknown retains the precise evidence boundary,
+owner question where applicable, and analyst recommendation. Do not use generic
+summaries, inferred runtime behavior, or `Not applicable` as fallback. Every raw
+obligation remains covered exactly once even though repetitive prose is not
+authored seven times.
 
 Use the bundled official vendor registry first. For an unknown integration, perform current official-source research, update and validate the registry, rebuild the scaffold, and only then certify the contract.
 
@@ -139,6 +172,13 @@ Follow `references/02-commands/validation-commands.md` in this order:
 Do not average or vote across runs. Merge only identical complete structured mutations and preserve every lens's rationale. Block contradictory mutations, unsafe deletions/remaps, behavior changes through preserved or unresolved architecture, incomplete decisions, broken references, newly generated findings, unexplained broad count changes, or missing measurement-family target states.
 
 Every substantiated cleanup disposition becomes the simplest exact operation. Every confirmed measurement family receives an explicit retained, changed, owner-blocked, or evidence-limited target state with preserved behavior, consent, and routing. Container-only evidence limits remain static boundaries, not runtime tasks.
+
+When the analyst asks what changed between audits, run
+`scripts/gtm_audit_delta.py` only after both packages independently complete
+their full three scans, seals, reconciliation, and gates. Compare objective
+objects, findings, operations, decisions, families, and counts; never use the
+previous result as a changed-only shortcut or carry forward its verdicts,
+confidence, or score.
 
 ## Build The Human Cleanup Plan
 
@@ -169,20 +209,22 @@ Do not weaken or omit actions to make the workbook shorter. Consolidate presenta
 In the derived analyst workbook, preserve complete coverage with rows rather
 than extra columns:
 
-- include every decision-ledger record in `A2 Audit Register`;
-- include every atomic operation with deterministic exact action direction in
-  `A3 Actions`;
-- include every owner-decision source record under exactly one topic in
-  `A4 Decisions`; an unanswered owner question never blocks output generation;
+- put every atomic operation first in `A2 Actions`, with literal problem,
+  consequence, exact change, preconditions/approval, and static verification/
+  rollback readable without opening proof tabs;
+- put every owner-decision source record under exactly one topic in
+  `A3 Decisions`, including affected measurement families and what the answer
+  unlocks; an unanswered owner question never blocks output generation;
+- include every decision-ledger record in `A4 Audit Register`;
 - inventory every Custom HTML tag in `A5 Custom HTML`, including long or legacy
   code, potential source-qualified dataLayer replacements, proof limits, and
   conflicts where a candidate variable is also scheduled for deletion;
 - retain all eight canonical tabs unchanged.
 
-Use conservative automatic decision grouping only when there are at most 15
-owner-decision source records. Above 15, author a complete meaningful topic map
-whose records genuinely require the same answer. Do not
-add a traceability tab or link into hidden sheets; use stable IDs, links among
+Use conservative deterministic grouping for any number of owner-decision source
+records: group only identical normalized questions and recommendations unless an
+analyst-authored topic map proves that several records genuinely require the same
+answer. Do not add a traceability tab or link into hidden sheets; use stable IDs, links among
 visible analyst tabs, notes for complete long scopes, and A1 unhide/filter
 instructions. If the derived build or gate fails, reject only that file,
 deliver the already validated canonical workbook, and report the readability
@@ -197,6 +239,14 @@ After delivering the audit and plan, ask for:
 2. direct GTM/API/MCP cleanup or a validated import JSON.
 
 Do not ask for an aggressiveness mode. A subset is staged incomplete cleanup and must be re-simulated. Apply naming standardisation during approved cleanup unless explicitly excluded.
+
+Generate a versioned row-level response with
+`scripts/gtm_approval_response.py template`. The analyst must mark every
+operation `Approve`, `Reject`, or `Amend`; packet and row hashes bind the response
+to the exact operation surface, and server/activation/observation confirmations
+remain separate. Validate the response and pass it to the execution guard with
+`--approval-response`. A missing, foreign, duplicated, or changed row blocks
+execution.
 
 Before mutation, read `references/03-rules/mutation-playbook.md` and:
 

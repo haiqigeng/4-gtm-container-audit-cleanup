@@ -14,6 +14,11 @@ from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
+from gtm_human_rows import (
+    operation_action_text,
+    operation_problem_text,
+    static_verification_text,
+)
 from gtm_lib import as_list, load_json
 from gtm_privacy import redact_text, spreadsheet_safe_text
 
@@ -29,9 +34,9 @@ ORIGINAL_SHEETS = [
 ]
 HUMAN_SHEETS = [
     "A1 Overview",
-    "A2 Audit Register",
-    "A3 Actions",
-    "A4 Decisions",
+    "A2 Actions",
+    "A3 Decisions",
+    "A4 Audit Register",
     "A5 Custom HTML",
 ]
 MANIFEST_KIND = "gtm_workbook_readability_manifest"
@@ -77,11 +82,20 @@ LOCALES: dict[str, dict[str, Any]] = {
                 "Order + OP ID",
                 "Priority",
                 "Objects",
-                "Exact action",
-                "Dependency",
-                "Validation",
+                "Literal problem",
+                "Consequence if unchanged",
+                "Exact change",
+                "Preconditions / approval",
+                "Static verification + rollback",
             ],
-            "decisions": ["Decision", "Question", "Recommendation", "Affected items"],
+            "decisions": [
+                "Decision",
+                "Question",
+                "Recommendation",
+                "Affected items",
+                "Measurement families",
+                "What the answer unlocks",
+            ],
             "html": ["Tag", "State", "Role", "Assessment / next action"],
         },
         "title": "GTM container audit — analyst workbook",
@@ -97,6 +111,8 @@ LOCALES: dict[str, dict[str, Any]] = {
             "retained": "Retained / exceptions",
             "priorities": "Action priorities",
             "deltas": "Projected object deltas",
+            "first_actions": "First cleanup actions",
+            "measurement": "Measurement target state",
             "boundary": "Evidence boundary",
             "next": "Next analyst step",
             "navigation": "How to use this workbook",
@@ -107,6 +123,12 @@ LOCALES: dict[str, dict[str, Any]] = {
             "priority": "{priority} {count}",
             "no_actions": "No proposed action",
             "no_delta": "No count change",
+            "no_families": "No confirmed measurement family in the operation packet",
+            "measurement": (
+                "{total} families: {changed} changed; {retained} retained; "
+                "{reviewed} reviewed without operation; {owner} owner-blocked; "
+                "{boundary} evidence-limited"
+            ),
         },
         "priority_labels": {
             "Critical": "Critical",
@@ -115,7 +137,7 @@ LOCALES: dict[str, dict[str, Any]] = {
             "Low": "Low",
         },
         "next_step": (
-            "Review every A3 action and A4 owner question before authorising any GTM change."
+            "Review every A2 action and A3 owner question before authorising any GTM change."
         ),
         "navigation": (
             "A1–A5 are the analyst views. Sheets 01–08 are the unchanged canonical "
@@ -185,11 +207,20 @@ LOCALES: dict[str, dict[str, Any]] = {
                 "Ordre + ID OP",
                 "Priorité",
                 "Objets",
-                "Action exacte",
-                "Dépendance",
-                "Validation",
+                "Problème concret",
+                "Conséquence sans correction",
+                "Modification exacte",
+                "Prérequis / approbation",
+                "Vérification statique + retour arrière",
             ],
-            "decisions": ["Décision", "Question", "Recommandation", "Éléments concernés"],
+            "decisions": [
+                "Décision",
+                "Question",
+                "Recommandation",
+                "Éléments concernés",
+                "Familles de mesure",
+                "Ce que la réponse débloque",
+            ],
             "html": ["Tag", "État", "Rôle", "Évaluation / prochaine action"],
         },
         "title": "Audit du conteneur GTM — classeur analyste",
@@ -205,6 +236,8 @@ LOCALES: dict[str, dict[str, Any]] = {
             "retained": "Conservés / exceptions",
             "priorities": "Priorités des actions",
             "deltas": "Évolution projetée des objets",
+            "first_actions": "Premières actions de nettoyage",
+            "measurement": "État cible des mesures",
             "boundary": "Limite de preuve",
             "next": "Prochaine étape analyste",
             "navigation": "Utilisation du classeur",
@@ -215,6 +248,12 @@ LOCALES: dict[str, dict[str, Any]] = {
             "priority": "{priority} {count}",
             "no_actions": "Aucune action proposée",
             "no_delta": "Aucune variation du nombre d’objets",
+            "no_families": "Aucune famille de mesure confirmée dans le plan d’opérations",
+            "measurement": (
+                "{total} familles : {changed} modifiées ; {retained} conservées ; "
+                "{reviewed} examinées sans opération ; {owner} bloquées par décision ; "
+                "{boundary} limitées par la preuve"
+            ),
         },
         "priority_labels": {
             "Critical": "Critique",
@@ -223,7 +262,7 @@ LOCALES: dict[str, dict[str, Any]] = {
             "Low": "Faible",
         },
         "next_step": (
-            "Examiner chaque action A3 et chaque question A4 avant d’autoriser "
+            "Examiner chaque action A2 et chaque question A3 avant d’autoriser "
             "une modification GTM."
         ),
         "navigation": (
@@ -720,6 +759,79 @@ def operation_source_ids(operation: dict[str, Any], ledger_ids: set[str]) -> lis
     return sorted(value for value in values if value)
 
 
+GENERIC_IMPACT_MARKERS = (
+    "reduces maintenance risk without changing unrelated",
+    "preserves affected measurement families",
+    "improves maintainability",
+    "reduces maintenance risk",
+    "keeps the container clean",
+)
+
+
+def visible_consequence(operation: dict[str, Any], problem: str) -> str:
+    """Prefer a literal consequence over reusable cleanup boilerplate."""
+
+    supplied = safe_text(operation.get("why_it_matters"))
+    lowered = supplied.casefold()
+    if supplied and not any(marker in lowered for marker in GENERIC_IMPACT_MARKERS):
+        return supplied
+    object_text, _note = compact_objects(operation.get("affected_objects"), 220)
+    if as_list(operation.get("remaps")):
+        return safe_text(
+            f"Without the remap, {object_text or 'the listed consumers'} continue to "
+            "depend on the legacy or incorrect object described in the problem."
+        )
+    if as_list(operation.get("changes")) or as_list(operation.get("additions")):
+        return safe_text(
+            f"Without this correction, {object_text or 'the affected object'} keeps "
+            f"the wrong or incomplete configured behavior: {problem}"
+        )
+    if as_list(operation.get("deletions")):
+        return safe_text(
+            f"Leaving {object_text or 'the listed object'} in the container preserves "
+            "a redundant, obsolete, or misleading configuration that can be reused or "
+            "edited by mistake."
+        )
+    if as_list(operation.get("renames")):
+        return safe_text(
+            f"Without the rename, {object_text or 'the retained object'} remains easy "
+            "to misidentify during maintenance even though its configured behavior is unchanged."
+        )
+    return safe_text(
+        f"If left unchanged, the container keeps the exact problem described here: {problem}"
+    )
+
+
+def approval_and_preconditions(operation: dict[str, Any]) -> str:
+    values = [
+        safe_text(operation.get("preconditions")),
+        safe_text(operation.get("blocker")),
+    ]
+    safety = operation.get("execution_safety") or {}
+    approval = safety.get("approval") or {}
+    scope = safe_text(approval.get("scope"))
+    reasons = ", ".join(
+        safe_text(value) for value in as_list(approval.get("reasons")) if safe_text(value)
+    )
+    if scope:
+        values.append(f"Approval scope: {scope}" + (f" ({reasons})" if reasons else ""))
+    decommission = safety.get("decommission") or {}
+    if decommission.get("required"):
+        values.append(
+            "Quarantine first; deletion needs a separate post-observation approval."
+        )
+    return safe_text(" ".join(value for value in values if value))
+
+
+def verification_and_rollback(operation: dict[str, Any]) -> str:
+    verification = static_verification_text(operation)
+    rollback = safe_text(operation.get("rollback"))
+    return safe_text(
+        f"Static readback: {verification}."
+        + (f" Rollback: {rollback}" if rollback else "")
+    )
+
+
 def compact_finding(record: dict[str, Any], limit: int = 430) -> tuple[str, str]:
     full = safe_text(record.get("summary") or record.get("title") or record.get("decision_id"))
     decision_id = re.escape(str(record.get("decision_id") or ""))
@@ -750,9 +862,6 @@ def compact_objects(value: Any, limit: int = 360) -> tuple[str, str]:
 
 def normalize_topic_text(value: Any) -> str:
     return normalize_space(value).casefold()
-
-
-EDITORIAL_DECISION_THRESHOLD = 15
 
 
 def default_decision_topics(owner_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -791,12 +900,6 @@ def decision_topics(
     source_sha256: str,
 ) -> list[dict[str, Any]]:
     if editorial is None:
-        if len(owner_records) > EDITORIAL_DECISION_THRESHOLD:
-            raise ValueError(
-                f"{len(owner_records)} owner decisions require a complete analyst-authored "
-                "decision-topic map; automatic literal grouping is limited to "
-                f"{EDITORIAL_DECISION_THRESHOLD} or fewer decisions"
-            )
         return default_decision_topics(owner_records)
     if editorial.get("kind") not in {
         "gtm_readability_decision_topics",
@@ -870,14 +973,6 @@ def decision_topics(
     missing = sorted(expected - seen)
     if missing:
         raise ValueError(f"Decision-topic artifact omits owner decisions: {missing}")
-    if (
-        len(owner_records) > EDITORIAL_DECISION_THRESHOLD
-        and len(topics) >= len(owner_records)
-    ):
-        raise ValueError(
-            "Large decision registers require meaningful consolidation: at least one "
-            "topic must group source records that genuinely need the same owner answer"
-        )
     return topics
 
 
@@ -1060,6 +1155,16 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
     if "" in operation_by_id or len(operation_by_id) != len(operations):
         raise ValueError("Operation IDs must be nonblank and unique")
     catalog = operations_payload.get("object_catalog") or {}
+    preservation_families = as_list(
+        (operations_payload.get("measurement_preservation") or {}).get("families")
+    )
+    family_label_by_id = {
+        str(family.get("family_id") or ""): safe_text(
+            family.get("family_label") or family.get("family_id")
+        )
+        for family in preservation_families
+        if str(family.get("family_id") or "")
+    }
 
     owner_records = [
         row for row in ledger if row.get("disposition") == "owner_decision_needed"
@@ -1177,10 +1282,7 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         )
 
     action_rows = []
-    qa_values = [safe_text(operation.get("qa_steps")) for operation in operations]
-    common_validation = (
-        qa_values[0] if qa_values and all(value == qa_values[0] for value in qa_values) else ""
-    )
+    common_validation = ""
     for operation in sorted(
         operations,
         key=lambda row: (
@@ -1190,11 +1292,19 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
     ):
         operation_id = str(operation.get("operation_id"))
         objects, objects_note = compact_objects(operation.get("affected_objects"))
-        blocker = safe_text(operation.get("blocker"))
-        validation = safe_text(operation.get("qa_steps"))
+        problem = operation_problem_text(operation, catalog)
+        if len(normalize_space(problem)) < 24 or normalize_space(problem).startswith("Impact:"):
+            problem = safe_text(
+                f"{objects or operation_id} is covered by this source-evidenced cleanup "
+                "operation; the exact structured mutation below defines the correction."
+            )
+        consequence = visible_consequence(operation, problem)
+        exact_change = operation_action_text(operation, catalog)
+        if len(normalize_space(exact_change)) < 12:
+            exact_change = deterministic_action_text(operation, catalog)
+        preconditions = approval_and_preconditions(operation)
+        validation = verification_and_rollback(operation)
         action_note = structured_action_note(operation)
-        if common_validation and validation == common_validation:
-            validation = ""
         action_rows.append(
             {
                 "kind": "action",
@@ -1204,11 +1314,13 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
                     safe_text(f"{operation.get('execution_order')} · {operation_id}"),
                     safe_text(operation.get("priority")),
                     objects,
-                    deterministic_action_text(operation, catalog),
-                    blocker,
+                    problem,
+                    consequence,
+                    exact_change,
+                    preconditions,
                     validation,
                 ],
-                "notes": {2: objects_note, 3: action_note},
+                "notes": {2: objects_note, 5: action_note},
                 "operation": operation,
             }
         )
@@ -1216,6 +1328,65 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
     owner_by_id = {
         str(record.get("decision_id")): record for record in owner_records
     }
+
+    def decision_family_labels(records: list[dict[str, Any]]) -> list[str]:
+        source_keys = {
+            str(value)
+            for record in records
+            for value in as_list(record.get("source_object_keys"))
+            if str(value)
+        }
+        operation_ids = {
+            str(value)
+            for record in records
+            for value in as_list(record.get("compiled_operation_ids"))
+            if str(value)
+        }
+        family_ids = sorted(
+            {
+                str(family.get("family_id") or "")
+                for family in preservation_families
+                if str(family.get("family_id") or "")
+                and (
+                    source_keys
+                    & {
+                        str(value)
+                        for value in as_list(family.get("source_object_keys"))
+                        if str(value)
+                    }
+                    or operation_ids
+                    & {
+                        str(value)
+                        for value in as_list(family.get("related_operation_ids"))
+                        if str(value)
+                    }
+                )
+            }
+        )
+        return [
+            (
+                f"{family_label_by_id[family_id]} ({family_id})"
+                if family_label_by_id.get(family_id) not in {"", family_id}
+                else family_id
+            )
+            for family_id in family_ids
+        ]
+
+    def decision_unlock(topic: dict[str, Any], records: list[dict[str, Any]]) -> str:
+        object_count = len(
+            {
+                str(value)
+                for record in records
+                for value in as_list(record.get("source_object_keys"))
+                if str(value)
+            }
+        )
+        return safe_text(
+            f"The answer selects the retain, repair, remap, or removal target for "
+            f"{object_count} affected object(s) and makes this recommendation actionable: "
+            f"{topic['recommendation']}"
+        )
+
     decision_rows = []
     for topic in topics:
         source_ids = list(topic["source_ids"])
@@ -1223,6 +1394,7 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         if len(source_ids) == 1:
             source = source_records[0]
             objects, objects_note = compact_objects(source.get("affected_objects"))
+            family_labels = decision_family_labels(source_records)
             decision_rows.append(
                 {
                     "kind": "decision_single",
@@ -1238,6 +1410,8 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
                         topic["question"],
                         topic["recommendation"],
                         objects,
+                        ", ".join(family_labels) or "None linked by container evidence",
+                        decision_unlock(topic, source_records),
                     ],
                     "notes": {3: objects_note},
                 }
@@ -1253,6 +1427,9 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
                     topic["question"],
                     topic["recommendation"],
                     labels["source_items"].format(count=len(source_ids)),
+                    ", ".join(decision_family_labels(source_records))
+                    or "None linked by container evidence",
+                    decision_unlock(topic, source_records),
                 ],
                 "notes": {},
             }
@@ -1279,6 +1456,9 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
                             else ""
                         ),
                         objects,
+                        ", ".join(decision_family_labels([source]))
+                        or "None linked by container evidence",
+                        decision_unlock(topic, [source]),
                     ],
                     "notes": {
                         0: safe_text(source.get("summary")),
@@ -1417,6 +1597,28 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         priority: sum(1 for row in operations if row.get("priority") == priority)
         for priority in PRIORITY_ORDER
     }
+    first_actions = " | ".join(
+        safe_text(
+            f"{row['id']} [{row['operation'].get('priority') or ''}]: "
+            f"{row['operation'].get('title') or row['values'][5]}"
+        )[:260]
+        for row in action_rows[:3]
+    ) or labels["counts"]["no_actions"]
+    preservation_counts = defaultdict(int)
+    for family in preservation_families:
+        preservation_counts[str(family.get("preservation_status") or "")] += 1
+    measurement_summary = (
+        labels["counts"]["measurement"].format(
+            total=len(preservation_families),
+            changed=preservation_counts["planned_change"],
+            retained=preservation_counts["retained_unchanged"],
+            reviewed=preservation_counts["reviewed_no_operation"],
+            owner=preservation_counts["owner_confirmation_required"],
+            boundary=preservation_counts["container_evidence_boundary"],
+        )
+        if preservation_families
+        else labels["counts"]["no_families"]
+    )
     model = {
         "language": language,
         "headers": labels["headers"],
@@ -1446,6 +1648,8 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
             str(row.get("decision_id")): row for row in ledger
         },
         "projected_object_counts": operations_payload.get("projected_object_counts") or {},
+        "first_actions": first_actions,
+        "measurement_summary": measurement_summary,
     }
     return model
 
@@ -1613,7 +1817,7 @@ def write_audit_sheet(sheet: Any, model: dict[str, Any]) -> dict[str, int]:
 
 def write_action_sheet(sheet: Any, model: dict[str, Any]) -> dict[str, int]:
     headers = model["headers"]["actions"]
-    widths = [22, 14, 42, 62, 30, 54]
+    widths = [22, 14, 38, 54, 48, 58, 38, 58]
     apply_header_style(sheet, headers)
     if model["common_validation"]:
         shared_row = append_values(
@@ -1624,12 +1828,14 @@ def write_action_sheet(sheet: Any, model: dict[str, Any]) -> dict[str, int]:
                 "",
                 "",
                 "",
+                "",
+                "",
                 model["common_validation"],
             ],
         )
         style_section_row(sheet, shared_row, widths)
         add_note(
-            sheet.cell(1, 6),
+            sheet.cell(1, 8),
             "Blank operation cells use the shared validation stated in the first data row.",
         )
     row_by_id: dict[str, int] = {}
@@ -1659,7 +1865,7 @@ def write_decision_sheet(
     sheet: Any, model: dict[str, Any]
 ) -> tuple[dict[str, int], dict[str, int]]:
     headers = model["headers"]["decisions"]
-    widths = [34, 60, 56, 48]
+    widths = [34, 54, 52, 42, 24, 58]
     apply_header_style(sheet, headers)
     topic_rows: dict[str, int] = {}
     source_rows: dict[str, int] = {}
@@ -1845,6 +2051,8 @@ def write_overview_sheet(sheet: Any, model: dict[str, Any], inputs: dict[str, An
                 labels["counts"]["no_delta"],
             ),
         ),
+        (labels["overview"]["first_actions"], model["first_actions"]),
+        (labels["overview"]["measurement"], model["measurement_summary"]),
         (labels["overview"]["boundary"], labels["boundary"]),
         (labels["overview"]["next"], labels["next_step"]),
         (labels["overview"]["navigation"], labels["navigation"]),
@@ -1884,9 +2092,9 @@ def apply_cross_links(
     custom_rows: dict[str, int],
 ) -> list[dict[str, str]]:
     links: list[dict[str, str]] = []
-    audit_sheet = workbook["A2 Audit Register"]
-    action_sheet = workbook["A3 Actions"]
-    decision_sheet = workbook["A4 Decisions"]
+    audit_sheet = workbook["A4 Audit Register"]
+    action_sheet = workbook["A2 Actions"]
+    decision_sheet = workbook["A3 Decisions"]
     custom_sheet = workbook["A5 Custom HTML"]
 
     for section in model["audit_sections"]:
@@ -1895,10 +2103,10 @@ def apply_cross_links(
             target_sheet = ""
             target_row = 0
             if row["operation_ids"]:
-                target_sheet = "A3 Actions"
+                target_sheet = "A2 Actions"
                 target_row = action_rows[row["operation_ids"][0]]
             elif row["topic_id"]:
-                target_sheet = "A4 Decisions"
+                target_sheet = "A3 Decisions"
                 target_row = topic_rows[row["topic_id"]]
             else:
                 html_keys = [
@@ -1912,7 +2120,7 @@ def apply_cross_links(
                 add_internal_link(cell, target_sheet, f"A{target_row}")
                 links.append(
                     {
-                        "source": f"A2 Audit Register!{cell.coordinate}",
+                        "source": f"A4 Audit Register!{cell.coordinate}",
                         "target": f"{target_sheet}!A{target_row}",
                     }
                 )
@@ -1927,11 +2135,11 @@ def apply_cross_links(
         )
         if target_id:
             cell = action_sheet.cell(source_row, 1)
-            add_internal_link(cell, "A2 Audit Register", f"A{audit_rows[target_id]}")
+            add_internal_link(cell, "A4 Audit Register", f"A{audit_rows[target_id]}")
             links.append(
                 {
-                    "source": f"A3 Actions!{cell.coordinate}",
-                    "target": f"A2 Audit Register!A{audit_rows[target_id]}",
+                    "source": f"A2 Actions!{cell.coordinate}",
+                    "target": f"A4 Audit Register!A{audit_rows[target_id]}",
                 }
             )
 
@@ -1939,11 +2147,11 @@ def apply_cross_links(
         if source_id not in audit_rows:
             continue
         cell = decision_sheet.cell(source_row, 1)
-        add_internal_link(cell, "A2 Audit Register", f"A{audit_rows[source_id]}")
+        add_internal_link(cell, "A4 Audit Register", f"A{audit_rows[source_id]}")
         links.append(
             {
-                "source": f"A4 Decisions!{cell.coordinate}",
-                "target": f"A2 Audit Register!A{audit_rows[source_id]}",
+                "source": f"A3 Decisions!{cell.coordinate}",
+                "target": f"A4 Audit Register!A{audit_rows[source_id]}",
             }
         )
 
@@ -1962,7 +2170,7 @@ def apply_cross_links(
             add_internal_link(cell, "A5 Custom HTML", f"A{custom_rows[html_keys[0]]}")
             links.append(
                 {
-                    "source": f"A4 Decisions!{cell.coordinate}",
+                    "source": f"A3 Decisions!{cell.coordinate}",
                     "target": f"A5 Custom HTML!A{custom_rows[html_keys[0]]}",
                 }
             )
@@ -1974,22 +2182,22 @@ def apply_cross_links(
         config_id = row["configuration_id"]
         if config_id and config_id in audit_rows:
             cell = custom_sheet.cell(source_row, 1)
-            add_internal_link(cell, "A2 Audit Register", f"A{audit_rows[config_id]}")
+            add_internal_link(cell, "A4 Audit Register", f"A{audit_rows[config_id]}")
             links.append(
                 {
                     "source": f"A5 Custom HTML!{cell.coordinate}",
-                    "target": f"A2 Audit Register!A{audit_rows[config_id]}",
+                    "target": f"A4 Audit Register!A{audit_rows[config_id]}",
                 }
             )
         if row["related_topics"]:
             topic_id = row["related_topics"][0]
             if topic_id in topic_rows:
                 cell = custom_sheet.cell(source_row, 4)
-                add_internal_link(cell, "A4 Decisions", f"A{topic_rows[topic_id]}")
+                add_internal_link(cell, "A3 Decisions", f"A{topic_rows[topic_id]}")
                 links.append(
                     {
                         "source": f"A5 Custom HTML!{cell.coordinate}",
-                        "target": f"A4 Decisions!A{topic_rows[topic_id]}",
+                        "target": f"A3 Decisions!A{topic_rows[topic_id]}",
                     }
                 )
                 if len(row["related_topics"]) > 1:
@@ -2034,11 +2242,11 @@ def build_readability_workbook(
     }
     sheets = create_human_sheets(workbook)
     write_overview_sheet(sheets["A1 Overview"], model, inputs)
-    audit_rows = write_audit_sheet(sheets["A2 Audit Register"], model)
-    action_rows = write_action_sheet(sheets["A3 Actions"], model)
+    action_rows = write_action_sheet(sheets["A2 Actions"], model)
     topic_rows, decision_source_rows = write_decision_sheet(
-        sheets["A4 Decisions"], model
+        sheets["A3 Decisions"], model
     )
+    audit_rows = write_audit_sheet(sheets["A4 Audit Register"], model)
     custom_rows = write_custom_html_sheet(sheets["A5 Custom HTML"], model)
     links = apply_cross_links(
         workbook,

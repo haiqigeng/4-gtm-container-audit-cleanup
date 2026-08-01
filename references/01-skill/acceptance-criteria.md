@@ -57,6 +57,10 @@ A web analyst can call the result done only when:
 - One judgment-free deterministic fact artifact contains object identity,
   references, consumers, raw leaves, terminal sources, trigger logic, formula
   signals, consent routes, and behavior signatures.
+- Optional analyst-approved tracking-plan evidence is normalized with source
+  sheet/row/raw-field hashes and remains separately labelled. It is absent from
+  shared facts and Run 1, available only to Runs 2 and 3, and creates no inferred
+  semantic match from similar wording.
 - All three reviews bind to the same source, context, and shared-fact hashes.
 - Each run is authored from its own physical allowlisted bundle by a distinct
   fresh reasoning context, carries the source-generated input contract and a completed
@@ -133,15 +137,20 @@ A web analyst can call the result done only when:
   prose fail.
 - Reviewer artifacts do not contain the validator's field-by-field grading
   terms. Repeated hollow decision templates fail semantic-integrity checks.
-- Exhaustive evidence and obligation coverage applies to every object. Only a
-  deterministically low-risk folder, built-in, constant, or Data Layer
-  Variable may use the locked concise representation; any complex behavior,
+- Exhaustive evidence and obligation coverage applies to every object. The exact
+  leaf, trace, code, contract, technical-finding, and D3 ledger is retained even
+  when routine deterministic narration is not re-authored. Any complex behavior,
   risk, finding, ambiguity, uncertainty, owner decision, or cleanup action
-  requires deep review.
-- Every object completes the exact generated D3 cross-check set for
-  purpose/output, execution/scope, input/output/consumer, consent/sequence, and,
-  when applicable, custom-code behavior and official-vendor-contract alignment.
-  Every failed check links to a concrete defect.
+  requires substantive authored judgment.
+- Every object has one authored correctness basis and every generated behavior
+  group is covered exactly once. The groups cover purpose/output,
+  execution/scope, inputs/consumers, consent/sequence, destination/routing and,
+  when applicable, custom-code and official-vendor-contract alignment. Every
+  failed group links to a concrete defect.
+- Generated branch and recursive-trace narration is source rendering, not an
+  automated correctness certification. A reviewer must override the relevant
+  completion conclusion when the ledger exposes an issue, uncertainty, or
+  unsupported assumption.
 - Every source-owned exported logic leaf is covered exactly once globally by
   path, value hash, logic role, configured effect, and correctness verdict.
   Cross-object execution, consumer, and destination-peer leaves stay available
@@ -411,6 +420,24 @@ A web analyst can call the result done only when:
 - Every completed shard passes its existing manifest/source-lock and exact
   completion check before merge; the merged artifact still passes the complete
   authoritative run validator.
+- A current Run-2 shard is a source-hashed completion overlay. Merge reconstructs
+  every full row from the unchanged bundle-local base, rejects missing or foreign
+  editable fields, and preserves every evidence obligation exactly once. New
+  packages contain no per-obligation micro-shards; legacy ones remain supported
+  only for resumability.
+- Automatic sharding is triggered by more than 40 primary rows or more than 120
+  Run-2 authored behavior work units, never by limiting evidence. Representative
+  large-fixture gates cap packaging files and amplification while requiring
+  evidence obligations to remain greater than authored work and zero new
+  obligation shards.
+- A row-level approval response covers every operation exactly once with
+  `Approve`, `Reject`, or `Amend`; its packet and operation hashes match the
+  compiled schema-4 operation packet. Risk confirmations remain explicit and
+  separate. Missing, duplicate, foreign, or altered rows fail preflight.
+- An audit delta accepts only two independently complete, sealed packages (and
+  complete operation packets when present). It compares objective objects,
+  findings, operations, decisions, families, and counts without carrying prior
+  verdicts, confidence, or scores into the current audit.
 
 ## Human Output
 
@@ -429,17 +456,22 @@ The derived `cleanup_plan.analyst.xlsx` is accepted only when:
 
 - it is built from a canonical workbook that already passed
   `gtm_audit_gate_check.py` and the all-sheet privacy scan;
-- `A1 Overview`, `A2 Audit Register`, `A3 Actions`, `A4 Decisions`, and
+- `A1 Overview`, `A2 Actions`, `A3 Decisions`, `A4 Audit Register`, and
   `A5 Custom HTML` precede all eight unchanged canonical tabs;
-- A2 has exactly six visible columns and every decision-ledger record exactly
+- A2 has exactly eight visible columns and every atomic operation exactly once,
+  in authoritative execution order. Literal problem, consequence, exact change,
+  approval/preconditions, and static verification/rollback are independently
+  readable; generic impact boilerplate, repeated problem/consequence text, and
+  missing exact structured-mutation notes fail the gate;
+- A3 has exactly six visible columns and every `owner_decision_needed` source
+  record exactly once under one decision topic, including affected measurement
+  families and what the answer unlocks. The deterministic fallback works at any
+  record count and groups only identical normalized questions/recommendations;
+- A4 has exactly six visible columns and every decision-ledger record exactly
   once;
-- A3 has exactly six visible columns and every atomic operation exactly once,
-  in authoritative execution order, with deterministic action direction and a
-  complete structured-mutation note;
-- A4 has exactly four visible columns and every
-  `owner_decision_needed` source record exactly once under one decision topic;
-  above 15 source records, a complete analyst-authored topic map is mandatory
-  and must meaningfully consolidate at least one shared owner answer;
+- A1 names the highest-priority first cleanup actions and summarizes the
+  retained/changed/owner-blocked measurement target state, not only counts and
+  navigation instructions;
 - A5 has exactly four visible columns and every source Custom HTML tag exactly
   once, including source-qualified dataLayer candidates and planned-deletion
   conflicts;

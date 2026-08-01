@@ -3,7 +3,7 @@
 Compile operations only from three validated reviews. Audit findings describe a
 problem; operations describe an exact proposed mutation.
 
-The packet carries the source, context, and shared-fact hashes. It also carries
+The compiled packet uses schema version 4. It carries the source, context, and shared-fact hashes. It also carries
 a decision ledger covering every source obligation, execution phases,
 projected object counts by layer, and a target-state preservation entry for
 every source-confirmed measurement family.
@@ -20,6 +20,7 @@ top-level list block operations instead of being silently ignored.
 - Structured creations, additions, field changes, remaps, deletions, and renames
 - Consolidation and challenge review
 - Merge/conflict rules and action completeness
+- Row-level approval contract
 
 ## Dispositions
 
@@ -87,6 +88,27 @@ Each compiled operation also carries `execution_safety`:
 No fixed soak duration is universal. Choose an observation window that covers
 the relevant traffic/business cycle. Do not rename an object merely to simulate
 quarantine.
+
+## Row-Level Approval Contract
+
+The compiled packet contains `approval_contract` schema 1. Its packet hash binds
+the full ordered operation surface, and each operation hash binds that row's ID,
+mutation, safety, preconditions, rollback, and human decision fields.
+
+Generate a response from the packet rather than composing a free-form list. The
+response must contain every operation exactly once with one of:
+
+- `Approve`: the exact row may proceed after all preflight conditions pass;
+- `Reject`: it remains in the decision record and is not executed; or
+- `Amend`: the proposed row is not executable until the operation packet,
+  simulation, workbook, and approval response are regenerated.
+
+The validator rejects a missing, duplicated, foreign, stale, or hash-mismatched
+row. Row order may change because the operation ID and content hash remain the
+identity. Approval does not imply the separate
+`server_coupled`, `configured_activation_risk`, or post-observation deletion
+confirmation. The execution guard reads either the validated response or direct
+CLI flags, never both.
 
 The compiled packet does not carry runtime-test contracts. An external outcome
 that the export cannot prove remains a container-evidence boundary and cannot

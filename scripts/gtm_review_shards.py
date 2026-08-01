@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from gtm_lib import as_list, load_json, write_json
+from gtm_lib import as_list, load_json, stable_hash, write_json
 
 COLLECTIONS_BY_KIND = {
     "gtm_operational_sanitation_review": (("findings", "finding_id"),),
@@ -43,7 +43,80 @@ CONFIGURATION_OBLIGATION_SPECS = (
 )
 DEFAULT_MAX_ITEMS = 40
 DEFAULT_MAX_OBLIGATIONS = 30
+DEFAULT_MAX_AUTHORED_WORK_UNITS = 120
 CONFIGURATION_PRIMARY_OBLIGATION_FIELDS = ("required_logic_cross_checks",)
+CONFIGURATION_OVERLAY_REPRESENTATION = "configuration_completion_overlay"
+CONFIGURATION_OVERLAY_IDENTITY_FIELDS = (
+    "review_id",
+    "object_key",
+    "layer",
+    "object_id",
+    "object_name",
+    "object_type",
+    "paused",
+)
+CONFIGURATION_OVERLAY_EDITABLE_FIELDS = (
+    "semantic_review_depth",
+    "review_status",
+    "correctness_verdict",
+    "correctness_basis",
+    "defects",
+    "contract_checks",
+    "code_behavior_blocks",
+    "technical_facts_assessment",
+    "technical_finding_reviews",
+    "logic_cross_checks",
+    "configuration_branch_reviews",
+    "evidence_anchors",
+    "consumer_evidence_keys",
+    "reference_traces",
+    "disposition",
+    "owner_question",
+    "recommended_action",
+    "external_evidence_status",
+    "external_evidence_summary",
+    "external_evidence_next_action",
+    "consumer_specific_code_basis",
+    "operation",
+    "confidence",
+)
+
+
+def configuration_completion_overlay(row: dict[str, Any]) -> dict[str, Any]:
+    """Keep only reviewer-owned fields; evidence stays in the locked base row."""
+
+    fields = (*CONFIGURATION_OVERLAY_IDENTITY_FIELDS, *CONFIGURATION_OVERLAY_EDITABLE_FIELDS)
+    return {
+        **{field: copy.deepcopy(row.get(field)) for field in fields},
+        "source_row_sha256": stable_hash(row, 64),
+    }
+
+
+def validate_configuration_overlay(
+    overlay: dict[str, Any], source: dict[str, Any], label: str
+) -> None:
+    expected_fields = {
+        *CONFIGURATION_OVERLAY_IDENTITY_FIELDS,
+        *CONFIGURATION_OVERLAY_EDITABLE_FIELDS,
+        "source_row_sha256",
+    }
+    if set(overlay) != expected_fields:
+        raise ValueError(f"{label} configuration overlay fields are incomplete or unknown")
+    if overlay.get("source_row_sha256") != stable_hash(source, 64):
+        raise ValueError(f"{label} configuration overlay uses another source row")
+    for field in CONFIGURATION_OVERLAY_IDENTITY_FIELDS:
+        if overlay.get(field) != source.get(field):
+            raise ValueError(f"{label} configuration overlay changed locked field {field}")
+
+
+def restore_configuration_overlay(
+    overlay: dict[str, Any], source: dict[str, Any], label: str
+) -> dict[str, Any]:
+    validate_configuration_overlay(overlay, source, label)
+    restored = copy.deepcopy(source)
+    for field in CONFIGURATION_OVERLAY_EDITABLE_FIELDS:
+        restored[field] = copy.deepcopy(overlay.get(field))
+    return restored
 
 
 def safe_shard_path(directory: Path, filename: str) -> Path:
@@ -95,6 +168,43 @@ def review_workload(review: dict[str, Any]) -> dict[str, Any]:
     if review.get("kind") != "gtm_configuration_correctness_review":
         return workload
 
+    if int(review.get("schema_version") or 0) >= 4:
+        row_metrics = [
+            row.get("configuration_coverage_metrics") or {}
+            for row in as_list(review.get("rows"))
+        ]
+        evidence = sum(
+            int(metrics.get("evidence_obligations") or 0) for metrics in row_metrics
+        )
+        authored = sum(
+            int(metrics.get("authored_work_units") or 0) for metrics in row_metrics
+        )
+        workload.update(
+            {
+                "configuration_obligations": evidence,
+                "configuration_evidence_obligations": evidence,
+                "authored_behavior_work_units": authored,
+                "largest_configuration_obligation_group": max(
+                    (
+                        int(metrics.get("evidence_obligations") or 0)
+                        for metrics in row_metrics
+                    ),
+                    default=0,
+                ),
+                "largest_authored_behavior_workload": max(
+                    (
+                        int(metrics.get("authored_work_units") or 0)
+                        for metrics in row_metrics
+                    ),
+                    default=0,
+                ),
+                "obligation_to_authored_ratio": round(
+                    evidence / max(1, authored), 3
+                ),
+            }
+        )
+        return workload
+
     source_fields = [
         source_field
         for source_field, _completion, _source_id, _completion_id in (
@@ -131,6 +241,15 @@ def review_requires_sharding(
             f"max_obligations must be between 1 and {DEFAULT_MAX_OBLIGATIONS}"
         )
     workload = review_workload(review)
+    if (
+        review.get("kind") == "gtm_configuration_correctness_review"
+        and int(review.get("schema_version") or 0) >= 4
+    ):
+        return (
+            workload["review_items"] > max_items
+            or workload.get("authored_behavior_work_units", 0)
+            > DEFAULT_MAX_AUTHORED_WORK_UNITS
+        )
     return (
         workload["review_items"] > max_items
         or (
@@ -341,7 +460,11 @@ def split_review(
     manifest_rows: list[dict[str, Any]] = []
     obligation_manifest_rows: list[dict[str, Any]] = []
     sharded_review = copy.deepcopy(review)
-    if review.get("kind") == "gtm_configuration_correctness_review":
+    legacy_configuration = (
+        review.get("kind") == "gtm_configuration_correctness_review"
+        and int(review.get("schema_version") or 0) < 4
+    )
+    if legacy_configuration:
         obligation_manifest_rows = configuration_obligation_shards(
             review_path,
             as_list(review.get("rows")),
@@ -366,8 +489,51 @@ def split_review(
             raise ValueError(f"{collection} contains an item without {id_field}")
         if len(identifiers) != len(set(identifiers)):
             raise ValueError(f"{collection} contains duplicate {id_field} values")
-        for shard_index, start in enumerate(range(0, len(items), max_items), start=1):
-            shard_items = items[start : start + max_items]
+        chunks: list[list[dict[str, Any]]] = []
+        if (
+            review.get("kind") == "gtm_configuration_correctness_review"
+            and collection == "rows"
+            and int(review.get("schema_version") or 0) >= 4
+        ):
+            current: list[dict[str, Any]] = []
+            current_work = 0
+            for item in items:
+                item_work = max(
+                    1,
+                    int(
+                        (item.get("configuration_coverage_metrics") or {}).get(
+                            "authored_work_units"
+                        )
+                        or 0
+                    ),
+                )
+                if current and (
+                    len(current) >= max_items
+                    or current_work + item_work > DEFAULT_MAX_AUTHORED_WORK_UNITS
+                ):
+                    chunks.append(current)
+                    current = []
+                    current_work = 0
+                current.append(item)
+                current_work += item_work
+            if current:
+                chunks.append(current)
+        else:
+            chunks = [
+                items[start : start + max_items]
+                for start in range(0, len(items), max_items)
+            ]
+        for shard_index, shard_items in enumerate(chunks, start=1):
+            configuration_overlay = (
+                review.get("kind") == "gtm_configuration_correctness_review"
+                and collection == "rows"
+                and int(review.get("schema_version") or 0) >= 4
+            )
+            output_items = (
+                [configuration_completion_overlay(item) for item in shard_items]
+                if configuration_overlay
+                else shard_items
+            )
             filename = f"{review_path.stem}.{collection}.{shard_index:04d}.json"
             shard = {
                 **lock,
@@ -376,7 +542,12 @@ def split_review(
                 "id_field": id_field,
                 "shard_index": shard_index,
                 "item_ids": [str(item[id_field]) for item in shard_items],
-                "items": shard_items,
+                "representation": (
+                    CONFIGURATION_OVERLAY_REPRESENTATION
+                    if configuration_overlay
+                    else "complete_items"
+                ),
+                "items": output_items,
             }
             write_json(output_dir / filename, shard, pretty)
             manifest_rows.append(
@@ -385,6 +556,16 @@ def split_review(
                     "collection": collection,
                     "id_field": id_field,
                     "item_ids": shard["item_ids"],
+                    "representation": shard["representation"],
+                    "authored_work_units": sum(
+                        int(
+                            (item.get("configuration_coverage_metrics") or {}).get(
+                                "authored_work_units"
+                            )
+                            or 0
+                        )
+                        for item in shard_items
+                    ),
                 }
             )
     discovery_filename = ""
@@ -409,6 +590,7 @@ def split_review(
         "base_review_file": review_path.name,
         "max_items": max_items,
         "max_obligations": max_obligations,
+        "max_authored_work_units": DEFAULT_MAX_AUTHORED_WORK_UNITS,
         "collection_counts": {
             collection: len(as_list(review.get(collection))) for collection, _ in collections
         },
@@ -468,6 +650,8 @@ def check_primary_shard(
     for field in ("collection", "id_field"):
         if shard.get(field) != manifest_row.get(field):
             raise ValueError(f"{filename} {field} differs from the manifest")
+    if shard.get("representation") != manifest_row.get("representation"):
+        raise ValueError(f"{filename} representation differs from the manifest")
     items = as_list(shard.get("items"))
     item_ids = [str(item.get(id_field) or "") for item in items]
     expected_ids = [str(value) for value in as_list(manifest_row.get("item_ids"))]
@@ -482,6 +666,17 @@ def check_primary_shard(
     }
     if not set(item_ids) <= base_ids:
         raise ValueError(f"{filename} contains an item absent from the base review")
+    if shard.get("representation") == CONFIGURATION_OVERLAY_REPRESENTATION:
+        base_by_id = {
+            str(item.get(id_field) or ""): item
+            for item in as_list(base.get(collection))
+        }
+        for item_id, item in zip(item_ids, items, strict=True):
+            validate_configuration_overlay(
+                item,
+                base_by_id[item_id],
+                f"{filename}:{item_id}",
+            )
     pending = [value for value, item in zip(item_ids, items, strict=True) if item.get("review_status") != "complete"]
     if pending:
         raise ValueError(f"{filename} contains pending items: {pending!r}")
@@ -634,13 +829,28 @@ def merge_primary_shards(
             raise ValueError(f"{filename} item_ids do not match its items")
         if item_ids != [str(value) for value in as_list(manifest_row.get("item_ids"))]:
             raise ValueError(f"{filename} item_ids differ from the manifest")
+        if shard.get("representation") != manifest_row.get("representation"):
+            raise ValueError(f"{filename} representation differs from the manifest")
+        base_by_id = {
+            str(item.get(id_field) or ""): item
+            for item in as_list(base.get(collection))
+        }
         target = merged[collection]
         for item_id, item in zip(item_ids, items, strict=True):
             if item_id in target:
                 raise ValueError(f"duplicate completed item {item_id!r} in {collection}")
             if item.get("review_status") != "complete":
                 raise ValueError(f"pending completed item {item_id!r} in {collection}")
-            target[item_id] = item
+            target[item_id] = (
+                restore_configuration_overlay(
+                    item,
+                    base_by_id[item_id],
+                    f"{filename}:{item_id}",
+                )
+                if shard.get("representation")
+                == CONFIGURATION_OVERLAY_REPRESENTATION
+                else item
+            )
     return merged
 
 
@@ -838,7 +1048,10 @@ def merge_review(
     validate_lock_fields(manifest, base, "shard manifest")
     merged = merge_primary_shards(base, collections, manifest, shard_dir)
     restore_primary_collections(base, collections, merged)
-    if base.get("kind") == "gtm_configuration_correctness_review":
+    if (
+        base.get("kind") == "gtm_configuration_correctness_review"
+        and int(base.get("schema_version") or 0) < 4
+    ):
         merge_configuration_obligations(base, base_review_path, manifest, shard_dir)
 
     if base.get("kind") == "gtm_business_architecture_review":

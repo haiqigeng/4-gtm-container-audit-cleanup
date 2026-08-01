@@ -16,9 +16,11 @@ Never mutate or publish from an audit request alone.
 
 1. Deliver audit and cleanup plan.
 2. Ask for route: direct GTM/API/MCP or import JSON.
-3. Confirm whether all operations or an explicit list of operation IDs is approved.
+3. Generate the packet-bound response and record `Approve`, `Reject`, or `Amend`
+   for every operation.
 4. Confirm rollback export and blockers.
-5. Regenerate the selected future state and run the execution preflight.
+5. Validate the response, regenerate the selected future state, and run the
+   execution preflight.
 6. Execute only the approved operations that pass the preflight.
 
 Audit and recommendation depth are independent of this choice. Do not use
@@ -32,11 +34,14 @@ confirmation. A quarantined deletion also requires separate post-observation
 confirmation. These are risk-specific fences, not extra audit modes.
 
 ```powershell
-python -B scripts/gtm_execution_guard.py reconciled_operations.json context.json future_state_gate.json --approve OP-0001 --confirm-server-coupled OP-0001 --pretty
+python -B scripts/gtm_approval_response.py template reconciled_operations.json approval_response.json --pretty
+python -B scripts/gtm_approval_response.py validate reconciled_operations.json approval_response.json --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json context.json future_state_gate.json --approval-response approval_response.json --pretty
 ```
 
-Add `--confirm-activation-risk` or `--confirm-observation` only for the exact
-operation IDs whose corresponding evidence has been reviewed.
+Set server-coupled, activation-risk, or post-observation confirmations only for
+the exact rows whose corresponding evidence has been reviewed. These remain
+separate from the `Approve` decision.
 
 ## Direct GTM/API/MCP
 

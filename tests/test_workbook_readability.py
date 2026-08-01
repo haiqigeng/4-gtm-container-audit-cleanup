@@ -68,7 +68,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_context.cleanup()
 
-    def test_large_owner_register_requires_meaningful_editorial_grouping(self) -> None:
+    def test_large_owner_register_has_no_arbitrary_grouping_gate(self) -> None:
         owners = [
             {
                 "decision_id": f"OWNER-{index:02d}",
@@ -79,8 +79,8 @@ class WorkbookReadabilityTests(unittest.TestCase):
             for index in range(1, 17)
         ]
         source_sha256 = "a" * 64
-        with self.assertRaisesRegex(ValueError, "require a complete analyst-authored"):
-            decision_topics(owners, None, source_sha256)
+        default_topics = decision_topics(owners, None, source_sha256)
+        self.assertEqual(16, len(default_topics))
 
         singleton_topics = [
             {
@@ -91,16 +91,16 @@ class WorkbookReadabilityTests(unittest.TestCase):
             }
             for index, owner in enumerate(owners, start=1)
         ]
-        with self.assertRaisesRegex(ValueError, "meaningful consolidation"):
-            decision_topics(
-                owners,
-                {
-                    "kind": "gtm_readability_decision_topics",
-                    "source_sha256": source_sha256,
-                    "topics": singleton_topics,
-                },
-                source_sha256,
-            )
+        singleton_result = decision_topics(
+            owners,
+            {
+                "kind": "gtm_readability_decision_topics",
+                "source_sha256": source_sha256,
+                "topics": singleton_topics,
+            },
+            source_sha256,
+        )
+        self.assertEqual(16, len(singleton_result))
 
         grouped_topics = [
             {
@@ -241,12 +241,12 @@ class WorkbookReadabilityTests(unittest.TestCase):
                 workbook_sheet_hashes(self.analyst, ORIGINAL_SHEETS),
                 canonical_hashes,
             )
-            self.assertEqual(workbook["A2 Audit Register"].max_column, 6)
-            self.assertEqual(workbook["A3 Actions"].max_column, 6)
-            self.assertEqual(workbook["A4 Decisions"].max_column, 4)
+            self.assertEqual(workbook["A4 Audit Register"].max_column, 6)
+            self.assertEqual(workbook["A2 Actions"].max_column, 8)
+            self.assertEqual(workbook["A3 Decisions"].max_column, 6)
             self.assertEqual(workbook["A5 Custom HTML"].max_column, 4)
 
-            audit = workbook["A2 Audit Register"]
+            audit = workbook["A4 Audit Register"]
             audit_ids = {
                 str(audit.cell(row, 1).value)
                 for row in range(2, audit.max_row + 1)
@@ -264,18 +264,17 @@ class WorkbookReadabilityTests(unittest.TestCase):
                 },
             )
 
-            actions = workbook["A3 Actions"]
+            actions = workbook["A2 Actions"]
             op1 = self._row_with(actions, 1, "OP-0001")
             op2 = self._row_with(actions, 1, "OP-0002")
-            op1_text = str(actions.cell(op1, 4).value)
+            op1_text = str(actions.cell(op1, 6).value)
             self.assertLess(op1_text.index("Keep variable:20"), op1_text.index("Delete variable:10"))
             self.assertIn(
                 "Repoint trigger:30 — Event - App from variable:10",
                 op1_text,
             )
             self.assertIn("to variable:20 — DLV - App State", op1_text)
-            self.assertIn("[full value in cell note]", op1_text)
-            action_note = actions.cell(op1, 4).comment
+            action_note = actions.cell(op1, 6).comment
             self.assertIsNotNone(action_note)
             self.assertIn(
                 "$.containerVersion.trigger[0].customEventFilter[0].parameter[1].value",
@@ -285,9 +284,9 @@ class WorkbookReadabilityTests(unittest.TestCase):
                 "canonical-route-value-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 action_note.text,
             )
-            self.assertIn("Disable/deselect builtInVariable:clickElement", str(actions.cell(op2, 4).value))
+            self.assertIn("Disable/deselect", str(actions.cell(op2, 6).value))
 
-            decisions = workbook["A4 Decisions"]
+            decisions = workbook["A3 Decisions"]
             decision_values = [
                 str(decisions.cell(row, 1).value or "")
                 for row in range(2, decisions.max_row + 1)
@@ -327,7 +326,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
         workbook = load_workbook(self.analyst)
         try:
             self.assertEqual(
-                workbook["A2 Audit Register"]["E1"].value,
+                workbook["A4 Audit Register"]["E1"].value,
                 "Résultat / attente",
             )
             overview_values = {
@@ -336,10 +335,10 @@ class WorkbookReadabilityTests(unittest.TestCase):
                 for cell in row
             }
             self.assertIn("2 sources / 2 sujets", overview_values)
-            actions = workbook["A3 Actions"]
+            actions = workbook["A2 Actions"]
             row = self._row_with(actions, 1, "OP-0001")
-            self.assertIn("variable:20", str(actions.cell(row, 4).value))
-            self.assertIn("DLV - App State", str(actions.cell(row, 4).value))
+            self.assertIn("variable:20", str(actions.cell(row, 6).value))
+            self.assertIn("DLV - App State", str(actions.cell(row, 6).value))
         finally:
             workbook.close()
 
@@ -366,7 +365,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
         self.assertEqual(manifest["coverage"]["decision_topics"], 1)
         workbook = load_workbook(self.analyst)
         try:
-            decisions = workbook["A4 Decisions"]
+            decisions = workbook["A3 Decisions"]
             values = [
                 str(decisions.cell(row, 1).value or "")
                 for row in range(2, decisions.max_row + 1)
@@ -434,7 +433,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
     def test_gate_rejects_missing_audit_record(self) -> None:
         self._build()
         workbook = load_workbook(self.analyst)
-        sheet = workbook["A2 Audit Register"]
+        sheet = workbook["A4 Audit Register"]
         sheet.delete_rows(self._row_with(sheet, 1, "OPS-0001"))
         workbook.save(self.analyst)
         workbook.close()
@@ -447,9 +446,9 @@ class WorkbookReadabilityTests(unittest.TestCase):
     def test_gate_rejects_reversed_action_direction(self) -> None:
         self._build()
         workbook = load_workbook(self.analyst)
-        sheet = workbook["A3 Actions"]
+        sheet = workbook["A2 Actions"]
         row = self._row_with(sheet, 1, "OP-0001")
-        sheet.cell(row, 4).value = (
+        sheet.cell(row, 6).value = (
             "Keep variable:10; repoint trigger:30 to variable:10; delete variable:20."
         )
         workbook.save(self.analyst)
@@ -463,9 +462,9 @@ class WorkbookReadabilityTests(unittest.TestCase):
     def test_gate_rejects_changed_structured_action_note(self) -> None:
         self._build()
         workbook = load_workbook(self.analyst)
-        sheet = workbook["A3 Actions"]
+        sheet = workbook["A2 Actions"]
         row = self._row_with(sheet, 1, "OP-0001")
-        sheet.cell(row, 4).comment = Comment(
+        sheet.cell(row, 6).comment = Comment(
             "A shortened or altered mutation",
             "Tamper test",
         )
@@ -565,7 +564,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
     def test_gate_rejects_hidden_sheet_link(self) -> None:
         self._build()
         workbook = load_workbook(self.analyst)
-        sheet = workbook["A2 Audit Register"]
+        sheet = workbook["A4 Audit Register"]
         row = self._row_with(sheet, 1, "OPS-0001")
         sheet.cell(row, 5).hyperlink = "#'07 Reconciled Operations'!A1"
         workbook.save(self.analyst)

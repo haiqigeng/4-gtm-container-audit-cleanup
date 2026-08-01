@@ -16,6 +16,12 @@
 - known CMP, browser-to-server routing, ecommerce, lead, media, publisher, or
   market context.
 
+An explicitly analyst-approved tracking plan may be supplied as optional JSON,
+CSV, XLSX, or XLSM requirement evidence. Preserve its source file, sheet, row,
+raw fields, and hashes. Keep it separate from the container-derived shared facts
+and Run 1; only Runs 2 and 3 may use the separately labelled evidence. Match only
+exact exported identifiers and never infer a replacement from similar wording.
+
 The agent should infer safe facts from the export and supplied website context.
 Ask only for material unknowns, especially unexplained product/market prefixes,
 business-specific event families, legal consent decisions, or missing server
@@ -74,7 +80,9 @@ When requested and authorised, it may additionally produce:
 - planned change preview;
 - validated importable GTM JSON;
 - approved direct GTM workspace changes;
-- post-execution change log as a separate XLSX workbook.
+- post-execution change log as a separate XLSX workbook;
+- a hash-locked row-level approval response for the exact operation packet; and
+- an objective audit delta between two independently completed full packages.
 
 The audit evidence package contains `context.json`, `source_model.json`,
 `shared_facts.json`, three independent review artifacts, technical code facts,
@@ -101,10 +109,13 @@ boundaries, but does not create or run Preview, browser, CMP, network, vendor,
 or other runtime-QA tasks. Those are a separately scoped `gtm-preview-recette`
 workflow if later requested.
 
-The derived analyst workbook is a post-gate projection only. Its Audit Register
-contains every reconciled decision-ledger record, its Actions tab contains every
-atomic operation, its Decisions tab accounts for every owner-decision source
-record, and its Custom HTML tab inventories every source Custom HTML tag. It
+The derived analyst workbook is a post-gate projection only. Its Actions tab is
+first and contains every atomic operation with a standalone literal problem,
+consequence, exact change, approval/preconditions, and static verification/
+rollback. Its Decisions tab accounts for every owner-decision source record and
+shows affected families plus what an answer unlocks. Its Audit Register contains
+every reconciled decision-ledger record, and its Custom HTML tab inventories
+every source Custom HTML tag. It
 uses stable IDs, visible-sheet links, outline groups, and cell notes rather than
 adding a separate traceability tab or extra visible columns. The authoritative
 JSON package and unchanged technical tabs retain the full proof.
@@ -123,8 +134,10 @@ code-line evidence remains in the machine-readable audit package.
 ## Lifecycle
 
 1. **Audit and cleanup plan:** proposed decisions only.
-2. **Approval and route selection:** approve the full set or named operation
-   IDs, then choose direct GTM/API/MCP or import JSON.
+2. **Approval and route selection:** complete the versioned response with one
+   `Approve`, `Reject`, or `Amend` decision per operation, validate its packet and
+   row hashes, then choose direct GTM/API/MCP or import JSON. Risk confirmations
+   remain separate.
 3. **Execution:** only after exact approval and a passing execution preflight.
 4. **Change log:** what actually changed, produced only after execution or
    generated cleanup artifact creation.
@@ -132,6 +145,11 @@ code-line evidence remains in the machine-readable audit package.
 Never integrate the change log into the cleanup plan. A requested hypothetical
 record must be labelled `planned change preview` or `simulated change log`, not
 presented as executed GTM work.
+
+An audit delta is descriptive only. Both sides must be independently completed
+against their own full source, facts, three scans, seals, and operation packet.
+The delta may compare source objects, findings, operations, decisions, families,
+and counts; it never imports an old verdict, score, or confidence into a new run.
 
 ## Change-Log Detail
 

@@ -12,6 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from gtm_approval_response import (  # noqa: E402
+    approval_contract,
+    response_template,
+    validate_response,
+)
+from gtm_architecture_review import scaffold_review as scaffold_architecture  # noqa: E402
+from gtm_audit_delta import build_delta  # noqa: E402
+from gtm_audit_package_build import build_package  # noqa: E402
 from gtm_configuration_review import (  # noqa: E402
     required_contract_topics,
 )
@@ -27,6 +35,8 @@ from gtm_relationships import (  # noqa: E402
     near_event_name,
     relationship_candidates,
 )
+from gtm_requirement_evidence import build_requirement_evidence  # noqa: E402
+from gtm_shared_facts import build_shared_facts  # noqa: E402
 from gtm_skill_identity import (  # noqa: E402
     declared_identity_errors,
     verify_identity,
@@ -72,6 +82,215 @@ class UtilityEvolutionTests(unittest.TestCase):
         path = self.root / name
         path.write_text(json.dumps(data), encoding="utf-8")
         return path
+
+    def test_approval_response_is_row_complete_and_packet_locked(self) -> None:
+        operation = {
+            "operation_id": "OP-0001",
+            "title": "Repair route",
+            "deletions": [],
+            "execution_safety": {
+                "server_coupled": True,
+                "configured_activation_risk": {"flag": False},
+                "decommission": {"required": False},
+            },
+        }
+        packet = {
+            "kind": "gtm_reconciled_operations",
+            "schema_version": 4,
+            "source_sha256": "a" * 64,
+            "shared_facts_sha256": "b" * 64,
+            "context_sha256": "c" * 64,
+            "route": "Direct",
+            "plan_status": "complete",
+            "projected_object_counts": {},
+            "measurement_preservation": {},
+            "target_organization": {},
+            "decision_ledger": [],
+            "operations": [operation],
+        }
+        packet["approval_contract"] = approval_contract(packet)
+        response = response_template(packet)
+        response["responses"][0].update(
+            {
+                "decision": "Approve",
+                "confirm_server_coupled": True,
+            }
+        )
+        selection, errors = validate_response(packet, response)
+        self.assertEqual([], errors)
+        self.assertEqual(["OP-0001"], selection["approved_operation_ids"])
+        self.assertEqual(["OP-0001"], selection["server_confirmed_operation_ids"])
+
+        response["responses"][0]["operation_sha256"] = "tampered"
+        _selection, errors = validate_response(packet, response)
+        self.assertTrue(any("content hash" in error for error in errors))
+
+        packet["approval_contract"]["operation_ids"] = []
+        _selection, errors = validate_response(packet, response_template(packet))
+        self.assertTrue(any("approval contract" in error for error in errors))
+
+        packet["approval_contract"] = approval_contract(packet)
+        non_boolean = response_template(packet)
+        non_boolean["responses"][0]["decision"] = "Approve"
+        non_boolean["responses"][0]["confirm_server_coupled"] = "false"
+        _selection, errors = validate_response(packet, non_boolean)
+        self.assertTrue(any("must be true or false" in error for error in errors))
+
+    def test_audit_delta_compares_fresh_artifacts_without_carrying_verdicts(self) -> None:
+        def artifacts(source_hash: str, object_hash: str, defect: str) -> dict:
+            return {
+                "manifest": {
+                    "source_file": "container.json",
+                    "source_sha256": source_hash,
+                },
+                "shared": {
+                    "objects": [
+                        {
+                            "object_key": "tag:1",
+                            "layer": "tag",
+                            "object_name": "GA4 - Lead",
+                            "configuration_hash": object_hash,
+                        }
+                    ]
+                },
+                "operational": {"findings": []},
+                "configuration": {
+                    "rows": [
+                        {
+                            "review_id": "CFG-1",
+                            "object_key": "tag:1",
+                            "defects": (
+                                [
+                                    {
+                                        "defect_id": "D-1",
+                                        "statement": defect,
+                                        "evidence_anchors": ["$.tag[0].parameter[0]"],
+                                    }
+                                ]
+                                if defect
+                                else []
+                            ),
+                        }
+                    ]
+                },
+                "architecture": {"families": [], "comparisons": []},
+                "operations": {},
+            }
+
+        previous = artifacts("a" * 64, "before", "Wrong destination")
+        current = artifacts("b" * 64, "after", "")
+        delta = build_delta(previous, current)
+        self.assertEqual(["tag:1"], [row["object_key"] for row in delta["objects"]["changed"]])
+        self.assertEqual(1, len(delta["findings"]["resolved"]))
+        self.assertEqual([], delta["findings"]["recurring"])
+        self.assertIn("no prior semantic verdict", delta["comparison_policy"])
+
+        reworded = artifacts("c" * 64, "after", "Destination is configured incorrectly")
+        recurring = build_delta(previous, reworded)
+        self.assertEqual(1, len(recurring["findings"]["recurring"]))
+        self.assertEqual(1, len(recurring["findings"]["changed"]))
+
+    def test_approved_tracking_plan_is_distinct_exact_match_evidence(self) -> None:
+        data = minimal_export()
+        data["containerVersion"]["tag"] = [
+            {
+                "tagId": "1",
+                "name": "GA4 - generate_lead",
+                "type": "gaawe",
+                "parameter": [
+                    {"type": "TEMPLATE", "key": "eventName", "value": "generate_lead"}
+                ],
+                "firingTriggerId": ["2147479553"],
+            }
+        ]
+        export_path = self.write_export(data)
+        requirements_path = self.root / "approved-plan.csv"
+        requirements_path.write_text(
+            "Event name,Tag name,Description\n"
+            "generate_lead,GA4 - generate_lead,Approved lead event\n",
+            encoding="utf-8",
+        )
+        requirements = build_requirement_evidence(requirements_path)
+        shared = build_shared_facts(export_path)
+        self.assertIn("never container evidence", requirements["evidence_role"])
+
+        configuration = scaffold_configuration(
+            export_path,
+            shared_facts=shared,
+            requirement_evidence=requirements,
+        )
+        config_tag = next(row for row in configuration["rows"] if row["object_key"] == "tag:1")
+        self.assertTrue(config_tag["approved_requirement_links"])
+        self.assertEqual(
+            ["exact_object_name", "exact_event_value"],
+            config_tag["approved_requirement_links"][0]["match_types"],
+        )
+        self.assertNotIn("approved_requirement_evidence", shared)
+        architecture = scaffold_architecture(
+            export_path,
+            shared_facts=shared,
+            requirement_evidence=requirements,
+        )
+        self.assertTrue(
+            any(family["approved_requirement_links"] for family in architecture["families"])
+        )
+
+        package_dir = self.root / "requirements-package"
+        manifest = build_package(
+            export_path,
+            package_dir,
+            requirements_path=requirements_path,
+        )
+        self.assertEqual(1, manifest["counts"]["approved_requirement_rows"])
+        packaged_shared = json.loads(
+            (package_dir / "shared_facts.json").read_text(encoding="utf-8")
+        )
+        packaged_operational = json.loads(
+            (package_dir / "operational_review.json").read_text(encoding="utf-8")
+        )
+        self.assertNotIn("approved_requirement_evidence", packaged_shared)
+        self.assertNotIn("approved_requirement_evidence", packaged_operational)
+        for run in ("configuration_correctness", "business_architecture"):
+            self.assertTrue(
+                (
+                    package_dir
+                    / "review-bundles"
+                    / run
+                    / "approved_requirements.json"
+                ).is_file()
+            )
+        self.assertFalse(
+            (
+                package_dir
+                / "review-bundles"
+                / "operational_sanitation"
+                / "approved_requirements.json"
+            ).exists()
+        )
+
+    def test_approved_xlsx_discovers_headers_after_title_rows(self) -> None:
+        try:
+            from openpyxl import Workbook
+        except ImportError:
+            self.skipTest("openpyxl is not installed")
+
+        requirements_path = self.root / "approved-plan.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Event plan"
+        sheet.append(["Approved measurement plan"])
+        sheet.append(["Website rebuild — final scope"])
+        sheet.append(["Nom de l'événement", "Nom de la balise", "Description"])
+        sheet.append(["generate_lead", "GA4 - generate_lead", "Approved lead event"])
+        workbook.save(requirements_path)
+
+        evidence = build_requirement_evidence(requirements_path)
+        self.assertEqual(1, evidence["counts"]["rows"])
+        row = evidence["requirements"][0]
+        self.assertEqual("Event plan", row["source_sheet"])
+        self.assertEqual(4, row["source_row"])
+        self.assertEqual("generate_lead", row["event_name"])
+        self.assertEqual("GA4 - generate_lead", row["object_name"])
 
     def test_runtime_identity_detects_installed_tree_drift(self) -> None:
         expected = self.root / "expected"

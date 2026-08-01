@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +19,12 @@ from gtm_baseline_audit import audit_export
 from gtm_configuration_review import scaffold_review as scaffold_configuration_review
 from gtm_context_model import build_context_model
 from gtm_custom_code_extract import extract_export
-from gtm_lib import source_descriptor
+from gtm_lib import as_list, source_descriptor
 from gtm_operational_review import scaffold_review as scaffold_operational_review
+from gtm_requirement_evidence import build_requirement_evidence
 from gtm_review_isolation import prepare_review_bundles
 from gtm_review_shards import (
+    DEFAULT_MAX_AUTHORED_WORK_UNITS,
     DEFAULT_MAX_ITEMS,
     DEFAULT_MAX_OBLIGATIONS,
     review_requires_sharding,
@@ -58,6 +61,7 @@ def build_review_work_units(
     result: dict[str, Any] = {
         "max_items_per_shard": DEFAULT_MAX_ITEMS,
         "max_configuration_obligations_per_shard": DEFAULT_MAX_OBLIGATIONS,
+        "max_authored_work_units_per_shard": DEFAULT_MAX_AUTHORED_WORK_UNITS,
         "runs": {},
     }
     for run_name, (file_key, review, shard_directory) in reviews.items():
@@ -95,6 +99,7 @@ def build_package(
     out_dir: Path,
     pretty: bool = False,
     context_path: Path | None = None,
+    requirements_path: Path | None = None,
 ) -> dict[str, Any]:
     skill_root = Path(__file__).resolve().parents[1]
     identity_report, identity_errors = declared_identity_errors(skill_root)
@@ -172,6 +177,9 @@ def build_package(
         return manifest
 
     context = build_context_model(export_path, context_path)
+    requirement_evidence = (
+        build_requirement_evidence(requirements_path) if requirements_path else None
+    )
     operational_scan = audit_export(export_path)
     technical = extract_export(export_path)
     shared_facts = build_shared_facts(
@@ -181,8 +189,17 @@ def build_package(
         navigation=source_model,
     )
     operational_review = scaffold_operational_review(export_path, shared_facts)
-    configuration_review = scaffold_configuration_review(export_path, technical, shared_facts)
-    architecture_review = scaffold_architecture_review(export_path, shared_facts)
+    configuration_review = scaffold_configuration_review(
+        export_path,
+        technical,
+        shared_facts,
+        requirement_evidence=requirement_evidence,
+    )
+    architecture_review = scaffold_architecture_review(
+        export_path,
+        shared_facts,
+        requirement_evidence=requirement_evidence,
+    )
 
     files = {
         "source_model": out_dir / "source_model.json",
@@ -195,6 +212,8 @@ def build_package(
         "architecture_review": out_dir / "architecture_review.json",
         "manifest": out_dir / "audit_package_manifest.json",
     }
+    if requirement_evidence:
+        files["approved_requirements"] = out_dir / "approved_requirements.json"
 
     manifest = {
         **source_descriptor(export_path),
@@ -260,6 +279,9 @@ def build_package(
             "configuration_review_rows": len(configuration_review.get("rows", [])),
             "architecture_families": len(architecture_review.get("families", [])),
             "architecture_comparisons": len(architecture_review.get("comparisons", [])),
+            "approved_requirement_rows": len(
+                as_list((requirement_evidence or {}).get("requirements"))
+            ),
         },
         "required_next_artifacts": [
             *(
@@ -297,6 +319,8 @@ def build_package(
     write_json(files["operational_scan"], operational_scan, pretty)
     write_json(files["operational_review"], operational_review, pretty)
     write_json(files["technical_code_findings"], technical, pretty)
+    if requirement_evidence:
+        write_json(files["approved_requirements"], requirement_evidence, pretty)
     write_json(files["configuration_review"], configuration_review, pretty)
     write_json(files["architecture_review"], architecture_review, pretty)
     manifest["review_work_units"] = build_review_work_units(
@@ -344,10 +368,62 @@ def build_package(
         skill_root,
         pretty=pretty,
     )
+    for run_name, run in manifest["review_work_units"]["runs"].items():
+        if run.get("strategy") != "sharded":
+            continue
+        staging_directory = str(run.get("shard_directory") or "")
+        staging_path = (out_dir / staging_directory).resolve()
+        if staging_path.parent != out_dir.resolve() or not staging_path.is_dir():
+            raise RuntimeError(
+                f"unsafe or missing staging shard directory for {run_name}"
+            )
+        shutil.rmtree(staging_path)
+        bundle_directory = f"review-bundles/{run_name}/{staging_directory}"
+        run["shard_directory"] = bundle_directory
+        run["shard_manifest"] = f"{bundle_directory}/shard_manifest.json"
     manifest["notes"].append(
         "A root orchestrator must assign each review-bundles directory to a distinct "
         "fresh reasoning context, then validate and seal that bundle-local output."
     )
+    artifact_files = [
+        path
+        for path in out_dir.rglob("*")
+        if path.is_file() and path != files["manifest"]
+    ]
+    configuration_workload = manifest["review_work_units"]["runs"].get(
+        "configuration_correctness", {}
+    )
+    artifact_bytes = sum(path.stat().st_size for path in artifact_files)
+    manifest["scalability"] = {
+        "contract": (
+            "Evidence coverage must remain exhaustive while authored work and physical "
+            "shards are measured by meaningful object/behavior units. These metrics are "
+            "release-regression evidence, not a reduced audit mode."
+        ),
+        "source_bytes": export_path.stat().st_size,
+        "artifact_files_excluding_manifest": len(artifact_files),
+        "artifact_bytes_excluding_manifest": artifact_bytes,
+        "artifact_to_source_bytes_ratio": round(
+            artifact_bytes / max(1, export_path.stat().st_size), 3
+        ),
+        "configuration_evidence_obligations": int(
+            configuration_workload.get("configuration_evidence_obligations")
+            or configuration_workload.get("configuration_obligations")
+            or 0
+        ),
+        "configuration_authored_work_units": int(
+            configuration_workload.get("authored_behavior_work_units") or 0
+        ),
+        "obligation_to_authored_ratio": float(
+            configuration_workload.get("obligation_to_authored_ratio") or 0
+        ),
+        "review_shards": sum(
+            int(run.get("primary_shards") or 0)
+            + int(run.get("obligation_shards") or 0)
+            + int(bool(run.get("discovery_shard")))
+            for run in manifest["review_work_units"]["runs"].values()
+        ),
+    }
     write_json(files["manifest"], manifest, pretty)
     return manifest
 
@@ -367,11 +443,22 @@ def main() -> int:
         type=Path,
         help="Optional analyst-provided JSON context merged with deterministic inference",
     )
+    parser.add_argument(
+        "--requirements",
+        type=Path,
+        help="Optional analyst-approved JSON, CSV, XLSX, or XLSM tracking-plan evidence",
+    )
     args = parser.parse_args()
 
     try:
-        result = build_package(args.export, args.out_dir, args.pretty, args.context)
-    except RuntimeError as exc:
+        result = build_package(
+            args.export,
+            args.out_dir,
+            args.pretty,
+            args.context,
+            args.requirements,
+        )
+    except (RuntimeError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "blocked", "errors": [str(exc)]}))
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))

@@ -1115,7 +1115,7 @@ class AdversarialAuditTests(unittest.TestCase):
         )
         self.assertTrue(all(row["disposition"] == "owner_decision_needed" for row in context_rows))
 
-    def test_large_code_object_is_split_below_the_obligation_limit(self) -> None:
+    def test_large_code_object_keeps_exact_coverage_without_micro_shards(self) -> None:
         data = sample_export()
         body = "function() {\n" + "\n".join(
             f"var value{i} = {i};" for i in range(75)
@@ -1138,17 +1138,40 @@ class AdversarialAuditTests(unittest.TestCase):
             max_items=20,
             max_obligations=10,
         )
-        code_shards = [
+        self.assertEqual([], manifest["obligation_shards"])
+        overlay = next(
             row
-            for row in manifest["obligation_shards"]
+            for shard in manifest["shards"]
+            for row in json.loads(
+                (shard_dir / shard["filename"]).read_text(encoding="utf-8")
+            )["items"]
             if row["object_key"] == "variable:999"
-            and row["source_field"] == "code_line_facts"
+        )
+        large_row = next(
+            row for row in review["rows"] if row["object_key"] == "variable:999"
+        )
+        self.assertNotIn("required_code_line_hashes", overlay)
+        self.assertNotIn("behavior_review_groups", overlay)
+        self.assertTrue(overlay["source_row_sha256"])
+        expected_hashes = set(large_row["required_code_line_hashes"])
+        grouped_hashes = [
+            value
+            for group in large_row["behavior_review_groups"]
+            for value in group["code_line_hashes"]
         ]
-        self.assertGreaterEqual(len(code_shards), 8)
-        self.assertTrue(all(len(row["source_ids"]) <= 10 for row in code_shards))
+        self.assertGreaterEqual(len(expected_hashes), 75)
+        self.assertEqual(expected_hashes, set(grouped_hashes))
+        self.assertEqual(len(grouped_hashes), len(set(grouped_hashes)))
+        self.assertLessEqual(
+            large_row["configuration_coverage_metrics"]["authored_work_units"],
+            10,
+        )
 
     def test_completed_shards_fail_early_on_pending_or_missing_obligations(self) -> None:
         completed = complete_configuration(self.export)
+        # Schema-3 packages retain the legacy micro-shard reader so an older,
+        # already-started audit remains resumable after this release.
+        completed["schema_version"] = 3
         review_path = self.write_json("completed-configuration.json", completed)
         shard_dir = self.root / "checked-shards"
         manifest = split_review(review_path, shard_dir, max_items=3, max_obligations=10)

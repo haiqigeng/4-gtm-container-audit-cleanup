@@ -11,9 +11,9 @@ replace or relax `workbook-architecture.md`.
 - [Workbook Structure](#workbook-structure)
 - [Completeness Without Column Inflation](#completeness-without-column-inflation)
 - [A1 Overview](#a1-overview)
-- [A2 Audit Register](#a2-audit-register)
-- [A3 Actions](#a3-actions)
-- [A4 Decisions](#a4-decisions)
+- [A2 Actions](#a2-actions)
+- [A3 Decisions](#a3-decisions)
+- [A4 Audit Register](#a4-audit-register)
 - [A5 Custom HTML](#a5-custom-html)
 - [Language](#language)
 - [Transformation Manifest](#transformation-manifest)
@@ -59,10 +59,9 @@ Read:
 - passing future-state gate; and
 - passing three-run completion gate.
 
-A decision-topic JSON may group owner decisions. It is optional only when the
-decision ledger has at most 15 owner-decision source records and is mandatory
-above that threshold. It is presentation input only. It cannot change a source
-disposition, question, recommendation, priority, operation, or affected object.
+A decision-topic JSON may group owner decisions. It is optional at every record
+count and is presentation input only. It cannot change a source disposition,
+question, recommendation, priority, operation, or affected object.
 
 Use this minimal shape:
 
@@ -84,11 +83,10 @@ Use this minimal shape:
 
 Every owner-decision source ID must occur once across the topic list. Do not
 include keep, evidence-limit, or cleanup-operation records. The builder rejects
-unknown, duplicate, missing, empty, or source-mismatched mappings.
-Above 15 owner decisions, omission of the topic file is also rejected. Group
-only decisions that genuinely require the same owner answer; do not use
-single-record topics merely to satisfy the file shape. The map must reduce the
-topic count by grouping at least one genuinely shared decision.
+unknown, duplicate, missing, empty, or source-mismatched mappings. Group only
+decisions that genuinely require the same owner answer. Without a map, the
+deterministic fallback groups only identical normalized questions and
+recommendations and works at any record count.
 
 Context, source model, all three reviews, technical-code findings, reconciled
 operations, and the future-state gate must each carry the locked source
@@ -107,9 +105,9 @@ authority nor a mutation-direction source for this transformation.
 Copy the canonical workbook and add these sheets before its unchanged sheets:
 
 1. `A1 Overview`
-2. `A2 Audit Register`
-3. `A3 Actions`
-4. `A4 Decisions`
+2. `A2 Actions`
+3. `A3 Decisions`
+4. `A4 Audit Register`
 5. `A5 Custom HTML`
 
 Keep every original sheet name, value, formula, comment, hyperlink, dimensions,
@@ -125,9 +123,9 @@ derived workbook is governed by this contract and its separate gate.
 Completeness is a row-coverage rule, not a reason to duplicate technical
 fields.
 
-- A2 contains every decision-ledger audit record exactly once.
-- A3 contains every atomic operation exactly once.
-- A4 contains every `owner_decision_needed` source record exactly once.
+- A2 contains every atomic operation exactly once.
+- A3 contains every `owner_decision_needed` source record exactly once.
+- A4 contains every decision-ledger audit record exactly once.
 - A5 contains every source Custom HTML tag exactly once.
 - Every original technical sheet remains in the workbook.
 
@@ -151,6 +149,8 @@ Show only:
   counts;
 - operation counts by priority;
 - material before/after object deltas;
+- the first highest-priority cleanup actions and why they matter;
+- the retained, changed, and owner-blocked measurement-family target state;
 - the container-only evidence boundary;
 - the next analyst step; and
 - navigation between the human and technical layers.
@@ -166,7 +166,71 @@ path, or unsupported claim such as:
 - guaranteed live behaviour; or
 - legal consent compliance confirmed.
 
-## A2 Audit Register
+## A2 Actions
+
+Use exactly eight visible columns:
+
+1. `Order + OP ID`
+2. `Priority`
+3. `Objects`
+4. `Literal problem`
+5. `Consequence if unchanged`
+6. `Exact change`
+7. `Preconditions / approval`
+8. `Static verification + rollback`
+
+Every row must be understandable without opening JSON or a hidden proof sheet.
+State the exact configured problem separately from its concrete maintenance or
+measurement consequence. Reject generic impact boilerplate and do not repeat the
+same sentence in both columns. `Exact change` comes only from structured
+creations, additions, changes, remaps, renames, and deletions; editorial wording
+may improve grammar but cannot select or reverse direction.
+
+When a canonical object exists, state it first. Name every remap consumer,
+source, target, and deleted object. Describe removal from the enabled
+`builtInVariable` list as disable/deselect, not object deletion. State
+operation-specific prerequisites and approval. Static verification must name the
+post-change configuration/readback assertion and rollback route; it must not
+invent Preview, browser, network, CMP, or vendor acceptance work.
+
+Every action row carries a privacy-redacted cell note containing its complete
+authoritative structured mutation: canonical key, creations, additions, changes
+with full paths and values, remaps, renames, and deletions. Visible long values
+may be shortened only when they explicitly point to that complete note. Creation
+text names the new object as well as its layer/key. If the complete structured
+mutation cannot fit losslessly in the bounded note, fail the derived build and
+use the canonical fallback instead of publishing a partial action.
+
+## A3 Decisions
+
+Use exactly six visible columns:
+
+1. `Decision`
+2. `Question`
+3. `Recommendation`
+4. `Affected items`
+5. `Measurement families`
+6. `What the answer unlocks`
+
+Group only source records requiring the same owner answer. Every source record
+maps to exactly one topic. Explain which preserved/changed measurement families
+depend on the answer and which exact operation, target state, or evidence-bound
+conclusion becomes possible afterward.
+
+For a one-source topic, include its source ID and object scope in the topic row.
+For a multi-source topic, show the child count and keep every source ID as an
+outline child row. Children may be collapsed by default. Parent topics never
+replace source records.
+
+If no editorial topic map is supplied, use a conservative deterministic
+fallback: group only identical normalized owner questions and recommendations.
+This fallback must work at any source-record count and must not block workbook
+delivery.
+
+This sheet is a discussion agenda. It does not ingest approval, authorize
+execution, or create a legally binding sign-off.
+
+## A4 Audit Register
 
 Use exactly six visible columns:
 
@@ -178,90 +242,18 @@ Use exactly six visible columns:
 6. `Priority`
 
 Use the reconciled decision ledger as the coverage authority. Preserve
-independent source IDs even when several reviews concern the same object.
-
-The outcome cell points to an A3 operation, A4 decision topic, or A5 Custom
-HTML row when applicable. Use a compact semantic set:
-
-- action plus operation ID, waiting for analyst approval;
-- decision plus topic ID, waiting for an owner answer;
-- retained, no action;
-- documented exception, no action;
-- evidence limitation; or
-- not applicable, no action.
+independent source IDs even when several reviews concern the same object. The
+outcome cell points to an A2 operation, A3 decision topic, or A5 Custom HTML row
+when applicable. Use a compact semantic set: action plus operation ID; decision
+plus topic ID; retained; documented exception; evidence limitation; or not
+applicable.
 
 Group rows by outcome for navigation. Keep action and owner-decision records
 expanded. Retained, documented-exception, evidence-limit, and not-applicable
 records may be outline-collapsed by default only when the visible group row
-states the exact child count.
-
-Do not add visible source-scan, evidence-path, confidence, owner, rollback, or
-operation-ID columns. Operation IDs belong in the outcome text and links.
-
-## A3 Actions
-
-Use exactly six visible columns:
-
-1. `Order + OP ID`
-2. `Priority`
-3. `Objects`
-4. `Exact action`
-5. `Dependency`
-6. `Validation`
-
-State ordinary analyst approval once in A1 rather than repeating it on every
-operation. Use `Dependency` only for an operation-specific blocker or
-prerequisite.
-
-Build `Exact action` only from structured:
-
-1. creations;
-2. additions;
-3. changes;
-4. remaps;
-5. renames; and
-6. deletions.
-
-When a canonical object exists, state it first. Name every remap consumer,
-source, target, and deleted object. Describe removal from the enabled
-`builtInVariable` list as disable/deselect, not object deletion. Editorial
-wording may improve grammar but cannot select or reverse direction.
-
-Every action cell carries a privacy-redacted cell note containing its complete
-authoritative structured mutation: canonical key, creations, additions,
-changes with full paths and values, remaps, renames, and deletions. Visible long
-values may be shortened only when they explicitly point to that complete note.
-Creation text names the new object as well as its layer/key. If the complete
-structured mutation cannot fit losslessly in the bounded note, fail the derived
-build and use the canonical fallback instead of publishing a partial action.
-
-If all operations share identical validation text, show it once in a shared
-validation row and leave identical operation cells blank. Operation-specific
-validation remains on its atomic row.
-
-## A4 Decisions
-
-Use exactly four visible columns:
-
-1. `Decision`
-2. `Question`
-3. `Recommendation`
-4. `Affected items`
-
-Group only source records requiring the same owner answer. Every source record
-maps to exactly one topic.
-
-For a one-source topic, include its source ID and object scope in the topic row.
-For a multi-source topic, show the child count and keep every source ID as an
-outline child row. Children may be collapsed by default. Parent topics never
-replace source records.
-
-If no editorial topic map is supplied, use a conservative deterministic
-fallback: group only identical normalized owner questions and recommendations.
-This fallback must not block workbook delivery.
-
-This sheet is a discussion agenda. It does not ingest approval, authorize
-execution, or create a legally binding sign-off.
+states the exact child count. Do not add visible source-scan, evidence-path,
+confidence, owner, rollback, or operation-ID columns. Operation IDs belong in
+the outcome text and links.
 
 ## A5 Custom HTML
 
@@ -332,10 +324,11 @@ After saving, the readability gate must:
 
 - bind the output to SHA-256 hashes of every input it consumed;
 - compare every original sheet against its pre-transformation content hash;
-- verify exact A2 decision-ledger coverage;
-- verify exact A3 operation coverage, order, priority, deterministic action
+- verify exact A2 operation coverage, order, priority, standalone literal
+  problem/consequence/change/static-verification utility, deterministic action
   direction, and complete structured-action notes;
-- verify exact A4 owner-source coverage and one-topic mapping;
+- verify exact A3 owner-source coverage and one-topic mapping;
+- verify exact A4 decision-ledger coverage;
 - verify exact A5 Custom HTML coverage and valid conflict references;
 - reject links to hidden or unknown sheets;
 - reject formulas, placeholders, and unsupported absolute claims in human

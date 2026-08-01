@@ -494,6 +494,23 @@ def complete_configuration(
         shared_facts=shared_facts,
         include_validator_answer_key=True,
     )
+    generated_summaries = {
+        row["object_key"]: {
+            **{
+                field: row[field]
+                for field in (
+                    "purpose",
+                    "execution_logic",
+                    "inputs_and_terminal_sources",
+                    "configured_output_or_side_effect",
+                    "consumer_contract",
+                    "consent_and_sequence",
+                )
+            },
+            "evidence_citations": copy.deepcopy(row["evidence_citations"]),
+        }
+        for row in review["rows"]
+    }
     structured_summaries = {
         row["object_key"]: {
             **{
@@ -1162,6 +1179,7 @@ def complete_configuration(
                     "or approve removal of the opaque implementation?"
                 )
     for row in review["rows"]:
+        row.update(copy.deepcopy(generated_summaries[row["object_key"]]))
         if row["object_key"] in structured_summaries:
             row.update(copy.deepcopy(structured_summaries[row["object_key"]]))
         row.pop("field_evidence_requirements", None)
@@ -3181,14 +3199,17 @@ scenarios:
     def test_configuration_gate_rejects_generic_semantic_prose_with_valid_citations(self) -> None:
         review = complete_configuration(self.export_path)
         purchase = next(row for row in review["rows"] if row["object_key"] == "tag:1")
-        purchase["purpose"] = (
-            "GA4 - Purchase - All serves one concrete measurement purpose through its tag setup."
-        )
+        purchase["correctness_basis"] = "Internally coherent for this container configuration."
         errors, _ = validate_configuration(
             self.export_path,
             self.write_review("generic-semantic-prose.json", review),
         )
-        self.assertTrue(any("purpose lacks object-specific analysis" in error for error in errors))
+        self.assertTrue(
+            any(
+                "correctness_basis lacks an authored functional conclusion" in error
+                for error in errors
+            )
+        )
 
     def test_configuration_gate_rejects_bulk_semantic_templates(self) -> None:
         review = complete_configuration(self.export_path)

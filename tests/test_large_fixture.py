@@ -55,6 +55,27 @@ class LargeFixtureTests(unittest.TestCase):
                 set(strategies),
             )
             self.assertIn("sharded", set(strategies.values()))
+            configuration = manifest["review_work_units"]["runs"][
+                "configuration_correctness"
+            ]
+            self.assertEqual(0, configuration["obligation_shards"])
+            self.assertGreater(
+                configuration["configuration_evidence_obligations"],
+                configuration["authored_behavior_work_units"],
+            )
+            self.assertTrue(
+                (package_dir / configuration["shard_manifest"]).is_file()
+            )
+            self.assertFalse((package_dir / "configuration-shards").exists())
+            scalability = manifest["scalability"]
+            self.assertLessEqual(
+                scalability["artifact_files_excluding_manifest"],
+                90,
+            )
+            self.assertLessEqual(
+                scalability["artifact_to_source_bytes_ratio"],
+                700,
+            )
 
 
 if __name__ == "__main__":

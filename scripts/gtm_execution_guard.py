@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtm_approval_response import validate_response
 from gtm_lib import ID_KEYS, as_list, load_json
 
 EXACT_OBJECT_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*:[^:\s]+$")
@@ -55,8 +56,9 @@ def execution_preflight(
     server_confirmed_ids: set[str],
     activation_confirmed_ids: set[str],
     observation_confirmed_ids: set[str],
+    approval_validation_errors: list[str] | None = None,
 ) -> dict[str, Any]:
-    errors: list[str] = []
+    errors: list[str] = list(approval_validation_errors or [])
     warnings: list[str] = []
     by_id = {
         str(operation.get("operation_id") or ""): operation
@@ -180,20 +182,49 @@ def main() -> int:
     parser.add_argument("context", type=Path)
     parser.add_argument("future_state", type=Path)
     parser.add_argument("--approve", action="append", default=[])
+    parser.add_argument(
+        "--approval-response",
+        type=Path,
+        help="Validated row-level approval response; replaces direct --approve flags",
+    )
     parser.add_argument("--confirm-server-coupled", action="append", default=[])
     parser.add_argument("--confirm-activation-risk", action="append", default=[])
     parser.add_argument("--confirm-observation", action="append", default=[])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
+    operations = load_json(args.operations)
+    approval_errors: list[str] = []
+    approved_ids = set(args.approve)
+    server_ids = set(args.confirm_server_coupled)
+    activation_ids = set(args.confirm_activation_risk)
+    observation_ids = set(args.confirm_observation)
+    if args.approval_response:
+        if approved_ids or server_ids or activation_ids or observation_ids:
+            approval_errors.append(
+                "--approval-response cannot be combined with direct approval or confirmation flags"
+            )
+        selection, response_errors = validate_response(
+            operations, load_json(args.approval_response)
+        )
+        approval_errors.extend(response_errors)
+        approved_ids = set(as_list(selection.get("approved_operation_ids")))
+        server_ids = set(as_list(selection.get("server_confirmed_operation_ids")))
+        activation_ids = set(
+            as_list(selection.get("activation_confirmed_operation_ids"))
+        )
+        observation_ids = set(
+            as_list(selection.get("observation_confirmed_operation_ids"))
+        )
     report = execution_preflight(
-        load_json(args.operations),
+        operations,
         load_json(args.context),
         load_json(args.future_state),
-        set(args.approve),
-        set(args.confirm_server_coupled),
-        set(args.confirm_activation_risk),
-        set(args.confirm_observation),
+        approved_ids,
+        server_ids,
+        activation_ids,
+        observation_ids,
+        approval_errors,
     )
     rendered = json.dumps(
         report,

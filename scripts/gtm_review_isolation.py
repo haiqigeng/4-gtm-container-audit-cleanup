@@ -135,6 +135,15 @@ def prepare_review_bundles(
                 "vendor_registry",
                 records,
             )
+        if run_name in {"configuration_correctness", "business_architecture"}:
+            requirement_path = package_dir / "approved_requirements.json"
+            if requirement_path.is_file():
+                _copy_role(
+                    requirement_path,
+                    bundle_dir / requirement_path.name,
+                    "approved_requirement_evidence",
+                    records,
+                )
         instruction_path = bundle_dir / "RUN_INSTRUCTIONS.md"
         instruction_path.write_text(
             "# Isolated review run\n\n"
@@ -143,7 +152,12 @@ def prepare_review_bundles(
             "contract explicitly permits it. Do not read another run, reconciled output, "
             "future-state output, workbook, repository tests, or semantic completion helper. "
             "Use a fresh reasoning context, preserve every generated source field, and "
-            "return the completed review to the root orchestrator for validation and sealing.\n",
+            "return the completed review to the root orchestrator for validation and sealing. "
+            "If a shard declares `configuration_completion_overlay`, read the matching "
+            "object row in the bundle-local base review as the exhaustive evidence ledger, "
+            "edit only the overlay fields, check every shard, and merge all overlays back "
+            "into that base review before sealing. Approved-requirement evidence, when "
+            "present, is separately labelled context and is never container proof.\n",
             encoding="utf-8",
         )
         records.append(
@@ -324,6 +338,24 @@ def seal_review(
     if errors:
         raise ValueError("; ".join(errors))
     review = load_json(review_path)
+    requirement_record = next(
+        (
+            record
+            for record in manifest.get("input_files") or []
+            if record.get("role") == "approved_requirement_evidence"
+        ),
+        None,
+    )
+    if requirement_record:
+        requirement_payload = load_json(
+            bundle_dir / str(requirement_record.get("path") or "")
+        )
+        if review.get("approved_requirement_evidence") != requirement_payload:
+            raise ValueError(
+                "review-approved requirement evidence differs from its bundle input"
+            )
+    elif review.get("approved_requirement_evidence"):
+        raise ValueError("review introduced undeclared approved requirement evidence")
     attestation = review.get("completion_attestation") or {}
     if attestation.get("independent_review_context_id") != context_id:
         raise ValueError("review context ID differs from the orchestrator-supplied context ID")

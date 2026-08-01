@@ -44,11 +44,18 @@ The package gate recomputes context content and reconstructs shared facts from
 the locked export. Matching hash strings with changed or fabricated content do
 not satisfy source integrity.
 
+An explicitly analyst-approved tracking plan may be normalized as a separate
+requirement artifact. Preserve exact source file/sheet/row/raw-field hashes and
+provide it only to Runs 2 and 3. It is never part of container-derived shared
+facts or Run 1, and exact identifier links do not authorize inferred semantic
+replacement.
+
 ## Required Pipeline
 
 ```text
 raw container evidence
   + provided/inferred audit context
+  + optional, separately labelled approved requirements for Runs 2 and 3
   -> source model and canonical deterministic facts
   -> independent Run 1: operational sanitation
   -> independent Run 2: configuration correctness
@@ -59,7 +66,7 @@ raw container evidence
   -> future-state graph simulation
   -> canonical human cleanup plan and existing gates
   -> post-gate analyst readability transformation
-  -> explicit operation approval and route selection
+  -> hash-locked row-level operation approval and route selection
   -> optional execution or import JSON
   -> complete readback certification
   -> separate post-execution change log
@@ -96,9 +103,10 @@ reconciliation. When three fresh contexts are unavailable, report the full
 audit as blocked; there is no same-context certification fallback.
 
 Package creation automatically uses source-locked shards when a run contains
-more than 40 primary review items or one configuration obligation group exceeds
-30 items. The package manifest records each run's strategy and shard directory
-under `review_work_units`; reviews below both limits remain single files.
+more than 40 primary review items or Run 2 exceeds 120 authored behavior work
+units. The package manifest records each run's strategy, evidence-obligation
+count, authored-work count, and shard directory under `review_work_units`;
+reviews below the applicable limits remain single files.
 Manual splitting remains available for legacy packages or a deliberately lower
 bound on an unusually dense object.
 
@@ -106,13 +114,16 @@ Every shard remains part of one run and the merge must recover the exact
 source-generated obligation set. Chunking is an execution strategy, not a
 reduced-depth mode. Architecture uses a dedicated discovery shard for
 analyst-added `DISC-*` comparisons and its all-object attestation; the merged
-run cannot become complete while either is pending. Configuration obligation
-shards contain at most 30 obligations and must recover every generated branch,
-reference trace, contract, technical finding, D3 cross-check, and custom-code
-line exactly once and in source order. Check each completed shard against its
-source locks, manifest identities, and exact completion set before continuing.
-The check catches local corruption early; the merged run must still pass its
-authoritative run validator.
+run cannot become complete while either is pending. Current Run-2 shards expose
+only source-hashed reviewer-editable completion overlays while the adjacent
+bundle-local base retains every generated branch, reference trace, contract,
+technical finding, D3 check, and custom-code line. Merge reconstructs full rows
+and rejects extra, missing, or changed-source fields. New packages do not create
+per-obligation micro-shards; their validator remains available only for legacy
+package resumability. Check each completed shard against its source locks,
+manifest identities, and exact completion set before continuing. The check
+catches local corruption early; the merged run must still pass its authoritative
+run validator.
 
 ## Run 1: Operational Sanitation
 
@@ -168,23 +179,23 @@ Custom HTML retains every detected vendor plus separate unknown-host research
 obligations. Unknown official sources are registry-bound, validated, and
 rescaffolded before they can certify a topic.
 
-Every semantic field cites one or more generated source paths selected for that
-claim and names source-derived behavior facts. Citations alone do not validate a
-generic statement. Every object also completes the exact generated D3
-cross-check set for purpose/output, execution/scope, input/output/consumer, and
-consent/sequence, plus code and vendor-contract alignment when applicable. A
-failed cross-check links to a concrete defect.
+The artifact retains deterministic, source-cited semantic summaries and an
+exact ledger of every branch, trace, contract, technical fact, code segment, and
+D3 check. These generated renderings are not correctness certification. Every
+object receives one authored correctness basis, and every escalated behavior
+group receives a source-specific conclusion across purpose/output,
+execution/scope, inputs/consumers, consent/sequence, destination/routing, code,
+and vendor contract as applicable. A failed group links to a concrete defect.
 
 The reviewer artifact contains evidence and allowed source paths, not the
 validator's field-by-field grading terms. The validator reconstructs those
-terms independently from the locked source. Evidence acquisition, branch
-coverage, traces, contracts, technical facts, and D3 checks remain exhaustive.
-Only a deterministically eligible simple folder, built-in, constant, or Data
-Layer Variable may use the locked `structured_simple` rendering of the same
-seven semantic dimensions. Any code, formula, lookup, regex, consent/vendor/
-server role, finding, ambiguity, owner decision, unresolved dependency, high
-fan-out, or unknown risk requires `deep` review. Discovery of any issue in a
-simple row forces deep escalation.
+terms independently from the locked source. Evidence acquisition and exact-once
+coverage remain exhaustive even though routine source narration is not authored
+repeatedly. Only a deterministically eligible simple folder, built-in, constant,
+or Data Layer Variable may retain a routine completion basis. Any code, formula,
+lookup, regex, consent/vendor/server role, finding, ambiguity, owner decision,
+unresolved dependency, high fan-out, or unknown risk requires `deep` authored
+review. Discovery of any issue in a simple row forces escalation.
 
 Run rules: `configuration-correctness.md` and `domain-contracts.md`.
 
@@ -321,7 +332,8 @@ all-sheet privacy scan, run the readability transformation defined in
 workflow:
 
 1. copy the validated canonical workbook;
-2. add the five lean analyst tabs;
+2. add `A1 Overview`, `A2 Actions`, `A3 Decisions`, `A4 Audit Register`, and
+   `A5 Custom HTML` before the unchanged canonical tabs;
 3. project every decision-ledger record, operation, owner-decision source
    record, and Custom HTML tag;
 4. run the independent readability gate.
@@ -342,9 +354,9 @@ When action completeness fails, the human output is a blocked draft: one visible
 blocked row and accurate Summary counts, with no partial operation list
 presented for approval.
 
-After plan approval, ask for:
+After plan delivery, ask for:
 
-1. exact operation IDs: approve all or an explicit subset;
+1. one `Approve`, `Reject`, or `Amend` response for every exact operation;
 2. route: direct GTM/API/MCP or import JSON.
 
 Do not ask for an aggressiveness mode. Recommend the best safe future state once.
@@ -357,6 +369,17 @@ Approval controls which exact operations may be executed; rejected or amended
 operations stay visible in the analyst's decision record and require the future
 state to be regenerated before mutation. A subset is a staged, incomplete
 cleanup and cannot inherit the full plan's completion claim.
+
+Generate the response template from the schema-4 operation packet. Its packet
+hash locks the complete approval surface and each operation hash locks the row.
+Validation rejects missing, duplicate, foreign, or changed rows. Server-coupled,
+configured-activation-risk, and post-observation confirmations remain separate
+from `Approve` and must also pass the execution preflight.
+
+An optional audit delta may compare two independently completed and sealed full
+packages after their own scans and reconciliation. It reports objective source,
+finding, operation, decision, family, and count changes only. It never makes a
+changed-only audit or carries an earlier verdict, confidence, or score forward.
 
 ## Completion States
 

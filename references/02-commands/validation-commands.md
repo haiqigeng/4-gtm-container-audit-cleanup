@@ -7,6 +7,7 @@ Run from the repository or installed skill root. Paths are examples.
 - Install and build the source-locked package
 - Shard and validate the three reviews
 - Compile, simulate, and build the cleanup plan
+- Capture exact approval and compare completed audits
 - Validate import JSON and create a separate change log
 - Run project checks
 
@@ -53,6 +54,18 @@ With analyst-provided context:
 python -B scripts/gtm_audit_package_build.py container.json --context audit-context.json --out-dir audit-package --pretty
 ```
 
+Add an explicitly approved tracking plan only when the analyst has identified it
+as a requirement source:
+
+```powershell
+python -B scripts/gtm_audit_package_build.py container.json --context audit-context.json --requirements approved-plan.xlsx --out-dir audit-package --pretty
+```
+
+The normalized `approved_requirements.json` preserves exact source rows and is
+copied only into the configuration and architecture bundles. It is absent from
+shared facts and the operational bundle. Exact identifier links are candidates
+for review, not inferred semantic replacements.
+
 This creates:
 
 - `source_model.json`
@@ -67,9 +80,10 @@ This creates:
 - `review-bundles/operational_sanitation/`
 - `review-bundles/configuration_correctness/`
 - `review-bundles/business_architecture/`
-- `operational-shards/`, `configuration-shards/`, or
-  `architecture-shards/` when the corresponding review is automatically
-  sharded
+
+When a review is automatically sharded, its shard directory exists only inside
+the matching `review-bundles/<run>/` directory. Temporary root staging
+directories are removed after bundle construction.
 
 The builder validates source identity before semantic work. An incomplete or
 ambiguous artifact produces only `source_model.json` and a blocked manifest;
@@ -90,7 +104,7 @@ grading terms.
 
 Read `audit_package_manifest.json > review_work_units`. The package builder
 automatically creates source-locked shards when a run has more than 40 primary
-items or one configuration obligation group has more than 30 items. A
+items or Run 2 has more than 120 authored behavior work units. A
 `single_file` run is completed directly in its canonical review file. For a
 `sharded` run, complete every file declared by that run's
 `shard_manifest.json`.
@@ -104,15 +118,18 @@ python -B scripts/gtm_review_shards.py merge audit-package/review-bundles/config
 ```
 
 The merge fails on missing, duplicated, pending, wrong-kind, or wrong-source
-items. Shards from separate runs must remain separate. Configuration obligation
-shards preserve the exact generated branch, trace, contract,
-technical-finding, D3-cross-check, and custom-code-line set.
+items. Shards from separate runs must remain separate. Current Run-2 shards are
+source-hashed completion overlays: inspect the complete adjacent base review,
+edit only the declared completion fields, and let merge reconstruct each full
+row. The base preserves the exact generated branch, trace, contract,
+technical-finding, D3-cross-check, and custom-code-line set. New packages create
+no per-obligation micro-shards; legacy schema remains supported for resumability.
 
 Use manual splitting only for a legacy package or to lower the limits for an
 unusually dense object:
 
 ```powershell
-python -B scripts/gtm_review_shards.py split audit-package/configuration_review.json audit-package/configuration-shards --max-items 40 --max-obligations 20
+python -B scripts/gtm_review_shards.py split audit-package/review-bundles/configuration_correctness/configuration_review.json audit-package/review-bundles/configuration_correctness/configuration-shards --max-items 30
 ```
 
 Architecture splitting also creates `*.open_discovery.0001.json`. Complete its
@@ -160,15 +177,26 @@ Full completion always requires the audit and cleanup plan together. Omitting
 `--operations` deliberately fails the completion gate, even when no mutation is
 ultimately justified.
 
+Generate the row-level approval template after delivering the plan. The analyst
+must mark every row `Approve`, `Reject`, or `Amend`; do not delete rows or edit
+hashes:
+
+```powershell
+python -B scripts/gtm_approval_response.py template reconciled_operations.json approval_response.json --pretty
+python -B scripts/gtm_approval_response.py validate reconciled_operations.json approval_response.json --output approval_gate.json --pretty
+```
+
 Immediately before any approved mutation or import generation, run the exact
 execution preflight:
 
 ```powershell
-python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --approve OP-0001 --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --approval-response approval_response.json --pretty
 ```
 
-Add the operation-specific server, activation, or post-observation confirmation
-flags only when their evidence has been reviewed.
+The validated response replaces direct `--approve` flags. Server, activation,
+and post-observation confirmations remain separate response fields and are
+accepted only when their evidence has been reviewed. An amended or rejected row
+requires a regenerated subset/future state before mutation.
 
 ## Build And Gate The Cleanup Workbook
 
@@ -195,9 +223,8 @@ An analyst-authored decision-topic map may be supplied to both commands with
 `--decision-topics decision_topics.json`; it may group only records requiring
 the same answer and must cover every owner-decision source ID exactly once.
 Without it, the builder conservatively groups only identical normalized
-questions and recommendations when there are at most 15 owner decisions. More
-than 15 requires a complete analyst-authored map that meaningfully reduces the
-topic count by grouping at least one shared decision.
+questions and recommendations at any owner-decision count. Supply an authored
+map only when it creates genuinely useful shared-answer topics.
 
 Do not run `gtm_audit_gate_check.py` against the derived workbook: its eight-tab
 contract applies only to `cleanup_plan.xlsx`. Deliver
@@ -206,6 +233,21 @@ discard the derived file, deliver the unchanged `cleanup_plan.xlsx`, and report
 the readability-step failure without rerunning any audit stage.
 
 The cleanup workbook is not a change log.
+
+## Compare Two Completed Audits
+
+Run two complete audits independently before comparing them. The delta command
+requires complete manifests, three complete runs, and valid independent seals;
+operation packets are validated when present:
+
+```powershell
+python -B scripts/gtm_audit_delta.py previous-audit-package current-audit-package --output audit_delta.json --pretty
+```
+
+Use `--previous-operations` or `--current-operations` only when the packet is
+stored outside its package. The output compares source objects, findings,
+operations, decisions, families, and counts. It never substitutes a changed-only
+scan or carries an old verdict, confidence, or score into the new audit.
 
 ## Validate A Generated GTM JSON
 
