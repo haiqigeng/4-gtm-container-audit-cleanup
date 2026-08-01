@@ -28,6 +28,7 @@ from gtm_review_common import (
     review_input_contract,
     specific_text,
     validate_challenge,
+    validate_neutral_recheck_contexts,
     validate_operation_set,
     validate_review_provenance,
     validate_structured_actions,
@@ -553,7 +554,7 @@ def validate_cleanup_operation(
             source_paths_by_key,
         )
     )
-    errors.extend(validate_challenge(row, label))
+    errors.extend(validate_challenge(row, label, source_paths_by_key))
     errors.extend(
         validate_deterministic_repair(row, expected_row, lifecycle_by_key, label)
     )
@@ -762,6 +763,18 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
         )
     )
     errors.extend(validate_review_provenance(supplied, expected, "operational review"))
+    errors.extend(
+        validate_neutral_recheck_contexts(
+            supplied,
+            str(
+                (supplied.get("completion_attestation") or {}).get(
+                    "independent_review_context_id"
+                )
+                or ""
+            ),
+            "operational review",
+        )
+    )
     expected_by_id, supplied_by_id, set_errors = finding_sets(supplied, expected)
     errors.extend(set_errors)
     operation_keys: dict[str, str] = {}

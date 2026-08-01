@@ -129,6 +129,22 @@ CACHE_BUSTER_RE = re.compile(
 )
 BASE64_RE = re.compile(r"\b(?:atob|btoa)\s*\(|\b[A-Za-z0-9+/]{80,}={0,2}\b")
 MUTATION_OBSERVER_RE = re.compile(r"\bMutationObserver\s*\(", re.I)
+MUTATION_OBSERVER_DISCONNECT_RE = re.compile(r"\.\s*disconnect\s*\(", re.I)
+SET_INTERVAL_RE = re.compile(r"\bsetInterval\s*\(", re.I)
+CLEAR_INTERVAL_RE = re.compile(r"\bclearInterval\s*\(", re.I)
+SET_TIMEOUT_RE = re.compile(r"\bsetTimeout\s*\(", re.I)
+CLEAR_TIMEOUT_RE = re.compile(r"\bclearTimeout\s*\(", re.I)
+READY_STATE_RE = re.compile(r"\bdocument\s*\.\s*readyState\b", re.I)
+WINDOW_LOAD_LISTENER_RE = re.compile(
+    r"(?:window\s*\.\s*)?addEventListener\s*\(\s*['\"]load['\"]", re.I
+)
+EMPTY_CATCH_RE = re.compile(r"\bcatch\s*\([^)]*\)\s*\{\s*\}", re.I | re.S)
+CONSOLE_RE = re.compile(r"\bconsole\s*\.\s*(?:log|debug|info|trace)\s*\(", re.I)
+HARDCODED_ENVIRONMENT_RE = re.compile(
+    r"\b(?:G-[A-Z0-9]{6,}|AW-[0-9]{6,}|DC-[0-9]{4,}|GTM-[A-Z0-9]+)\b|"
+    r"https?://(?:localhost|(?:dev|staging|preprod|qa)[.-])",
+    re.I,
+)
 IDENTITY_IGNORED = {"accountId", "containerId", "fingerprint", "path"}
 
 
@@ -225,6 +241,48 @@ def secret_like_credential_signals(code: str) -> list[str]:
     if PRIVATE_KEY_RE.search(code):
         signals.add("literal_private_key")
     return sorted(signals)
+
+
+def cookie_write_facts(code: str) -> list[dict[str, Any]]:
+    """Classify literal writes without treating deletion as cookie creation."""
+
+    facts: list[dict[str, Any]] = []
+    for match in COOKIE_LITERAL_WRITE_RE.finditer(code):
+        literal = match.group("cookie")
+        parts = [part.strip() for part in literal.split(";")]
+        first = parts[0] if parts else ""
+        name, separator, _value = first.partition("=")
+        attributes: dict[str, str | bool] = {}
+        for part in parts[1:]:
+            attr_name, attr_separator, attr_value = part.partition("=")
+            normalized = attr_name.strip().casefold()
+            if normalized:
+                attributes[normalized] = attr_value.strip() if attr_separator else True
+        max_age = str(attributes.get("max-age") or "").strip()
+        expires = str(attributes.get("expires") or "").strip().casefold()
+        deletion = bool(
+            re.fullmatch(r"-?\d+", max_age)
+            and int(max_age) <= 0
+            or re.search(
+                r"(?:^|\b)(?:thu,?\s*)?(?:01\s+jan\s+1970|jan\s+01\s+1970|"
+                r"1970-01-01|expires\s+in\s+the\s+past)",
+                expires,
+                re.I,
+            )
+        )
+        facts.append(
+            {
+                "operation": "delete" if deletion else "set_or_update",
+                "name": name.strip() if separator else "",
+                "path": str(attributes.get("path") or ""),
+                "domain": str(attributes.get("domain") or ""),
+                "secure": "secure" in attributes,
+                "same_site": str(attributes.get("samesite") or ""),
+                "max_age": max_age,
+                "expires": expires,
+            }
+        )
+    return facts
 
 
 def storage_details(code: str, storage_name: str) -> list[str]:
@@ -483,8 +541,11 @@ def container_evidence_limits(code: str, effects: list[str]) -> list[str]:
     return limits
 
 
-def code_health_findings(layer: str, code: str) -> list[str]:
+def code_health_findings(
+    layer: str, code: str, ast_facts: dict[str, Any] | None = None
+) -> list[str]:
     findings: list[str] = []
+    ast_facts = ast_facts or {}
     if not code.strip():
         findings.append("No code body was exported for this object.")
     if custom_template_visibility(layer, code) == "opaque":
@@ -515,15 +576,35 @@ def code_health_findings(layer: str, code: str) -> list[str]:
             "Registers browser event listeners; exported guards and trigger scope should "
             "prevent repeated registration."
         )
-        if not (
+        if ONCE_EVENT_LISTENER_RE.search(code) and not LISTENER_GUARD_RE.search(code):
+            findings.append(
+                "Listener lifecycle relies on once:true without a stable registration "
+                "guard; once limits a registered callback but does not prevent duplicate "
+                "registrations before the event occurs."
+            )
+        elif not (
             REMOVE_EVENT_LISTENER_RE.search(code)
-            or ONCE_EVENT_LISTENER_RE.search(code)
             or LISTENER_GUARD_RE.search(code)
         ):
             findings.append(
                 "Registers a browser event listener without an exported remove, once-only "
                 "option, or registration guard; repeated GTM execution can accumulate handlers."
             )
+        if WINDOW_LOAD_LISTENER_RE.search(code) and not READY_STATE_RE.search(code):
+            findings.append(
+                "Registers a window load listener without a document.readyState branch; "
+                "the handler can be missed when GTM executes after load has already fired."
+            )
+    if SET_INTERVAL_RE.search(code) and not CLEAR_INTERVAL_RE.search(code):
+        findings.append(
+            "Starts setInterval without an exported clearInterval lifecycle; repeated GTM "
+            "execution can retain duplicate polling loops."
+        )
+    if MUTATION_OBSERVER_RE.search(code) and not MUTATION_OBSERVER_DISCONNECT_RE.search(code):
+        findings.append(
+            "Creates a MutationObserver without an exported disconnect lifecycle; bound its "
+            "target, completion condition, and repeated-execution behavior."
+        )
     if has_manual_gtag_call(code):
         findings.append(
             "Calls gtag() directly inside GTM; compare its destination, event, consent, and "
@@ -545,6 +626,38 @@ def code_health_findings(layer: str, code: str) -> list[str]:
             "Custom JavaScript variable starts a callback-based CMP read; a GTM variable "
             "must return synchronously, so the callback result may arrive after evaluation."
         )
+    if layer == "variable" and returned_value_type(code) == "dynamic_expression":
+        findings.append(
+            "Custom JavaScript variable exposes mixed or unproven return types; define null, "
+            "undefined, error, and fallback behavior for every consumer path."
+        )
+    branch_count = int(ast_facts.get("ast_branch_count") or 0)
+    if branch_count >= 16:
+        findings.append(
+            f"Contains {branch_count} parsed branch expressions; reduce nesting or split "
+            "independent responsibilities while preserving exact outputs and timing."
+        )
+    if EMPTY_CATCH_RE.search(code):
+        findings.append(
+            "Contains an empty catch block that hides failures; handle the expected error or "
+            "remove the catch without changing the success path."
+        )
+    if CONSOLE_RE.search(code):
+        findings.append(
+            "Contains production console logging; remove debug-only output unless it is an "
+            "approved operational diagnostic."
+        )
+    nonblank_lines = [line for line in code.splitlines() if line.strip()]
+    if len(code) > 1200 and len(nonblank_lines) <= 3:
+        findings.append(
+            "Code is densely minified or compressed, reducing reviewability; use readable "
+            "maintained source without changing its configured behavior."
+        )
+    if HARDCODED_ENVIRONMENT_RE.search(code):
+        findings.append(
+            "Contains a hardcoded container, destination, or environment identifier; verify "
+            "portability and move approved environment-specific values to canonical GTM inputs."
+        )
     if "literal_api_key_candidate" in secret_like_credential_signals(code):
         findings.append(
             "Contains a literal API-key candidate; evidence is redacted. Confirm that it "
@@ -556,19 +669,36 @@ def code_health_findings(layer: str, code: str) -> list[str]:
 def code_security_findings(code: str) -> list[str]:
     findings: list[str] = []
     cookie_attribute_findings = []
-    for match in COOKIE_LITERAL_WRITE_RE.finditer(code):
-        literal = match.group("cookie")
+    cookie_facts = cookie_write_facts(code)
+    set_scopes: dict[str, set[tuple[str, str]]] = collections.defaultdict(set)
+    for fact in cookie_facts:
+        if fact["operation"] == "set_or_update" and fact["name"]:
+            set_scopes[str(fact["name"])].add(
+                (str(fact["path"]), str(fact["domain"]))
+            )
+    for fact in cookie_facts:
+        if fact["operation"] == "delete":
+            name = str(fact["name"] or "<dynamic name>")
+            scope = (str(fact["path"]), str(fact["domain"]))
+            known_scopes = set_scopes.get(name, set())
+            if not fact["name"] or not known_scopes or scope not in known_scopes:
+                cookie_attribute_findings.append(
+                    "Literal cookie deletion has no source-proven matching set/update scope; "
+                    f"verify the exact name/path/domain for {name!r}. Secure and SameSite are "
+                    "not automatically added to deletion writes."
+                )
+            continue
         missing = [
             attribute
-            for attribute, pattern in (
-                ("Secure", r"(?:^|;)\s*secure(?:\s*;|$)"),
-                ("SameSite", r"(?:^|;)\s*samesite\s*="),
+            for attribute, present in (
+                ("Secure", bool(fact["secure"])),
+                ("SameSite", bool(fact["same_site"])),
             )
-            if not re.search(pattern, literal, re.I)
+            if not present
         ]
         if missing:
             cookie_attribute_findings.append(
-                "Literal cookie write omits exported "
+                "Literal cookie set/update omits exported "
                 + " and ".join(missing)
                 + " attributes; verify the approved cookie policy and add the applicable attributes."
             )
@@ -669,6 +799,11 @@ def code_optimization_findings(
             "Contains a Google Optimize or anti-flicker remnant; remove the obsolete "
             "loader/hiding code after confirming no current experiment platform owns it."
         )
+    if len(code) > 1200 and HARDCODED_ENVIRONMENT_RE.search(code):
+        findings.append(
+            "Separates portable logic from environment-specific IDs/endpoints poorly; "
+            "centralize the approved configuration instead of duplicating code per environment."
+        )
     return findings
 
 
@@ -699,9 +834,10 @@ def technical_code_review(
     code: str,
     effects: list[str],
     formulas: dict[str, Any] | None = None,
+    ast_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     formulas = formulas or expression_facts(code)
-    health = code_health_findings(layer, code)
+    health = code_health_findings(layer, code, ast_facts)
     security = code_security_findings(code)
     optimization = code_optimization_findings(layer, code, effects, formulas)
     status, recommendation = code_health_status(health, security, optimization)
@@ -767,6 +903,59 @@ def technical_expected_state(action: str) -> str:
             "or documented-exception decisions."
         )
     return "No technical cleanup is proposed from static code evidence."
+
+
+def technical_disposition(
+    row: dict[str, Any], review: dict[str, Any], action: str
+) -> str:
+    """Select one analyst-readable outcome from the complete static review."""
+
+    if action == "keep":
+        return "keep"
+    if action == "owner_decision_needed":
+        return "owner"
+    if any(
+        has_finding(review, marker)
+        for marker in (
+            "literal secret-like credential",
+            "Runs text as JavaScript",
+            "dataLayer.reset",
+            "callback-based CMP read",
+            "without an exported <script> wrapper",
+        )
+    ):
+        return "repair"
+    if any(
+        has_finding(review, marker)
+        for marker in ("Google Optimize", "debugger statement", "No code body")
+    ):
+        return "remove"
+    if has_finding(review, "more than one script"):
+        return "consolidate"
+    if any(
+        has_finding(review, marker)
+        for marker in (
+            "small helper variable",
+            "Calls gtag() directly",
+            "google_tag_manager",
+            "fixed product positions",
+        )
+    ):
+        return "replace"
+    if any(
+        has_finding(review, marker)
+        for marker in (
+            "Large custom code block",
+            "Very large custom code block",
+            "densely minified",
+            "parsed branch expressions",
+            "empty catch block",
+        )
+    ):
+        return "refactor"
+    if len(str(row.get("technical_plain_language_summary") or "")) > 1200:
+        return "shorten"
+    return "optimise"
 
 
 def has_finding(review: dict[str, Any], text: str) -> bool:
@@ -861,9 +1050,13 @@ def technical_exact_action(
         actions.append(
             "Confirm consent runs before cookie/storage access, remove sensitive visitor values, and document the allowed key names."
         )
-    if has_finding(review, "Literal cookie write omits"):
+    if has_finding(review, "Literal cookie set/update omits"):
         actions.append(
-            "Add the approved Secure and SameSite attributes to each literal cookie write, or replace the custom writer with the maintained consent-controlled implementation."
+            "For each cookie set/update, add only the policy-approved Secure and SameSite attributes, or replace the custom writer with the maintained consent-controlled implementation."
+        )
+    if has_finding(review, "Literal cookie deletion has no source-proven"):
+        actions.append(
+            "For each cookie deletion, match the original cookie name, path, and domain exactly; do not add Secure or SameSite merely because the write deletes a cookie."
         )
     if row.get("dom_selector_reads"):
         actions.append(
@@ -875,11 +1068,25 @@ def technical_exact_action(
         )
     if row.get("event_listeners"):
         actions.append(
-            "Ensure the browser listener is registered once per page view and only on the intended route."
+            "Align listener registration with the tag trigger, paused state, document readiness, and intended route; use a stable page-level guard and a real cleanup path where the lifecycle requires one."
         )
-    if has_finding(review, "without an exported remove"):
+    if has_finding(review, "without an exported remove") or has_finding(
+        review, "relies on once:true"
+    ):
         actions.append(
-            "Add a once-only option, explicit removal, or stable registration guard so repeated GTM execution cannot accumulate listeners."
+            "Prevent duplicate registration with a stable guard or trigger-level once-per-page execution; use once:true only to limit callback execution, not as proof that registration cannot duplicate."
+        )
+    if has_finding(review, "window load listener without"):
+        actions.append(
+            "If document.readyState already indicates load completion, run the handler immediately; otherwise register the load listener behind the same stable guard."
+        )
+    if has_finding(review, "setInterval without"):
+        actions.append(
+            "Store the interval handle and clear it at the source-proven completion or teardown condition, or replace polling with the existing event/dataLayer signal."
+        )
+    if has_finding(review, "MutationObserver without"):
+        actions.append(
+            "Disconnect the observer after its bounded completion condition and prevent duplicate observer construction on repeated tag execution."
         )
     if has_finding(review, "Calls gtag() directly"):
         actions.append(
@@ -1096,12 +1303,31 @@ def extract_export(path: Path) -> dict[str, Any]:
             "manual_gtag_calls": has_manual_gtag_call(code),
             "debugger_statements": bool(DEBUGGER_RE.search(code)),
             "cookies_read_written": bool(COOKIE_RE.search(code)),
+            "cookie_writes": cookie_write_facts(code),
             "localStorage_use": storage_details(code, "localStorage"),
             "sessionStorage_use": storage_details(code, "sessionStorage"),
             "dom_reads_writes": bool(DOM_RE.search(code)),
             "dom_selector_reads": bool(DOM_SELECTOR_RE.search(code)),
             "dom_mutations": bool(DOM_MUTATION_RE.search(code)),
             "event_listeners": sorted(set(EVENT_LISTENER_RE.findall(code))),
+            "listener_lifecycle": {
+                "registration_count": len(EVENT_LISTENER_RE.findall(code)),
+                "has_stable_registration_guard": bool(LISTENER_GUARD_RE.search(code)),
+                "uses_once_true": bool(ONCE_EVENT_LISTENER_RE.search(code)),
+                "has_remove_listener": bool(REMOVE_EVENT_LISTENER_RE.search(code)),
+                "window_load_listener": bool(WINDOW_LOAD_LISTENER_RE.search(code)),
+                "ready_state_branch": bool(READY_STATE_RE.search(code)),
+            },
+            "timer_lifecycle": {
+                "set_interval": bool(SET_INTERVAL_RE.search(code)),
+                "clear_interval": bool(CLEAR_INTERVAL_RE.search(code)),
+                "set_timeout": bool(SET_TIMEOUT_RE.search(code)),
+                "clear_timeout": bool(CLEAR_TIMEOUT_RE.search(code)),
+            },
+            "observer_lifecycle": {
+                "mutation_observer": bool(MUTATION_OBSERVER_RE.search(code)),
+                "disconnect": bool(MUTATION_OBSERVER_DISCONNECT_RE.search(code)),
+            },
             "external_scripts_loaded": external_script_urls,
             "network_calls": bool(NETWORK_RE.search(code) or external_script_urls),
             "document_write_calls": bool(DOCUMENT_WRITE_RE.search(code)),
@@ -1137,7 +1363,7 @@ def extract_export(path: Path) -> dict[str, Any]:
         formulas = expression_facts(code)
         row.update(formulas)
         row.update(javascript_ast_facts(layer, code))
-        review = technical_code_review(layer, code, effects, formulas)
+        review = technical_code_review(layer, code, effects, formulas, row)
         row.update(review)
         action = technical_action_candidate(
             review,
@@ -1152,6 +1378,18 @@ def extract_export(path: Path) -> dict[str, Any]:
         row["technical_exact_proposed_action"] = technical_exact_action(
             row, review, action
         )
+        row["technical_disposition"] = technical_disposition(row, review, action)
+        row["technical_disposition_vocabulary"] = [
+            "keep",
+            "optimise",
+            "repair",
+            "shorten",
+            "refactor",
+            "consolidate",
+            "replace",
+            "remove",
+            "owner",
+        ]
         row["technical_preconditions"] = technical_preconditions(layer, action)
         row["technical_qa_steps"] = technical_qa_steps(layer, row, action)
         row["technical_rollback_note"] = technical_rollback_note(row, action)

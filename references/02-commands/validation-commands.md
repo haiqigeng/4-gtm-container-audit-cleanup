@@ -41,8 +41,11 @@ python -B scripts/gtm_context_model.py container.json --pretty
 ```
 
 Present its provided, high-confidence inferred, and unresolved fields. Resolve
-material questions in a small context JSON before semantic review; non-material
-questions remain visible without adding a completion gate.
+what is already known in a small context JSON. Unresolved business, naming,
+ownership, lifecycle, folder, and preferred-target questions remain visible as
+nonblocking owner decisions; continue all three reviews and block only the
+affected mutation. Stop only for partial/ambiguous source identity, an unmodelled
+entity layer, or missing proof that prevents an exact configuration judgment.
 
 ```powershell
 python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
@@ -83,7 +86,10 @@ This creates:
 
 When a review is automatically sharded, its shard directory exists only inside
 the matching `review-bundles/<run>/` directory. Temporary root staging
-directories are removed after bundle construction.
+directories are removed after bundle construction. Use the matching
+`review-scratch/<run>/` directory for notes, temporary extracts, and drafts;
+sealing relocates an accidental undeclared bundle artifact there without
+deleting it and records the recovery in the review seal.
 
 The builder validates source identity before semantic work. An incomplete or
 ambiguous artifact produces only `source_model.json` and a blocked manifest;
@@ -124,6 +130,9 @@ edit only the declared completion fields, and let merge reconstruct each full
 row. The base preserves the exact generated branch, trace, contract,
 technical-finding, D3-cross-check, and custom-code-line set. New packages create
 no per-obligation micro-shards; legacy schema remains supported for resumability.
+Merge persists one content-hash receipt per declared shard, rechecks every shard
+after assembly, and records the resume contract. On failure, repair only the
+named shard and rerun its check before resuming.
 
 Use manual splitting only for a legacy package or to lower the limits for an
 unusually dense object:
@@ -223,8 +232,10 @@ An analyst-authored decision-topic map may be supplied to both commands with
 `--decision-topics decision_topics.json`; it may group only records requiring
 the same answer and must cover every owner-decision source ID exactly once.
 Without it, the builder conservatively groups only identical normalized
-questions and recommendations at any owner-decision count. Supply an authored
-map only when it creates genuinely useful shared-answer topics.
+questions/recommendations, or cross-lens records with the same problem type,
+answer class, and exact object scope. It never semantically combines two
+differently worded decisions from the same review lens. Supply an authored map
+only when it creates genuinely useful shared-answer topics.
 
 Do not run `gtm_audit_gate_check.py` against the derived workbook: its eight-tab
 contract applies only to `cleanup_plan.xlsx`. Deliver

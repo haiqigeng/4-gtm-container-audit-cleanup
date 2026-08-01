@@ -85,8 +85,10 @@ Every owner-decision source ID must occur once across the topic list. Do not
 include keep, evidence-limit, or cleanup-operation records. The builder rejects
 unknown, duplicate, missing, empty, or source-mismatched mappings. Group only
 decisions that genuinely require the same owner answer. Without a map, the
-deterministic fallback groups only identical normalized questions and
-recommendations and works at any record count.
+deterministic fallback groups either identical normalized questions and
+recommendations or cross-lens records with the same problem type, answer class,
+and exact object scope. It never semantically combines two differently worded
+decisions from the same review lens. This fallback works at any record count.
 
 Context, source model, all three reviews, technical-code findings, reconciled
 operations, and the future-state gate must each carry the locked source
@@ -127,7 +129,8 @@ fields.
 - A3 contains every `owner_decision_needed` source record exactly once.
 - A4 contains every decision-ledger audit record exactly once.
 - A5 contains every source Custom HTML tag exactly once.
-- Every original technical sheet remains in the workbook.
+- Every original technical sheet remains content-identical in the workbook and is
+  hidden by default in the analyst copy.
 
 Large affected-object lists may be shortened visibly only when the complete
 redacted list remains in a cell note and in the unchanged technical evidence.
@@ -148,6 +151,10 @@ Show only:
 - audit-record, operation, owner-decision/topic, Custom HTML, and retained
   counts;
 - operation counts by priority;
+- the reconciliation arithmetic from source findings to atomic operations, retained/
+  exception records, owner topics, and evidence limits;
+- bulk-eligible versus individually approved operations, simulation-confirmed activation
+  risk, and maintenance-only versus behavior-changing operations;
 - material before/after object deltas;
 - the first highest-priority cleanup actions and why they matter;
 - the retained, changed, and owner-blocked measurement-family target state;
@@ -223,7 +230,10 @@ outline child row. Children may be collapsed by default. Parent topics never
 replace source records.
 
 If no editorial topic map is supplied, use a conservative deterministic
-fallback: group only identical normalized owner questions and recommendations.
+fallback: group only records with the same answer class, compatible exact object/route
+scope, and target consequence. Keep every source record as an outline child. Folder,
+naming, move, and rename decisions with large scopes show a draft target taxonomy or
+rename/move proposal rather than a vague request to decide later.
 This fallback must work at any source-record count and must not block workbook
 delivery.
 
@@ -257,15 +267,24 @@ the outcome text and links.
 
 ## A5 Custom HTML
 
-Use exactly four visible columns:
+Use exactly seven visible columns:
 
 1. `Tag`
-2. `State`
-3. `Role`
-4. `Assessment / next action`
+2. `State / execution context`
+3. `Functional role`
+4. `Technical health`
+5. `Replacement / simplification candidate`
+6. `Simplest safe target`
+7. `Exact action / decision`
 
 Inventory every Custom HTML tag from the locked source exactly once. State the
-code length and its material static role without reproducing source code.
+code length, paused/active state, configured execution/timing context, and material
+static role without reproducing source code. Technical health covers parser/syntax,
+control flow, returns/types/null/errors, async/sync, listeners/timers/observers,
+globals, DOM/storage/privacy/security, network calls, script loading, performance, dead/duplicate
+code, complexity/readability, hardcoded environments, deprecated APIs, portability,
+and maintainability. Show the selected keep/optimise/repair/shorten/refactor/
+consolidate/replace/remove/owner disposition.
 
 Distinguish:
 
@@ -276,9 +295,15 @@ Distinguish:
 - a vendor loader with no proven native replacement; and
 - no source-proven replacement.
 
+Column 5 also names source-qualified native tag/variable, maintained-template,
+identical-code consolidation, and site-side producer candidates. Column 6 states the
+smallest target that preserves the exported function. Column 7 identifies exact planned
+operation IDs, owner topics, or a literal retained action. Do not hide a technical repair
+behind a dataLayer-only recommendation.
+
 A name/key match is a candidate, never proof of equivalence. State once in the
-sheet that replacement requires comparison of value, format, timing, route,
-consent state, and downstream consumers.
+sheet that replacement requires comparison of value, type, format, timing, fallback,
+route, consent state, trigger use, and every downstream consumer.
 
 Cross-check candidate variables against every planned deletion. Surface the
 exact operation ID when a candidate source is scheduled for deletion. This

@@ -131,6 +131,53 @@ class WorkbookReadabilityTests(unittest.TestCase):
         )
         self.assertEqual(15, len(topics))
 
+    def test_semantic_fallback_never_hides_two_distinct_decisions_from_one_lens(self) -> None:
+        shared = {
+            "problem_type": "Legacy app routing",
+            "source_object_keys": ["tag:1", "variable:10"],
+        }
+        records = [
+            {
+                **shared,
+                "decision_id": "CFG-0001",
+                "owner_question": "Which data source should become canonical?",
+                "recommended_action": "Select the canonical data source after exact comparison.",
+            },
+            {
+                **shared,
+                "decision_id": "CFG-0002",
+                "owner_question": "Who owns the legacy app route after migration?",
+                "recommended_action": "Confirm the route owner before retirement.",
+            },
+        ]
+        self.assertEqual(2, len(decision_topics(records, None, "a" * 64)))
+
+    def test_overview_uses_simulated_activation_instead_of_path_heuristic(self) -> None:
+        operations = json.loads(self.operations.read_text(encoding="utf-8"))
+        operations["operations"][0].setdefault("execution_safety", {})[
+            "configured_activation_risk"
+        ] = {"flag": True}
+        self.operations.write_text(
+            json.dumps(operations, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        future_path = self.package_dir / "future_state_gate.json"
+        future = json.loads(future_path.read_text(encoding="utf-8"))
+        future["configured_activation_risk"] = {
+            "flag": False,
+            "candidate_operation_ids": [],
+            "heuristic_candidate_operation_ids": [
+                operations["operations"][0]["operation_id"]
+            ],
+            "simulation_overrides_heuristic": True,
+        }
+        future_path.write_text(
+            json.dumps(future, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        manifest = self._build()
+        self.assertEqual(0, manifest["coverage"]["activation_operations"])
+
     def _write_canonical_workbook(self) -> None:
         workbook = Workbook()
         workbook.remove(workbook.active)
@@ -220,7 +267,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
                 "audit_records": 6,
                 "operations": 2,
                 "owner_source_records": 2,
-                "decision_topics": 2,
+                "decision_topics": 1,
                 "custom_html_tags": 2,
                 "retained": 1,
                 "documented_exceptions": 1,
@@ -231,6 +278,12 @@ class WorkbookReadabilityTests(unittest.TestCase):
                     "Medium": 0,
                     "Low": 1,
                 },
+                "bulk_operations": 0,
+                "individual_operations": 2,
+                "activation_operations": 0,
+                "maintenance_operations": 1,
+                "behavior_operations": 1,
+                "remaining_records": 4,
             },
         )
 
@@ -244,7 +297,10 @@ class WorkbookReadabilityTests(unittest.TestCase):
             self.assertEqual(workbook["A4 Audit Register"].max_column, 6)
             self.assertEqual(workbook["A2 Actions"].max_column, 8)
             self.assertEqual(workbook["A3 Decisions"].max_column, 6)
-            self.assertEqual(workbook["A5 Custom HTML"].max_column, 4)
+            self.assertEqual(workbook["A5 Custom HTML"].max_column, 7)
+            self.assertTrue(
+                all(workbook[name].sheet_state == "hidden" for name in ORIGINAL_SHEETS)
+            )
 
             audit = workbook["A4 Audit Register"]
             audit_ids = {
@@ -293,19 +349,21 @@ class WorkbookReadabilityTests(unittest.TestCase):
             ]
             self.assertEqual(sum("CFG-0001" in value for value in decision_values), 1)
             self.assertEqual(sum("ARC-0002" in value for value in decision_values), 1)
-            self.assertFalse(
+            self.assertTrue(
                 any("source items" in str(cell.value or "") for cell in decisions["D"])
             )
 
             custom = workbook["A5 Custom HTML"]
             tag1 = self._row_with(custom, 1, "tag:1")
             tag2 = self._row_with(custom, 1, "tag:2")
-            assessment = str(custom.cell(tag1, 4).value)
+            assessment = str(custom.cell(tag1, 5).value)
             self.assertIn("variable:10", assessment)
             self.assertIn("OP-0001", assessment)
             self.assertIn("key match does not prove live equivalence", assessment)
-            self.assertEqual(custom.cell(tag2, 2).value, "Paused")
-            self.assertIn("Already reads", str(custom.cell(tag2, 4).value))
+            self.assertEqual(custom.cell(tag2, 2).value, "Paused.")
+            self.assertIn("Already reads", str(custom.cell(tag2, 5).value))
+            self.assertIn("selected disposition", str(custom.cell(tag1, 4).value))
+            self.assertTrue(str(custom.cell(tag1, 7).value).strip())
         finally:
             workbook.close()
 
@@ -334,7 +392,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
                 for row in workbook["A1 Overview"].iter_rows()
                 for cell in row
             }
-            self.assertIn("2 sources / 2 sujets", overview_values)
+            self.assertIn("2 sources / 1 sujets", overview_values)
             actions = workbook["A2 Actions"]
             row = self._row_with(actions, 1, "OP-0001")
             self.assertIn("variable:20", str(actions.cell(row, 6).value))

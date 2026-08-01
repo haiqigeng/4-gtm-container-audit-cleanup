@@ -284,11 +284,6 @@ def build_package(
             ),
         },
         "required_next_artifacts": [
-            *(
-                ["confirmed material audit context"]
-                if context.get("intake_status") == "confirmation_required"
-                else []
-            ),
             "completed operational_review.json",
             "completed configuration_review.json",
             "completed architecture_review.json",
@@ -298,8 +293,9 @@ def build_package(
         "notes": [
             "This package is evidence, not the user-facing cleanup plan.",
             (
-                "Review scaffolds are generated, but material intake questions must be "
-                "confirmed before semantic review."
+                "Review scaffolds are generated and semantic review continues. Material "
+                "context questions remain nonblocking owner decisions; they block only an "
+                "affected mutation whose exact target cannot be selected from the export."
                 if context.get("intake_status") == "confirmation_required"
                 else "Intake has no unresolved material question; semantic review may start."
             ),

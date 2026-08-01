@@ -580,7 +580,7 @@ def configured_activation_risk(
         if str(value).startswith("tag:")
     }
     newly_active = sorted(after_active - before_active)
-    risk_operations = [
+    heuristic_risk_operations = [
         {
             "operation_id": str(operation.get("operation_id") or ""),
             "operation_key": str(operation.get("operation_key") or ""),
@@ -602,9 +602,19 @@ def configured_activation_risk(
         "after_active_tag_count": len(after_active),
         "newly_active_tag_keys": newly_active,
         "candidate_operation_ids": [
-            item["operation_id"] for item in risk_operations if item["operation_id"]
+            item["operation_id"]
+            for item in heuristic_risk_operations
+            if item["operation_id"] and newly_active
         ],
-        "candidate_operations": risk_operations,
+        "candidate_operations": heuristic_risk_operations if newly_active else [],
+        "heuristic_candidate_operation_ids": [
+            item["operation_id"]
+            for item in heuristic_risk_operations
+            if item["operation_id"]
+        ],
+        "simulation_overrides_heuristic": bool(
+            heuristic_risk_operations and not newly_active
+        ),
         "execution_requirement": (
             "individually review the newly reachable configured tags before approval; "
             "this container-only audit does not perform runtime acceptance"

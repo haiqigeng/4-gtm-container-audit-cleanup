@@ -4624,6 +4624,16 @@ scenarios:
         merged = merge_review(base_path, shard_dir, output)
         self.assertEqual(completed["rows"], merged["rows"])
         self.assertEqual("complete", merged["run_status"])
+        receipts = merged["completion_attestation"]["shard_receipts"]
+        self.assertEqual(
+            len(manifest["shards"]) + len(manifest.get("obligation_shards") or []),
+            len(receipts),
+        )
+        self.assertTrue(all(len(row["shard_content_sha256"]) == 64 for row in receipts))
+        self.assertIn(
+            "repair only the named shard",
+            merged["completion_attestation"]["shard_resume_contract"],
+        )
         merged_in_place = merge_review(base_path, shard_dir, base_path)
         self.assertEqual(completed["rows"], merged_in_place["rows"])
         self.assertEqual("complete", merged_in_place["run_status"])
@@ -7339,6 +7349,20 @@ scenarios:
                         "supported by the container evidence."
                     ),
                     "challenge_verdict": "confirmed",
+                    "neutral_recheck": {
+                        "recheck_context_id": "neutral-setup-recheck-001",
+                        "source_coordinates": [
+                            repair["changes"][0]["json_path"],
+                            "$.containerVersion.tag[4]",
+                        ],
+                        "neutral_question": (
+                            "What exact setup target, if any, do these source coordinates "
+                            "and peer-reference facts support?"
+                        ),
+                        "expected_outcome_disclosed": False,
+                        "foreign_rationale_artifacts_used": [],
+                        "recheck_verdict": "confirmed",
+                    },
                 },
             }
         )
@@ -7819,7 +7843,7 @@ scenarios:
         self.assertTrue(risky["debugger_statements"])
         self.assertIn("dataLayer.reset", risky_text)
         self.assertIn("google_tag_manager", risky_text)
-        self.assertIn("Literal cookie write omits", risky_text)
+        self.assertIn("Literal cookie set/update omits", risky_text)
         self.assertIn("without an exported remove", risky_text)
         self.assertFalse(safe["manual_gtag_calls"])
         safe_text = " ".join(
@@ -7828,7 +7852,7 @@ scenarios:
                 *safe["technical_code_security_findings"],
             ]
         )
-        self.assertNotIn("Literal cookie write omits", safe_text)
+        self.assertNotIn("Literal cookie set/update omits", safe_text)
         self.assertNotIn("without an exported remove", safe_text)
         scaffold = scaffold_configuration(export)
         required = next(

@@ -32,8 +32,12 @@ checkout or an unverifiable tree blocks package creation.
 
 Generate and present the context preflight before semantic review. Distinguish
 analyst-provided context, high-confidence deterministic inference, and
-unresolved fields. A material question pauses semantic review; a non-material
-question remains visible without creating a new package or completion gate.
+unresolved fields. Record unresolved business, naming, ownership, lifecycle,
+folder, or preferred-target context as nonblocking owner decisions and continue
+all three reviews. They block only an affected mutation whose exact target
+depends on the answer. Only partial/ambiguous source identity, an unmodelled
+entity layer, or missing proof that prevents an exact configuration judgment
+blocks semantic review.
 
 Validate ContainerVersion identity before semantic work. The wrapped/direct
 root, known entity-layer registry, layer arrays, required IDs, and unique IDs
@@ -102,6 +106,12 @@ a sealed review, or declaring a semantic bulk-completion artifact fails before
 reconciliation. When three fresh contexts are unavailable, report the full
 audit as blocked; there is no same-context certification fallback.
 
+Use `review-scratch/<run>/` for all notes, temporary extracts, and draft prompts.
+Only manifest-declared files may remain in a sealed bundle. If accidental scratch
+appears there, sealing moves it to the run scratch directory, records the move, and
+resumes without deletion; changed declared inputs still fail. Never delete or overwrite
+an unidentified artifact to make a bundle pass.
+
 Package creation automatically uses source-locked shards when a run contains
 more than 40 primary review items or Run 2 exceeds 120 authored behavior work
 units. The package manifest records each run's strategy, evidence-obligation
@@ -123,7 +133,10 @@ per-obligation micro-shards; their validator remains available only for legacy
 package resumability. Check each completed shard against its source locks,
 manifest identities, and exact completion set before continuing. The check
 catches local corruption early; the merged run must still pass its authoritative
-run validator.
+run validator. The merge persists the checked shard filename, kind, completed-item
+count, and content hash, then reads back the merged review. If one shard fails, repair
+and recheck only that named shard; do not restart completed shards or continue from an
+unverified write.
 
 ## Run 1: Operational Sanitation
 
@@ -333,7 +346,7 @@ workflow:
 
 1. copy the validated canonical workbook;
 2. add `A1 Overview`, `A2 Actions`, `A3 Decisions`, `A4 Audit Register`, and
-   `A5 Custom HTML` before the unchanged canonical tabs;
+   `A5 Custom HTML` before content-identical canonical tabs hidden by default;
 3. project every decision-ledger record, operation, owner-decision source
    record, and Custom HTML tag;
 4. run the independent readability gate.
@@ -345,6 +358,12 @@ Owner decisions are valid nonblocking output records. When the transformation
 or its gate fails, reject only the derived workbook, keep and deliver the
 canonical workbook, report the readability failure separately, and do not
 rerun the audit.
+Unresolved business, naming, folder, paused-lifecycle, ownership, or preferred-target
+context is handled the same way: continue all three scans and expose the decision in A3.
+Only partial or ambiguous source identity, an unmodelled entity layer, missing proof
+that prevents a complete configuration judgment, or unavailable required tooling blocks
+the audit itself. A genuine owner decision may block execution of its affected mutation
+but never unrelated audit work or workbook delivery.
 
 ## Plan And Operation Approval
 

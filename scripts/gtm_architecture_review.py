@@ -51,6 +51,7 @@ from gtm_review_common import (
     source_specific_owner_question_errors,
     specific_text,
     validate_challenge,
+    validate_neutral_recheck_contexts,
     validate_operation_set,
     validate_review_provenance,
     validate_structured_actions,
@@ -1464,7 +1465,7 @@ def validate_operation(
             source_paths_by_key,
         )
     )
-    errors.extend(validate_challenge(flattened, label))
+    errors.extend(validate_challenge(flattened, label, source_paths_by_key))
     return errors
 
 
@@ -2637,6 +2638,18 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
         )
     )
     errors.extend(validate_review_provenance(supplied, expected, "architecture review"))
+    errors.extend(
+        validate_neutral_recheck_contexts(
+            supplied,
+            str(
+                (supplied.get("completion_attestation") or {}).get(
+                    "independent_review_context_id"
+                )
+                or ""
+            ),
+            "architecture review",
+        )
+    )
     errors.extend(
         validate_families(
             supplied,

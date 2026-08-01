@@ -271,6 +271,13 @@ def workbook_structure_errors(workbook: Any, model: dict[str, Any]) -> list[str]
             errors.append(f"Missing human sheet: {name}")
         elif workbook[name].sheet_state != "visible":
             errors.append(f"Human sheet must be visible: {name}")
+    for name in ORIGINAL_SHEETS:
+        if name not in workbook.sheetnames:
+            errors.append(f"Missing canonical technical sheet: {name}")
+        elif workbook[name].sheet_state != "hidden":
+            errors.append(
+                f"Canonical technical sheet must be retained but hidden by default: {name}"
+            )
     if errors:
         return errors
     errors.extend(
@@ -338,6 +345,26 @@ def workbook_structure_errors(workbook: Any, model: dict[str, Any]) -> list[str]
         ),
         model["first_actions"],
         model["measurement_summary"],
+        labels["counts"]["reconciliation"].format(
+            findings=counts["audit_records"],
+            operations=counts["operations"],
+            retained=counts["retained"] + counts["documented_exceptions"],
+            decisions=counts["decision_topics"],
+        ),
+        labels["counts"]["approval_scope"].format(
+            bulk=counts["bulk_operations"],
+            individual=counts["individual_operations"],
+            activation=counts["activation_operations"],
+        ),
+        labels["counts"]["change_scope"].format(
+            maintenance=counts["maintenance_operations"],
+            behavior=counts["behavior_operations"],
+        ),
+        labels["counts"]["remaining"].format(
+            remaining=counts["remaining_records"],
+            decisions=counts["decision_topics"],
+            limits=counts["evidence_limits"],
+        ),
     }
     for value in sorted(required_overview):
         if value not in overview_values:

@@ -23,9 +23,10 @@ and Run 1; only Runs 2 and 3 may use the separately labelled evidence. Match onl
 exact exported identifiers and never infer a replacement from similar wording.
 
 The agent should infer safe facts from the export and supplied website context.
-Ask only for material unknowns, especially unexplained product/market prefixes,
-business-specific event families, legal consent decisions, or missing server
-container scope.
+Material business, naming, folder, lifecycle, ownership, preferred-target, legal, or
+unseen-server questions remain nonblocking owner/evidence decisions in the completed
+audit. Ask immediately only when source identity is partial/ambiguous, a source layer is
+unmodelled, or missing evidence prevents a complete container-configuration judgment.
 
 Persist context in a small JSON object when supplied explicitly. Typical keys
 are `website_url`, `business_model`, `container_type`, `cmp`, `markets`,
@@ -69,7 +70,8 @@ Every full run produces:
 
 The canonical workbook is generated and validated first and remains the
 unchanged technical record and fallback. The derived workbook copies it, adds
-five lean human-readable tabs, and retains every original technical tab. If the
+five lean human-readable tabs, and retains every original technical tab content-identical
+but hidden by default. If the
 derived build or gate fails, deliver the canonical workbook and report only the
 readability-step failure; do not rerun or alter any audit scan. There is one
 client-facing choice per run: the gated analyst workbook when valid, otherwise
@@ -115,10 +117,14 @@ consequence, exact change, approval/preconditions, and static verification/
 rollback. Its Decisions tab accounts for every owner-decision source record and
 shows affected families plus what an answer unlocks. Its Audit Register contains
 every reconciled decision-ledger record, and its Custom HTML tab inventories
-every source Custom HTML tag. It
+every source Custom HTML tag across state/execution context, functional role,
+technical health, replacement/simplification candidates, simplest safe target, and
+exact action/decision. It
 uses stable IDs, visible-sheet links, outline groups, and cell notes rather than
 adding a separate traceability tab or extra visible columns. The authoritative
-JSON package and unchanged technical tabs retain the full proof.
+JSON package and content-identical technical tabs retain the full proof; those
+canonical tabs are hidden by default in the analyst copy and remain available
+through A1 unhide/filter instructions.
 
 The visible plans include every proposed operation and genuine unresolved owner
 question with a concrete recommendation. Nonblocking container-evidence limits

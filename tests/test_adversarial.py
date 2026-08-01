@@ -177,7 +177,12 @@ class AdversarialAuditTests(unittest.TestCase):
         manifest = build_package(self.export, package, pretty=True)
         self.assertEqual("pass", manifest["status"])
         self.assertEqual("confirmation_required", manifest["intake"]["status"])
-        self.assertIn("confirmed material audit context", manifest["required_next_artifacts"])
+        self.assertNotIn(
+            "confirmed material audit context", manifest["required_next_artifacts"]
+        )
+        self.assertTrue(
+            any("nonblocking owner decisions" in note for note in manifest["notes"])
+        )
 
         provided = self.write_json(
             "complete-intake.json",

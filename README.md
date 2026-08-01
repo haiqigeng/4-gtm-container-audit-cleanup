@@ -24,6 +24,22 @@ verified resulting container when execution is approved—is the product.
 
 It is designed for Codex, Claude Code, Gemini, and other file-capable agents.
 
+## v1.10.0 Highlights
+
+- Preserves the exhaustive three independent scans while requiring fresh,
+  neutral source-only rechecks for every High/Critical operation.
+- Validates edits against exact locked JSON paths, source values, value types,
+  trigger IDs, and source names before a plan can seal.
+- Deepens Custom HTML/CJS review across code health, readability, lifecycle,
+  cookie scope, native/dataLayer/template/site-side replacement, and
+  source-bound code-fix efficacy.
+- Makes simulator-confirmed configured activation authoritative, while retaining
+  path heuristics separately for traceability.
+- Keeps unresolved business choices nonblocking for the audit, strengthens
+  sharded-run recovery/receipts, and makes the analyst workbook more literal:
+  reconciled A1 counts, lossless decision grouping, seven-column A5 coverage,
+  and hidden-by-default content-identical canonical proof tabs.
+
 ## Who It Helps
 
 - Web analysts, analytics consultants, GTM specialists, and agencies.
@@ -91,8 +107,9 @@ copied or stale hash is not enough to pass.
    explicit transaction-ID obligations. Opaque custom templates and incomplete
    parser coverage cannot be certified as Correct. Lookup/regex row/default/order
    defects, behavior-bearing portability literals, dataLayer resets, GTM
-   internals, manual gtag senders, cookie attributes, and listener guards are
-   explicit obligations. The same locked review covers `document.write`
+   internals, manual gtag senders, cookie set/update versus deletion scope,
+   listener registration/readiness, interval/observer lifecycle, and full
+   code-health/maintainability findings are explicit obligations. The same locked review covers `document.write`
    support, missing Custom HTML script wrappers, Optimize/anti-flicker
    remnants, callback-based CMP reads, and redacted credential candidates.
    Versioned official contracts lock supported/deprecated
@@ -113,7 +130,13 @@ copied or stale hash is not enough to pass.
    near-identical paragraphs. Generated branch and trace narration is evidence
    rendering, not an automated correctness verdict; every complex, risky,
    ambiguous, uncertain, shared, or actionable object still requires substantive
-   judgment.
+   judgment. Every Custom HTML/CJS review selects an explicit keep/optimise/
+   repair/shorten/refactor/consolidate/replace/remove/owner disposition. A code
+   rewrite binds to the exact source hash/path, proves the concrete gain, names
+   preserved behavior, and supplies a complete replacement body; formatting-only
+   rewrites fail. Native GTM, maintained-template, dataLayer variable,
+   consolidation, and site-side producer replacements are first-class candidates,
+   never assumptions of equivalence.
 3. **Business architecture** compares complete execution chains and business
    families. It finds functional overlap, conflicting funnel logic, duplicate
    destinations, Zones governing the same child container, unnecessary
@@ -159,8 +182,11 @@ Current Run-2 shards contain source-hashed completion overlays; the full exact
 evidence ledger remains in the adjacent bundle-local base review. The merge tool
 refuses missing, duplicate, pending, changed-source, or incomplete work. Current
 packages create no per-obligation micro-shards; legacy shards remain readable for
-resumability. Architecture shards include a separate open-discovery file for
-added `DISC-*` comparisons and the final all-object attestation.
+resumability. Each merge persists per-shard content-hash receipts, rechecks the
+shards after assembly, and resumes from only the named failed shard. Drafts live
+outside sealed inputs under `review-scratch`; accidental bundle scratch is moved
+there without deletion. Architecture shards include a separate open-discovery
+file for added `DISC-*` comparisons and the final all-object attestation.
 
 ## Inputs
 
@@ -198,10 +224,14 @@ similar name is an intended replacement.
 - An audit summary and a validated canonical `cleanup_plan.xlsx`.
 - A preferred `cleanup_plan.analyst.xlsx` when its separate post-gate
   transformation passes, with five lean human tabs followed by every canonical
-  technical tab unchanged.
+  technical tab content-identical and hidden by default.
 - A stakeholder Overview, exact atomic Actions first, grouped-but-lossless owner
   Decisions second, the complete Audit Register, and a full Custom HTML inventory
-  without a separate traceability tab.
+  without a separate traceability tab. A1 reconciles findings, operations,
+  approval scope, maintenance versus behavior changes, simulator-confirmed
+  activation, and remaining records. A5 uses seven analyst columns for execution
+  context, role, technical health, replacement candidates, simplest safe target,
+  and exact action/decision.
 - The canonical workbook retains its two visible decision tabs and compact,
   unprotected proof tabs that analysts can unhide when needed.
 - An operational synopsis with priority counts, owner decisions, clean scan
@@ -274,10 +304,12 @@ python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-pack
 ```
 
 Present the preflight's provided, high-confidence inferred, and unresolved
-context. Resolve material questions in a small JSON file and pass it with
-`--context audit-context.json`; non-material questions remain visible without
-creating another audit gate. Add `--requirements approved-plan.xlsx` only when
-the analyst explicitly approves that file as requirement evidence.
+context. Pass known answers in a small JSON file with `--context
+audit-context.json`. Unresolved business, naming, ownership, lifecycle, folder,
+or preferred-target questions remain nonblocking owner decisions and stop only
+their dependent mutation, not the three reviews or workbook. Add `--requirements
+approved-plan.xlsx` only when the analyst explicitly approves that file as
+requirement evidence.
 
 Complete the three bundle-local review files independently in three fresh
 contexts, validate and seal them, compile the exact cleanup operations, then
@@ -342,7 +374,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.9.0
+python -B scripts/check_release.py --tag v1.10.0
 git diff --check
 ```
 

@@ -60,7 +60,9 @@ Before semantic review:
 1. run `scripts/gtm_skill_identity.py check`; stop before intake unless a matching release manifest or exact clean Git checkout proves the runnable tree;
 2. compare development and installed trees with `scripts/gtm_skill_identity.py verify` when both exist;
 3. run `scripts/gtm_context_model.py` and present supplied, high-confidence inferred, and unresolved fields separately;
-4. ask only material generated questions and rebuild with confirmed context;
+4. record material generated questions as nonblocking owner decisions and continue the
+   complete audit; ask immediately only when the source is partial/ambiguous, an entity
+   layer is unmodelled, or missing proof prevents an exact configuration judgment;
 5. stop if the source is partial or its ContainerVersion identity is ambiguous.
 
 Use the exact syntax in `references/02-commands/validation-commands.md`. The package command is:
@@ -69,7 +71,9 @@ Use the exact syntax in `references/02-commands/validation-commands.md`. The pac
 python -B scripts/gtm_audit_package_build.py container.json --context audit-context.json --out-dir audit-package --pretty
 ```
 
-Omit `--context` only when no analyst context is available and the preflight has no pending material question.
+Omit `--context` when no analyst context is available. Pending business, naming,
+folder, lifecycle, or ownership questions do not stop the scans or workbook; they
+remain in A3 and block only an affected mutation whose exact target depends on the answer.
 Add `--requirements approved-plan.xlsx` only when the analyst explicitly identifies
 that file as an approved tracking-plan requirement. It is normalized as separately
 labelled external requirement evidence for Runs 2 and 3; it never enters the
@@ -107,6 +111,10 @@ For a sharded run:
   only the source-hashed completion overlay in each shard; raw branches, traces,
   code facts, contracts, and findings remain losslessly available in the base;
 - check each completed shard immediately against that bundle-local base review;
+- keep drafts and temporary extracts only in the run's declared `review-scratch/`
+  directory; sealing moves accidental undeclared bundle scratch there without deleting it;
+- rely on the persisted per-shard content-hash receipts in the merged review, and on
+  failure repair only the named shard before resuming;
 - complete the dedicated architecture open-discovery shard and attestation;
 - merge the complete run back to the bundle-local review file, validate it, then seal it into the canonical package;
 - never treat sharding as reduced scope or as additional verdict runs.
@@ -149,6 +157,18 @@ summaries, inferred runtime behavior, or `Not applicable` as fallback. Every raw
 obligation remains covered exactly once even though repetitive prose is not
 authored seven times.
 
+For every Custom HTML, Custom JavaScript, and executable template block, review
+syntax/parser coverage, control flow, return/type/null/error behavior, async versus
+synchronous use, listeners/timers/observers, globals, DOM/storage, security/privacy,
+network/script loading, performance, dead/duplicate code, complexity, readability,
+hardcoded IDs/endpoints/environments, deprecated APIs, portability, and maintainability.
+Select one explicit keep/optimise/repair/shorten/refactor/consolidate/replace/remove/
+owner disposition. Keep dataLayer/native/template/site-side replacement as a separate
+first-class question: name exact DLV/dataLayer keys and consumers, then compare value,
+type, format, timing, fallback, consent, trigger use, and every consumer before replacement.
+Never propose cosmetic minification. A code mutation carries its exact source path/hash,
+complete after-code, resolution basis, and named preserved behaviors.
+
 Use the bundled official vendor registry first. For an unknown integration, perform current official-source research, update and validate the registry, rebuild the scaffold, and only then certify the contract.
 
 ### Run 3: Business Architecture
@@ -170,6 +190,11 @@ Follow `references/02-commands/validation-commands.md` in this order:
 5. run the three-run completion gate with the operation packet and all three seals.
 
 Do not average or vote across runs. Merge only identical complete structured mutations and preserve every lens's rationale. Block contradictory mutations, unsafe deletions/remaps, behavior changes through preserved or unresolved architecture, incomplete decisions, broken references, newly generated findings, unexplained broad count changes, or missing measurement-family target states.
+
+For every High/Critical challenge or cross-run conflict recheck, use a fresh context
+with only the exact source coordinates, source facts, and a neutral question. Do not
+disclose another lens's rationale or an expected outcome. Record the independent
+recheck context and verdict before sealing the final operation.
 
 Every substantiated cleanup disposition becomes the simplest exact operation. Every confirmed measurement family receives an explicit retained, changed, owner-blocked, or evidence-limited target state with preserved behavior, consent, and routing. Container-only evidence limits remain static boundaries, not runtime tasks.
 
@@ -217,14 +242,17 @@ than extra columns:
   unlocks; an unanswered owner question never blocks output generation;
 - include every decision-ledger record in `A4 Audit Register`;
 - inventory every Custom HTML tag in `A5 Custom HTML`, including long or legacy
-  code, potential source-qualified dataLayer replacements, proof limits, and
-  conflicts where a candidate variable is also scheduled for deletion;
-- retain all eight canonical tabs unchanged.
+  code, state/execution context, functional role, complete technical health,
+  dataLayer/native/template/consolidation/site-side candidates, simplest safe target,
+  and exact action/decision, including conflicts where a candidate variable is also
+  scheduled for deletion;
+- retain all eight canonical tabs content-identical but hidden by default; A1 explains
+  how to unhide them.
 
-Use conservative deterministic grouping for any number of owner-decision source
-records: group only identical normalized questions and recommendations unless an
-analyst-authored topic map proves that several records genuinely require the same
-answer. Do not add a traceability tab or link into hidden sheets; use stable IDs, links among
+Use conservative semantic grouping for any number of owner-decision source records:
+group only records with the same answer class, compatible object/route scope, and target
+consequence, while retaining every source record as a child. An analyst-authored topic
+map may prove additional equivalence. Do not add a traceability tab or link into hidden sheets; use stable IDs, links among
 visible analyst tabs, notes for complete long scopes, and A1 unhide/filter
 instructions. If the derived build or gate fails, reject only that file,
 deliver the already validated canonical workbook, and report the readability

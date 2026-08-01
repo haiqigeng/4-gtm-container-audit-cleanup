@@ -798,6 +798,7 @@ def check_shard(
         "source_sha256": base.get("source_sha256"),
         "shared_facts_sha256": base.get("shared_facts_sha256"),
         "context_sha256": base.get("context_sha256"),
+        "shard_content_sha256": stable_hash(shard, 64),
     }
 
 
@@ -1046,6 +1047,18 @@ def merge_review(
     collections = review_collections(base)
     manifest = load_json(shard_dir / "shard_manifest.json")
     validate_lock_fields(manifest, base, "shard manifest")
+    declared_filenames = [
+        str(row.get("filename") or "")
+        for field in ("shards", "obligation_shards")
+        for row in as_list(manifest.get(field))
+    ]
+    discovery_filename = str(manifest.get("discovery_shard") or "")
+    if discovery_filename:
+        declared_filenames.append(discovery_filename)
+    shard_receipts = [
+        check_shard(base_review_path, shard_dir, filename)
+        for filename in declared_filenames
+    ]
     merged = merge_primary_shards(base, collections, manifest, shard_dir)
     restore_primary_collections(base, collections, merged)
     if (
@@ -1056,8 +1069,22 @@ def merge_review(
 
     if base.get("kind") == "gtm_business_architecture_review":
         merge_architecture_discovery(base, manifest, shard_dir)
+    post_merge_receipts = [
+        check_shard(base_review_path, shard_dir, filename)
+        for filename in declared_filenames
+    ]
+    if post_merge_receipts != shard_receipts:
+        raise ValueError("a review shard changed while the merge was being assembled")
     base["run_status"] = "complete"
+    attestation = base.setdefault("completion_attestation", {})
+    attestation["shard_receipts"] = post_merge_receipts
+    attestation["shard_resume_contract"] = (
+        "Every declared shard passed immediately before merge; on failure, repair only "
+        "the named shard and rerun its check before resuming."
+    )
     write_json(output_path, base, pretty)
+    if load_json(output_path) != base:
+        raise ValueError("merged review readback differs from the validated in-memory result")
     return base
 
 

@@ -85,6 +85,14 @@ Each compiled operation also carries `execution_safety`:
   separate post-observation deletion approval. Proven inactive low-risk
   objects can be deleted directly after exact readback.
 
+Path-based activation classification is only a candidate. The projected-container
+simulator compares active configured tag keys before and after the complete operation
+set and is authoritative: if no tag becomes newly reachable, the confirmed activation
+flag and confirmed candidate-operation list are empty. Removing an exact blocker whose
+event set cannot intersect any firing route is therefore not activation risk merely
+because `blockingTriggerId` changed. The report retains heuristic candidates separately
+for traceability and never turns them into a live-firing claim.
+
 No fixed soak duration is universal. Choose an observation window that covers
 the relevant traffic/business cycle. Do not rename an object merely to simulate
 quarantine.
@@ -212,6 +220,19 @@ Field changes and renames must have different before/after values. A no-op is
 not an operation and cannot satisfy an architecture cleanup obligation. Every
 field addition/change path must sit under the source object named by its
 `object_key`; pairing a valid key with another object's path is invalid.
+Before a run seals, every change path must resolve in the locked source, `before`
+must equal the complete source value, and `after` must be a complete concrete value
+of the same GTM field type. Trigger-reference arrays contain trigger IDs, never names.
+Every addition parent must exist with the correct object/list type; `set` targets a
+missing field, while an existing field uses an exact change. Rename `before` must equal
+the source name. Creation identities, references, deletion-consumer coverage, and all
+resulting references are rechecked before the operation packet is accepted.
+
+A Custom HTML/CJS code change additionally carries `code_fix_proof` with the exact
+`defective_path`, locked `source_code_hash`, `exact_change_summary`,
+`resolution_basis`, and at least two concrete `preserved_behaviors`. Its `after` value
+is the full executable body. Whitespace/minification-only changes and prose placeholders
+fail before sealing.
 
 ## Decision Ledger And Execution Order
 
@@ -265,6 +286,12 @@ High/Critical operations require source recheck, active/paused and scope check,
 plausible alternative explanation, and confirmed/downgraded/rejected/blocked
 verdict. This protects consent, revenue, paid-media, server-routing, and
 multi-market changes from over-inference.
+The `neutral_recheck` is authored in a fresh context distinct from the scan. It receives
+only exact source coordinates, source facts, and a neutral question asking what those
+facts prove. It records that no expected outcome or foreign rationale was disclosed and
+seals the rechecked verdict. Every listed coordinate must resolve under an actual object
+path in the locked export. Reusing the scan context, inventing a coordinate, leading the
+question toward a verdict, or importing another lens's rationale fails the challenge.
 When identical mutations merge, retain a valid challenge from the highest-risk
 lenses and never discard a blocked, rejected, or downgraded verdict because a
 lower-risk row appeared first.
@@ -285,6 +312,8 @@ lower-risk row appeared first.
 - Require every source change/addition path to belong to the exact array entry
   identified by its `object_key`; a matching layer with another object index is
   still invalid.
+- Require exact source resolution, exact `before`, concrete same-typed `after`,
+  source-correct rename names, and ID-valid reference arrays before sealing.
 - Reject different targets for one field, rename, or remap source.
 - Reject deleting an object that is changed elsewhere.
 - Reject remapping to an object selected for deletion.

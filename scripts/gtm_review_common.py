@@ -29,6 +29,7 @@ MUTATION_FIELDS = (
     "deletions",
 )
 SUPPORTED_REMAP_LAYERS = {"trigger", "variable", "tag", "folder"}
+JSON_PATH_TOKEN_RE = re.compile(r"\.([^.[\]]+)|\[(\d+)\]")
 REVIEW_INPUT_ROLES = {
     "operational_sanitation": {
         "required": (
@@ -441,6 +442,113 @@ def _validate_creations(
     return errors, created
 
 
+class SourcePathMap(dict[str, str]):
+    """Object paths plus their locked source values.
+
+    Keeping the source objects on the path map avoids plumbing a second large
+    argument through every Run 1/2/3 validator while still making the normal
+    export-backed validation path source-exact. Plain dictionaries remain
+    accepted by low-level callers and legacy tests.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        source_objects_by_key: dict[str, dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.source_objects_by_key = (
+            source_objects_by_key if source_objects_by_key is not None else {}
+        )
+
+
+def _relative_source_path(
+    json_path: str,
+    object_key: str,
+    source_paths_by_key: dict[str, str] | None,
+) -> str | None:
+    base = (source_paths_by_key or {}).get(object_key)
+    if not base or not json_path.startswith(base):
+        return None
+    suffix = json_path[len(base) :]
+    if suffix and not suffix.startswith((".", "[")):
+        return None
+    return "$" + suffix
+
+
+def _path_tokens(path: str) -> list[str | int]:
+    tokens: list[str | int] = []
+    consumed = 0
+    for match in JSON_PATH_TOKEN_RE.finditer(path[1:]):
+        if match.start() != consumed:
+            raise ValueError("unsupported JSON path syntax")
+        tokens.append(
+            match.group(1) if match.group(1) is not None else int(match.group(2))
+        )
+        consumed = match.end()
+    if consumed != len(path) - 1:
+        raise ValueError("unsupported JSON path syntax")
+    return tokens
+
+
+def _source_path_value(target: Any, path: str) -> Any:
+    current = target
+    for token in _path_tokens(path):
+        current = current[token]
+    return current
+
+
+def _source_parent_and_leaf(target: Any, path: str) -> tuple[Any, str | int]:
+    tokens = _path_tokens(path)
+    if not tokens:
+        raise ValueError("root path has no parent")
+    current = target
+    for token in tokens[:-1]:
+        current = current[token]
+    return current, tokens[-1]
+
+
+def _source_object(
+    source_paths_by_key: dict[str, str] | None, object_key: str
+) -> dict[str, Any] | None:
+    objects = getattr(source_paths_by_key, "source_objects_by_key", {})
+    value = objects.get(object_key) if isinstance(objects, dict) else None
+    return value if isinstance(value, dict) else None
+
+
+def _reference_list_errors(
+    path: str,
+    value: Any,
+    allowed_keys: set[str],
+    prefix: str,
+    *,
+    list_member: bool = False,
+) -> list[str]:
+    errors: list[str] = []
+    if path.endswith((".firingTriggerId", ".blockingTriggerId")):
+        if list_member:
+            if not isinstance(value, (str, int)):
+                return [f"{prefix} requires one trigger ID"]
+            values = [value]
+        else:
+            if not isinstance(value, list) or any(
+                not isinstance(item, (str, int)) for item in value
+            ):
+                return [f"{prefix} requires a complete trigger-ID list"]
+            values = value
+        unknown = sorted(
+            str(item)
+            for item in values
+            if f"trigger:{item}" not in allowed_keys
+        )
+        if unknown:
+            errors.append(
+                f"{prefix} uses trigger names or unknown trigger IDs: {unknown!r}"
+            )
+    return errors
+
+
 def _validate_additions(
     row: dict[str, Any],
     allowed_keys: set[str],
@@ -470,6 +578,46 @@ def _validate_additions(
             errors.append(f"{prefix} insert mode requires an integer index")
         if not specific_text(addition.get("reason"), 4):
             errors.append(f"{prefix} requires a specific reason")
+        source_object = _source_object(source_paths_by_key, key)
+        relative = _relative_source_path(path, key, source_paths_by_key)
+        if source_object is not None and relative is not None:
+            try:
+                mode = str(addition.get("mode") or "")
+                if mode in {"append", "insert"}:
+                    destination = _source_path_value(source_object, relative)
+                    if not isinstance(destination, list):
+                        errors.append(f"{prefix} append/insert target is not a source list")
+                    elif destination and "value" in addition and not isinstance(
+                        addition.get("value"), type(destination[0])
+                    ):
+                        errors.append(
+                            f"{prefix} value type differs from existing source list members"
+                        )
+                    elif path.endswith((".firingTriggerId", ".blockingTriggerId")) and any(
+                        str(value) == str(addition.get("value")) for value in destination
+                    ):
+                        errors.append(
+                            f"{prefix} trigger-ID list already contains the appended value"
+                        )
+                elif mode == "set":
+                    parent, leaf = _source_parent_and_leaf(source_object, relative)
+                    if not isinstance(parent, dict):
+                        errors.append(f"{prefix} set parent is not a source object")
+                    elif leaf in parent:
+                        errors.append(
+                            f"{prefix} set target already exists; use an exact before/after change"
+                        )
+            except (KeyError, IndexError, TypeError, ValueError):
+                errors.append(f"{prefix} json_path does not resolve in the locked source")
+        errors.extend(
+            _reference_list_errors(
+                path,
+                addition.get("value"),
+                allowed_keys,
+                prefix,
+                list_member=addition.get("mode") in {"append", "insert"},
+            )
+        )
     return errors
 
 
@@ -480,12 +628,13 @@ def _validate_changes(
     source_paths_by_key: dict[str, str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
-    for change in as_list(row.get("changes")):
+    for index, change in enumerate(as_list(row.get("changes")), start=1):
+        prefix = f"{label}: change {index}"
         key = str(change.get("object_key") or "")
         if key not in allowed_keys:
-            errors.append(f"{label}: change references unknown object {key!r}")
+            errors.append(f"{prefix} references unknown object {key!r}")
         if not str(change.get("json_path") or "").startswith("$"):
-            errors.append(f"{label}: field change requires an exact source json_path")
+            errors.append(f"{prefix} requires an exact source json_path")
         expected_path = (source_paths_by_key or {}).get(key)
         path = str(change.get("json_path") or "")
         if expected_path and not (
@@ -493,12 +642,34 @@ def _validate_changes(
             or path.startswith((expected_path + ".", expected_path + "["))
         ):
             errors.append(
-                f"{label}: change object_key is paired with another object's json_path"
+                f"{prefix} object_key is paired with another object's json_path"
             )
         if "before" not in change or "after" not in change:
-            errors.append(f"{label}: field change requires before and after values")
+            errors.append(f"{prefix} requires before and after values")
         elif change.get("before") == change.get("after"):
-            errors.append(f"{label}: field change before and after values are identical")
+            errors.append(f"{prefix} before and after values are identical")
+        else:
+            before = change.get("before")
+            after = change.get("after")
+            if type(before) is not type(after):
+                errors.append(
+                    f"{prefix} changes value type from {type(before).__name__} to "
+                    f"{type(after).__name__}; mutate the typed GTM field explicitly instead"
+                )
+        source_object = _source_object(source_paths_by_key, key)
+        relative = _relative_source_path(path, key, source_paths_by_key)
+        if source_object is not None and relative is not None and "before" in change:
+            try:
+                locked_value = _source_path_value(source_object, relative)
+                if locked_value != change.get("before"):
+                    errors.append(
+                        f"{prefix} before value does not equal the locked source value"
+                    )
+            except (KeyError, IndexError, TypeError, ValueError):
+                errors.append(f"{prefix} json_path does not resolve in the locked source")
+        errors.extend(
+            _reference_list_errors(path, change.get("after"), allowed_keys, prefix)
+        )
     return errors
 
 
@@ -800,7 +971,10 @@ def validate_operation_set(
 
 
 def _validate_deletions_and_renames(
-    row: dict[str, Any], allowed_keys: set[str], label: str
+    row: dict[str, Any],
+    allowed_keys: set[str],
+    label: str,
+    source_paths_by_key: dict[str, str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     for deletion in as_list(row.get("deletions")):
@@ -819,6 +993,13 @@ def _validate_deletions_and_renames(
             errors.append(f"{label}: rename requires before and after names")
         elif str(rename.get("before")) == str(rename.get("after")):
             errors.append(f"{label}: rename before and after names are identical")
+        source_object = _source_object(source_paths_by_key, key)
+        if source_object is not None and str(source_object.get("name") or "") != str(
+            rename.get("before") or ""
+        ):
+            errors.append(
+                f"{label}: rename before name does not equal the locked source name for {key!r}"
+            )
     return errors
 
 
@@ -868,12 +1049,15 @@ def object_source_path_map(export_path: Path) -> dict[str, str]:
     data = json.loads(export_path.read_text(encoding="utf-8"))
     cv = container_version(data)
     root_path = container_root_path(data)
-    result: dict[str, str] = {}
+    source_objects: dict[str, dict[str, Any]] = {}
+    result: SourcePathMap = SourcePathMap(source_objects_by_key=source_objects)
     for layer, id_key in ID_KEYS.items():
         for index, obj in enumerate(as_list(cv.get(layer))):
             object_id = str(obj.get(id_key) or obj.get("name") or "")
             if object_id:
-                result[f"{layer}:{object_id}"] = f"{root_path}.{layer}[{index}]"
+                key = f"{layer}:{object_id}"
+                result[key] = f"{root_path}.{layer}[{index}]"
+                source_objects[key] = obj
     return result
 
 
@@ -894,7 +1078,14 @@ def validate_structured_actions(
     errors.extend(_validate_additions(row, allowed_keys, label, source_paths_by_key))
     errors.extend(_validate_changes(row, allowed_keys, label, source_paths_by_key))
     errors.extend(_validate_remaps(row, allowed_keys, label, expected_consumers))
-    errors.extend(_validate_deletions_and_renames(row, allowed_keys, label))
+    errors.extend(
+        _validate_deletions_and_renames(
+            row,
+            allowed_keys,
+            label,
+            source_paths_by_key,
+        )
+    )
     errors.extend(
         validate_operation_set(
             [row],
@@ -962,7 +1153,11 @@ def validate_structured_actions(
     return errors
 
 
-def validate_challenge(row: dict[str, Any], label: str) -> list[str]:
+def validate_challenge(
+    row: dict[str, Any],
+    label: str,
+    source_paths_by_key: dict[str, str] | None = None,
+) -> list[str]:
     if row.get("priority") not in {"Critical", "High"}:
         return []
     challenge = row.get("challenge_review")
@@ -983,4 +1178,93 @@ def validate_challenge(row: dict[str, Any], label: str) -> list[str]:
         "blocked",
     }:
         errors.append(f"{label}: challenge_verdict is invalid")
+    neutral = challenge.get("neutral_recheck")
+    if not isinstance(neutral, dict):
+        errors.append(
+            f"{label}: High/Critical challenge requires a neutral source-only recheck"
+        )
+        return errors
+    context_id = str(neutral.get("recheck_context_id") or "").strip()
+    if len(context_id) < 12:
+        errors.append(f"{label}: neutral recheck has no fresh context identity")
+    coordinates = [
+        str(value)
+        for value in as_list(neutral.get("source_coordinates"))
+        if str(value)
+    ]
+    if not coordinates or any(not value.startswith("$") for value in coordinates):
+        errors.append(
+            f"{label}: neutral recheck must list exact source JSON coordinates"
+        )
+    elif source_paths_by_key:
+        source_roots = tuple(str(value) for value in source_paths_by_key.values())
+        unresolved = [
+            coordinate
+            for coordinate in coordinates
+            if not any(
+                coordinate == root
+                or coordinate.startswith((root + ".", root + "["))
+                for root in source_roots
+            )
+        ]
+        if unresolved:
+            errors.append(
+                f"{label}: neutral recheck coordinates do not resolve in the locked source: "
+                f"{unresolved!r}"
+            )
+    question = str(neutral.get("neutral_question") or "")
+    if not precise_question(question, 7) or re.search(
+        r"\b(?:confirm|downgrade|reject|expected outcome|should be|correct verdict)\b",
+        question,
+        re.I,
+    ):
+        errors.append(
+            f"{label}: neutral recheck question must ask only what the listed source facts prove"
+        )
+    if neutral.get("expected_outcome_disclosed") is not False:
+        errors.append(f"{label}: neutral recheck disclosed an expected outcome")
+    foreign = [
+        str(value)
+        for value in as_list(neutral.get("foreign_rationale_artifacts_used"))
+        if str(value)
+    ]
+    if foreign:
+        errors.append(f"{label}: neutral recheck used foreign rationale artifacts")
+    if neutral.get("recheck_verdict") != challenge.get("challenge_verdict"):
+        errors.append(
+            f"{label}: challenge verdict must be the independently rechecked verdict"
+        )
+    return errors
+
+
+def validate_neutral_recheck_contexts(
+    review: dict[str, Any], parent_context_id: str, label: str
+) -> list[str]:
+    """Ensure material rechecks are fresh relative to their scan context."""
+
+    errors: list[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, list):
+            for child in value:
+                visit(child)
+            return
+        if not isinstance(value, dict):
+            return
+        challenge = value.get("challenge_review")
+        if value.get("priority") in {"High", "Critical"} and isinstance(
+            challenge, dict
+        ):
+            recheck_id = str(
+                ((challenge.get("neutral_recheck") or {}).get("recheck_context_id"))
+                or ""
+            ).strip()
+            if recheck_id and recheck_id == parent_context_id:
+                errors.append(
+                    f"{label}: a High/Critical neutral recheck reused the scan context"
+                )
+        for child in value.values():
+            visit(child)
+
+    visit(review)
     return errors

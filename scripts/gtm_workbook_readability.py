@@ -96,7 +96,15 @@ LOCALES: dict[str, dict[str, Any]] = {
                 "Measurement families",
                 "What the answer unlocks",
             ],
-            "html": ["Tag", "State", "Role", "Assessment / next action"],
+            "html": [
+                "Tag",
+                "State / execution context",
+                "Functional role",
+                "Technical health",
+                "Replacement / simplification candidate",
+                "Simplest safe target",
+                "Exact action / decision",
+            ],
         },
         "title": "GTM container audit — analyst workbook",
         "status": (
@@ -116,6 +124,10 @@ LOCALES: dict[str, dict[str, Any]] = {
             "boundary": "Evidence boundary",
             "next": "Next analyst step",
             "navigation": "How to use this workbook",
+            "reconciliation": "How the audit reconciles",
+            "approval_scope": "Approval scope",
+            "change_scope": "Operation impact",
+            "remaining": "Remaining findings",
         },
         "counts": {
             "owner": "{sources} source / {topics} topics",
@@ -129,6 +141,13 @@ LOCALES: dict[str, dict[str, Any]] = {
                 "{reviewed} reviewed without operation; {owner} owner-blocked; "
                 "{boundary} evidence-limited"
             ),
+            "reconciliation": (
+                "{findings} reconciled findings produce {operations} atomic operations; "
+                "{retained} retained/exception records and {decisions} owner topics remain visible."
+            ),
+            "approval_scope": "{bulk} bulk-eligible; {individual} individual; {activation} activation-sensitive",
+            "change_scope": "{maintenance} maintenance-only; {behavior} behavior-changing",
+            "remaining": "{remaining} records remain without an operation ({decisions} owner topics; {limits} evidence limits)",
         },
         "priority_labels": {
             "Critical": "Critical",
@@ -191,6 +210,12 @@ LOCALES: dict[str, dict[str, Any]] = {
             "none": "No source-proven native or dataLayer replacement was identified.",
             "conflict": "Cleanup conflict: {objects} are scheduled for deletion by {operations}.",
             "decisions": "Related decision: {topics}.",
+            "health": "{status}; selected disposition: {disposition}. {findings}",
+            "operation_target": "Approved target is defined by {operations}.",
+            "owner_target": "Keep unchanged until {topics} selects the exact target.",
+            "keep_target": "Keep the exported implementation; no static code mutation is proposed.",
+            "candidate_native": "Native/template candidate: {candidates}.",
+            "candidate_duplicate": "Consolidation candidate with identical code: {tags}.",
         },
     },
     "fr-FR": {
@@ -221,7 +246,15 @@ LOCALES: dict[str, dict[str, Any]] = {
                 "Familles de mesure",
                 "Ce que la réponse débloque",
             ],
-            "html": ["Tag", "État", "Rôle", "Évaluation / prochaine action"],
+            "html": [
+                "Tag",
+                "État / contexte d’exécution",
+                "Rôle fonctionnel",
+                "Santé technique",
+                "Candidat de remplacement / simplification",
+                "Cible sûre la plus simple",
+                "Action / décision exacte",
+            ],
         },
         "title": "Audit du conteneur GTM — classeur analyste",
         "status": (
@@ -241,6 +274,10 @@ LOCALES: dict[str, dict[str, Any]] = {
             "boundary": "Limite de preuve",
             "next": "Prochaine étape analyste",
             "navigation": "Utilisation du classeur",
+            "reconciliation": "Réconciliation de l’audit",
+            "approval_scope": "Périmètre d’approbation",
+            "change_scope": "Impact des opérations",
+            "remaining": "Constats restants",
         },
         "counts": {
             "owner": "{sources} sources / {topics} sujets",
@@ -254,6 +291,13 @@ LOCALES: dict[str, dict[str, Any]] = {
                 "{reviewed} examinées sans opération ; {owner} bloquées par décision ; "
                 "{boundary} limitées par la preuve"
             ),
+            "reconciliation": (
+                "{findings} constats réconciliés produisent {operations} opérations atomiques ; "
+                "{retained} lignes conservées/exceptions et {decisions} sujets propriétaire restent visibles."
+            ),
+            "approval_scope": "{bulk} regroupables ; {individual} individuels ; {activation} sensibles à l’activation",
+            "change_scope": "{maintenance} maintenance uniquement ; {behavior} changement de comportement",
+            "remaining": "{remaining} lignes restent sans opération ({decisions} sujets propriétaire ; {limits} limites de preuve)",
         },
         "priority_labels": {
             "Critical": "Critique",
@@ -322,6 +366,12 @@ LOCALES: dict[str, dict[str, Any]] = {
                 "Conflit de nettoyage : {objects} doivent être supprimés par {operations}."
             ),
             "decisions": "Décision associée : {topics}.",
+            "health": "{status} ; disposition retenue : {disposition}. {findings}",
+            "operation_target": "La cible approuvée est définie par {operations}.",
+            "owner_target": "Conserver sans modification jusqu’à ce que {topics} choisisse la cible exacte.",
+            "keep_target": "Conserver l’implémentation exportée ; aucune mutation statique du code n’est proposée.",
+            "candidate_native": "Candidat natif/template : {candidates}.",
+            "candidate_duplicate": "Candidat à la consolidation avec code identique : {tags}.",
         },
     },
 }
@@ -417,7 +467,6 @@ def workbook_sheet_hashes(path: Path, names: list[str] | None = None) -> dict[st
             digest = hashlib.sha256()
             identity = {
                 "title": sheet.title,
-                "state": sheet.sheet_state,
                 "max_row": sheet.max_row,
                 "max_column": sheet.max_column,
             }
@@ -864,17 +913,76 @@ def normalize_topic_text(value: Any) -> str:
     return normalize_space(value).casefold()
 
 
-def default_decision_topics(owner_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    for record in owner_records:
-        grouped[
-            (
-                normalize_topic_text(record.get("owner_question")),
-                normalize_topic_text(record.get("recommended_action")),
+def decision_answer_class(record: dict[str, Any]) -> str:
+    text = normalize_topic_text(
+        " ".join(
+            str(record.get(field) or "")
+            for field in (
+                "problem_type",
+                "owner_question",
+                "recommended_action",
             )
-        ].append(record)
+        )
+    )
+    classes = (
+        ("consent", ("consent", "cmp", "storage")),
+        ("folder_taxonomy", ("folder", "taxonomy", "classification")),
+        ("naming", ("rename", "naming", "name convention")),
+        ("retirement", ("remove", "delete", "retire", "decommission")),
+        ("retention", ("keep", "retain", "exception")),
+        ("canonical_route", ("canonical", "replace", "route", "source", "mapping")),
+        ("ownership", ("owner", "ownership")),
+        ("lifecycle", ("paused", "lifecycle", "rollback")),
+    )
+    return next(
+        (name for name, markers in classes if any(marker in text for marker in markers)),
+        "exact",
+    )
+
+
+def decision_group_key(record: dict[str, Any]) -> tuple[str, ...]:
+    object_keys = tuple(
+        sorted(
+            str(value)
+            for value in as_list(record.get("source_object_keys"))
+            if str(value)
+        )
+    )
+    answer_class = decision_answer_class(record)
+    problem_type = normalize_topic_text(record.get("problem_type"))
+    if object_keys and answer_class != "exact":
+        return ("semantic", problem_type, answer_class, *object_keys)
+    return (
+        "exact",
+        normalize_topic_text(record.get("owner_question")),
+        normalize_topic_text(record.get("recommended_action")),
+    )
+
+
+def default_decision_topics(owner_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
+    for record in owner_records:
+        grouped[decision_group_key(record)].append(record)
+    safe_groups: list[list[dict[str, Any]]] = []
+    for key, records in grouped.items():
+        source_lenses = [
+            str(record.get("decision_id") or "").partition("-")[0]
+            for record in records
+        ]
+        if key[0] != "semantic" or len(source_lenses) == len(set(source_lenses)):
+            safe_groups.append(records)
+            continue
+        exact_groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
+        for record in records:
+            exact_groups[
+                (
+                    normalize_topic_text(record.get("owner_question")),
+                    normalize_topic_text(record.get("recommended_action")),
+                )
+            ].append(record)
+        safe_groups.extend(exact_groups.values())
     ordered = sorted(
-        grouped.values(),
+        safe_groups,
         key=lambda rows: min(str(row.get("decision_id") or "") for row in rows),
     )
     topics = []
@@ -1114,6 +1222,151 @@ def custom_html_role(technical: dict[str, Any]) -> str:
     if technical.get("network_calls"):
         parts.append("performs a network call")
     return safe_text("; ".join(parts) + ".")
+
+
+def custom_execution_context(
+    technical: dict[str, Any], configuration: dict[str, Any], labels: dict[str, Any]
+) -> str:
+    state = (
+        labels["states"]["paused"]
+        if configuration.get("paused")
+        else labels["states"]["active"]
+    )
+    context: list[str] = [state]
+    if "deprecated" in str(technical.get("object_name") or "").casefold():
+        context.append(labels["states"]["deprecated"])
+    execution = normalize_space(configuration.get("execution_logic"))
+    if execution:
+        context.append("Configured execution: " + execution[:360])
+    listener = technical.get("listener_lifecycle") or {}
+    if listener.get("registration_count"):
+        context.append(
+            "Listener lifecycle: "
+            + (
+                "guarded"
+                if listener.get("has_stable_registration_guard")
+                else "registration guard not exported"
+            )
+        )
+    if listener.get("window_load_listener"):
+        context.append(
+            "load timing has readyState branch"
+            if listener.get("ready_state_branch")
+            else "load timing has no readyState branch"
+        )
+    timers = technical.get("timer_lifecycle") or {}
+    if timers.get("set_interval"):
+        context.append(
+            "interval lifecycle includes clearInterval"
+            if timers.get("clear_interval")
+            else "interval lifecycle has no exported clearInterval"
+        )
+    if timers.get("set_timeout"):
+        context.append(
+            "one-shot timer with exported cancellation"
+            if timers.get("clear_timeout")
+            else "one-shot timer; no cancellation path exported"
+        )
+    observer = technical.get("observer_lifecycle") or {}
+    if observer.get("mutation_observer"):
+        context.append(
+            "MutationObserver has disconnect lifecycle"
+            if observer.get("disconnect")
+            else "MutationObserver has no exported disconnect lifecycle"
+        )
+    return safe_text(". ".join(context) + ".")
+
+
+def custom_technical_health(
+    technical: dict[str, Any], labels: dict[str, Any]
+) -> str:
+    findings = [
+        str(value)
+        for field in (
+            "technical_code_security_findings",
+            "technical_code_health_findings",
+            "technical_code_optimization_findings",
+        )
+        for value in as_list(technical.get(field))
+        if str(value)
+    ]
+    visible = " ".join(findings[:4])
+    if len(findings) > 4:
+        visible += f" +{len(findings) - 4} additional source-locked findings."
+    if not visible:
+        visible = "No static technical defect detected in the exported code."
+    return safe_text(
+        labels["custom"]["health"].format(
+            status=technical.get("technical_code_health_status")
+            or "static review complete",
+            disposition=technical.get("technical_disposition")
+            or technical.get("technical_action_candidate")
+            or "keep",
+            findings=visible,
+        )
+    )
+
+
+def operation_object_keys(operation: dict[str, Any]) -> set[str]:
+    keys = {
+        str(value)
+        for field in ("affected_object_keys", "source_object_keys")
+        for value in as_list(operation.get(field))
+        if str(value)
+    }
+    for field in ("changes", "additions", "deletions", "renames"):
+        keys.update(
+            str(item.get("object_key") or "")
+            for item in as_list(operation.get(field))
+            if isinstance(item, dict) and str(item.get("object_key") or "")
+        )
+    for remap in as_list(operation.get("remaps")):
+        if not isinstance(remap, dict):
+            continue
+        keys.update(
+            str(value)
+            for value in (
+                remap.get("from_object_key"),
+                remap.get("to_object_key"),
+                *as_list(remap.get("consumer_object_keys")),
+            )
+            if str(value)
+        )
+    return keys
+
+
+def operation_is_maintenance_only(operation: dict[str, Any]) -> bool:
+    if as_list(operation.get("creations")) or as_list(operation.get("remaps")):
+        return False
+    deletions = [
+        str(item.get("object_key") or "")
+        for item in as_list(operation.get("deletions"))
+        if isinstance(item, dict) and str(item.get("object_key") or "")
+    ]
+    if deletions:
+        reachability = str(
+            (operation.get("priority_basis") or {}).get("active_reachability") or ""
+        )
+        metadata_deletions = all(
+            key.startswith(("folder:", "builtInVariable:")) for key in deletions
+        )
+        if not metadata_deletions and reachability not in {
+            "inactive_or_unreferenced",
+            "metadata_only",
+            "paused_only",
+        }:
+            return False
+    behavior_markers = re.compile(
+        r"firingTriggerId|blockingTriggerId|setupTag|teardownTag|parameter|consent|"
+        r"schedule|paused|type$",
+        re.I,
+    )
+    return not any(
+        behavior_markers.search(str(item.get("json_path") or ""))
+        for field in ("changes", "additions")
+        for item in as_list(operation.get(field))
+        if isinstance(item, dict)
+    )
 
 
 def locale(language: str) -> dict[str, Any]:
@@ -1373,17 +1626,26 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         ]
 
     def decision_unlock(topic: dict[str, Any], records: list[dict[str, Any]]) -> str:
-        object_count = len(
-            {
-                str(value)
+        object_keys = {
+            str(value)
+            for record in records
+            for value in as_list(record.get("source_object_keys"))
+            if str(value)
+        }
+        if not object_keys:
+            object_keys = {
+                item.strip()
                 for record in records
-                for value in as_list(record.get("source_object_keys"))
-                if str(value)
+                for item in str(record.get("affected_objects") or "").split(";")
+                if item.strip()
             }
+        scope = ", ".join(sorted(object_keys)) or "the named source condition"
+        source_ids = ", ".join(
+            sorted(str(record.get("decision_id") or "") for record in records)
         )
         return safe_text(
-            f"The answer selects the retain, repair, remap, or removal target for "
-            f"{object_count} affected object(s) and makes this recommendation actionable: "
+            f"Answering {source_ids} selects the exact keep, repair, replacement, remap, "
+            f"or removal target for {scope}. It unlocks this recommended next action: "
             f"{topic['recommendation']}"
         )
 
@@ -1488,6 +1750,19 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         )
     variable_sources = as_list(inputs["source_model"].get("variable_sources"))
     delete_map = deletion_operation_map(operations)
+    operation_ids_by_object: dict[str, list[str]] = defaultdict(list)
+    for operation in operations:
+        operation_id = str(operation.get("operation_id") or "")
+        for key in operation_object_keys(operation):
+            if operation_id:
+                operation_ids_by_object[key].append(operation_id)
+    identical_code_tags: dict[str, list[str]] = defaultdict(list)
+    for technical in technical_rows:
+        code_hash = str(technical.get("code_hash") or "")
+        if code_hash:
+            identical_code_tags[code_hash].append(
+                f"tag:{technical.get('object_id')} — {technical.get('object_name')}"
+            )
     owner_topics_by_object: dict[str, set[str]] = defaultdict(set)
     for source_id, topic_id in topic_by_source.items():
         for key in as_list(owner_by_id[source_id].get("source_object_keys")):
@@ -1503,17 +1778,10 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
             configuration,
             variable_sources,
         )
-        state_parts = [
-            labels["states"]["paused"]
-            if configuration.get("paused")
-            else labels["states"]["active"]
-        ]
-        if "deprecated" in str(technical.get("object_name") or "").casefold():
-            state_parts.append(labels["states"]["deprecated"])
-        assessment_parts = []
+        replacement_parts = []
         code_length = int(technical.get("code_length") or 0)
         if code_length >= 4000:
-            assessment_parts.append(
+            replacement_parts.append(
                 labels["custom"]["long"].format(length=f"{code_length:,}")
             )
         legacy_acquisition = bool(
@@ -1523,7 +1791,7 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
             or technical.get("dom_selector_reads")
         )
         if direct:
-            assessment_parts.append(
+            replacement_parts.append(
                 labels["custom"]["direct"].format(
                     sources=", ".join(
                         f"{row['object_key']} ({safe_text(row['data_layer_path'])})"
@@ -1536,20 +1804,48 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
                 f"{row['object_key']} ({safe_text(row['data_layer_path'])})"
                 for row in candidates
             ]
-            assessment_parts.append(
+            replacement_parts.append(
                 labels["custom"]["candidate"].format(
                     sources=", ".join(candidate_labels)
                 )
             )
         elif legacy_acquisition:
-            assessment_parts.append(labels["custom"]["legacy"])
+            replacement_parts.append(labels["custom"]["legacy"])
         if not direct and not candidates and not legacy_acquisition:
             if technical.get("dataLayer_pushes_or_writes"):
-                assessment_parts.append(labels["custom"]["producer"])
+                replacement_parts.append(labels["custom"]["producer"])
+                replacement_parts.append(
+                    "Site-side data production candidate only when the application can own "
+                    "the same event, fields, type, timing, consent state, and consumers."
+                )
             elif technical.get("external_scripts_loaded"):
-                assessment_parts.append(labels["custom"]["loader"])
+                replacement_parts.append(labels["custom"]["loader"])
             else:
-                assessment_parts.append(labels["custom"]["none"])
+                replacement_parts.append(labels["custom"]["none"])
+
+        native_candidates = []
+        if technical.get("manual_gtag_calls"):
+            native_candidates.append("native Google tag/event tag")
+        if technical.get("external_scripts_loaded"):
+            native_candidates.append("maintained vendor template, if installed and equivalent")
+        if any(
+            "small helper variable" in str(value).casefold()
+            for value in as_list(technical.get("technical_code_optimization_findings"))
+        ):
+            native_candidates.append("built-in variable, lookup table, or regex table")
+        if native_candidates:
+            replacement_parts.append(
+                labels["custom"]["candidate_native"].format(
+                    candidates=", ".join(native_candidates)
+                )
+            )
+        code_peers = identical_code_tags.get(str(technical.get("code_hash") or ""), [])
+        if len(code_peers) > 1:
+            replacement_parts.append(
+                labels["custom"]["candidate_duplicate"].format(
+                    tags=", ".join(code_peers)
+                )
+            )
 
         conflicts = {
             row["object_key"]: delete_map[row["object_key"]]
@@ -1561,7 +1857,7 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
             conflict_operations = ", ".join(
                 sorted({op_id for values in conflicts.values() for op_id in values})
             )
-            assessment_parts.append(
+            replacement_parts.append(
                 labels["custom"]["conflict"].format(
                     objects=conflict_objects,
                     operations=conflict_operations,
@@ -1569,10 +1865,47 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
             )
             custom_conflicts[tag_key] = conflicts
         related_topics = sorted(owner_topics_by_object.get(tag_key, set()))
-        if related_topics:
-            assessment_parts.append(
-                labels["custom"]["decisions"].format(topics=", ".join(related_topics))
+        tag_operations = sorted(set(operation_ids_by_object.get(tag_key, [])))
+        if tag_operations:
+            simplest_target = labels["custom"]["operation_target"].format(
+                operations=", ".join(tag_operations)
             )
+        elif related_topics:
+            simplest_target = labels["custom"]["owner_target"].format(
+                topics=", ".join(related_topics)
+            )
+        elif technical.get("technical_disposition") == "keep":
+            simplest_target = labels["custom"]["keep_target"]
+        else:
+            simplest_target = safe_text(
+                technical.get("technical_expected_clean_state")
+                or "Retain the smallest source-proven implementation after exact equivalence review."
+            )
+        exact_parts = []
+        if tag_operations:
+            exact_parts.append(
+                "Planned operation(s): "
+                + "; ".join(
+                    f"{operation_id} — "
+                    + safe_text(
+                        operation_by_id[operation_id].get("title")
+                        or operation_by_id[operation_id].get("exact_proposed_action")
+                    )
+                    for operation_id in tag_operations
+                    if operation_id in operation_by_id
+                )
+            )
+        technical_action = safe_text(technical.get("technical_exact_proposed_action"))
+        if technical_action:
+            exact_parts.append(technical_action)
+        if related_topics:
+            exact_parts.append(
+                labels["custom"]["decisions"].format(
+                    topics=", ".join(related_topics)
+                )
+            )
+        if not exact_parts:
+            exact_parts.append(labels["custom"]["keep_target"])
         custom_rows.append(
             {
                 "kind": "custom_html",
@@ -1582,11 +1915,26 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
                 "conflicts": conflicts,
                 "values": [
                     safe_text(f"{tag_key} — {technical.get('object_name')}"),
-                    safe_text(" / ".join(state_parts)),
+                    custom_execution_context(technical, configuration, labels),
                     custom_html_role(technical),
-                    safe_text(" ".join(assessment_parts)),
+                    custom_technical_health(technical, labels),
+                    safe_text(" ".join(replacement_parts)),
+                    safe_text(simplest_target),
+                    safe_text(" ".join(exact_parts)),
                 ],
-                "notes": {},
+                "notes": {
+                    3: safe_text(
+                        {
+                            "health": technical.get("technical_code_health_findings") or [],
+                            "security": technical.get("technical_code_security_findings") or [],
+                            "optimization": technical.get("technical_code_optimization_findings") or [],
+                            "cookie_writes": technical.get("cookie_writes") or [],
+                            "listener_lifecycle": technical.get("listener_lifecycle") or {},
+                            "timer_lifecycle": technical.get("timer_lifecycle") or {},
+                            "observer_lifecycle": technical.get("observer_lifecycle") or {},
+                        }
+                    )
+                },
             }
         )
 
@@ -1597,13 +1945,76 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         priority: sum(1 for row in operations if row.get("priority") == priority)
         for priority in PRIORITY_ORDER
     }
+    priority_first_actions = sorted(
+        action_rows,
+        key=lambda row: (
+            PRIORITY_ORDER.get(str(row["operation"].get("priority") or ""), 9),
+            int(row["operation"].get("execution_order") or 0),
+            row["id"],
+        ),
+    )
     first_actions = " | ".join(
         safe_text(
             f"{row['id']} [{row['operation'].get('priority') or ''}]: "
             f"{row['operation'].get('title') or row['values'][5]}"
         )[:260]
-        for row in action_rows[:3]
+        for row in priority_first_actions[:3]
     ) or labels["counts"]["no_actions"]
+    bulk_operations = sum(
+        1
+        for operation in operations
+        if (
+            ((operation.get("execution_safety") or {}).get("approval") or {}).get(
+                "scope"
+            )
+            == "bulk_eligible_exact_low_risk_bundle"
+        )
+    )
+    simulated_activation = (
+        inputs["future_state_gate"].get("configured_activation_risk") or {}
+    )
+    if isinstance(simulated_activation, dict) and "flag" in simulated_activation:
+        confirmed_candidates = {
+            str(value)
+            for value in as_list(simulated_activation.get("candidate_operation_ids"))
+            if str(value)
+        }
+        activation_operations = (
+            sum(
+                1
+                for operation in operations
+                if str(operation.get("operation_id") or "") in confirmed_candidates
+            )
+            if confirmed_candidates or not simulated_activation.get("flag")
+            else sum(
+                1
+                for operation in operations
+                if bool(
+                    (
+                        (operation.get("execution_safety") or {}).get(
+                            "configured_activation_risk"
+                        )
+                        or {}
+                    ).get("flag")
+                )
+            )
+        )
+    else:
+        activation_operations = sum(
+            1
+            for operation in operations
+            if bool(
+                (
+                    (operation.get("execution_safety") or {}).get(
+                        "configured_activation_risk"
+                    )
+                    or {}
+                ).get("flag")
+            )
+        )
+    maintenance_operations = sum(operation_is_maintenance_only(row) for row in operations)
+    behavior_operations = len(operations) - maintenance_operations
+    remaining_records = len(ledger) - disposition_counts["cleanup_operation"]
     preservation_counts = defaultdict(int)
     for family in preservation_families:
         preservation_counts[str(family.get("preservation_status") or "")] += 1
@@ -1642,6 +2053,12 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
             "documented_exceptions": disposition_counts["documented_exception"],
             "evidence_limits": disposition_counts["container_evidence_limit"],
             "priority": priority_counts,
+            "bulk_operations": bulk_operations,
+            "individual_operations": len(operations) - bulk_operations,
+            "activation_operations": activation_operations,
+            "maintenance_operations": maintenance_operations,
+            "behavior_operations": behavior_operations,
+            "remaining_records": remaining_records,
         },
         "operation_by_id": operation_by_id,
         "ledger_by_id": {
@@ -1913,13 +2330,14 @@ def write_decision_sheet(
 
 def write_custom_html_sheet(sheet: Any, model: dict[str, Any]) -> dict[str, int]:
     headers = model["headers"]["html"]
-    widths = [38, 20, 52, 76]
+    widths = [36, 42, 46, 64, 70, 54, 72]
     apply_header_style(sheet, headers)
     add_note(
-        sheet.cell(1, 4),
+        sheet.cell(1, 5),
         (
-            "A dataLayer candidate is a static key/name match only. Before replacement, "
-            "compare value, format, timing, route, consent state, and downstream consumers."
+            "A dataLayer, native-tag, template, consolidation, or site-side candidate is "
+            "static evidence only. Before replacement, compare exact value, type, format, "
+            "timing, fallback, route, consent state, trigger use, and every downstream consumer."
         ),
     )
     row_by_id: dict[str, int] = {}
@@ -1934,6 +2352,8 @@ def write_custom_html_sheet(sheet: Any, model: dict[str, Any]) -> dict[str, int]
             alternate=index % 2 == 0,
             warning=bool(row["conflicts"]),
         )
+        for column_index, note in row.get("notes", {}).items():
+            add_note(sheet.cell(row_number, column_index + 1), note)
     set_widths(sheet, widths)
     return row_by_id
 
@@ -2036,6 +2456,38 @@ def write_overview_sheet(sheet: Any, model: dict[str, Any], inputs: dict[str, An
         if count
     ) or labels["counts"]["no_actions"]
     detail_rows = [
+        (
+            labels["overview"]["reconciliation"],
+            labels["counts"]["reconciliation"].format(
+                findings=counts["audit_records"],
+                operations=counts["operations"],
+                retained=counts["retained"] + counts["documented_exceptions"],
+                decisions=counts["decision_topics"],
+            ),
+        ),
+        (
+            labels["overview"]["approval_scope"],
+            labels["counts"]["approval_scope"].format(
+                bulk=counts["bulk_operations"],
+                individual=counts["individual_operations"],
+                activation=counts["activation_operations"],
+            ),
+        ),
+        (
+            labels["overview"]["change_scope"],
+            labels["counts"]["change_scope"].format(
+                maintenance=counts["maintenance_operations"],
+                behavior=counts["behavior_operations"],
+            ),
+        ),
+        (
+            labels["overview"]["remaining"],
+            labels["counts"]["remaining"].format(
+                remaining=counts["remaining_records"],
+                decisions=counts["decision_topics"],
+                limits=counts["evidence_limits"],
+            ),
+        ),
         (
             labels["overview"]["retained"],
             labels["counts"]["retained"].format(
@@ -2192,7 +2644,7 @@ def apply_cross_links(
         if row["related_topics"]:
             topic_id = row["related_topics"][0]
             if topic_id in topic_rows:
-                cell = custom_sheet.cell(source_row, 4)
+                cell = custom_sheet.cell(source_row, 7)
                 add_internal_link(cell, "A3 Decisions", f"A{topic_rows[topic_id]}")
                 links.append(
                     {
@@ -2237,9 +2689,6 @@ def build_readability_workbook(
         raise ValueError("The analyst workbook output must differ from the canonical workbook")
 
     workbook = load_workbook(source_workbook)
-    original_states = {
-        name: workbook[name].sheet_state for name in ORIGINAL_SHEETS
-    }
     sheets = create_human_sheets(workbook)
     write_overview_sheet(sheets["A1 Overview"], model, inputs)
     action_rows = write_action_sheet(sheets["A2 Actions"], model)
@@ -2257,9 +2706,8 @@ def build_readability_workbook(
         decision_source_rows,
         custom_rows,
     )
-    for name, state in original_states.items():
-        if workbook[name].sheet_state != state:
-            raise ValueError(f"Readability builder changed original sheet visibility: {name}")
+    for name in ORIGINAL_SHEETS:
+        workbook[name].sheet_state = "hidden"
     workbook.active = 0
     output.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(output)

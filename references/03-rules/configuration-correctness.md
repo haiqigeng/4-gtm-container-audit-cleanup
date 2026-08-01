@@ -237,13 +237,32 @@ not executable. Review visible permissions in the template contract. Each block 
 - DOM, cookie, storage, dataLayer, network, script, listener, or global effects;
 - code-health and safety judgment.
 
+For the complete block, also conclude syntax/parser validity; branch/nesting and
+control-flow complexity; return type, null/undefined, fallback and exception paths;
+async/synchronous compatibility; listener, timer, polling and observer lifecycle;
+DOM/storage/privacy/security behavior; network/script loading and performance;
+dead or duplicate code; naming/readability; hardcoded IDs, endpoints and environment
+coupling; deprecated APIs/vendor remnants; portability and maintainability. Select one
+explicit `keep`, `optimise`, `repair`, `shorten`, `refactor`, `consolidate`, `replace`,
+`remove`, or `owner` disposition. Shortening is useful only when it removes proved
+duplication/dead complexity while keeping the source-proven behavior; cosmetic
+minification is not a cleanup operation.
+
 Resolve each static parser/security/optimization finding. Check unsafe eval,
 HTML injection, message origin, HTTP endpoints, dynamic scripts, repeated
 listeners, global state, storage, fixed product indexes, parse errors, missing
 returns, output type, exceptions, dataLayer model resets, direct
 `google_tag_manager` internals, manual `gtag()` senders, debugger statements,
-literal-cookie Secure/SameSite attributes, listener removal/once/registration
-guards, and replaceability by native GTM features. Also resolve explicit
+literal-cookie operations and attributes, listener/timer/observer lifecycle,
+and replaceability by native GTM features. Classify each literal cookie write as
+set/update or delete. Secure/SameSite policy applies to set/update only; never add
+those attributes automatically to deletion. A deletion must match the original
+cookie name, path, and domain, and the review must not claim that an attribute absent
+from the source was preserved. For listeners, compare the exact GTM trigger and paused
+state with registration timing, `document.readyState`, load-already-fired behavior,
+stable guards, removal, timers/polling, and observer disconnect. `{once:true}` limits a
+registered callback; it does not prevent duplicate registration before the event.
+Also resolve explicit
 `document.write()` against the exported Support document.write setting;
 JavaScript-looking Custom HTML without a `<script>` wrapper; Google
 Optimize/anti-flicker remnants; callback-based CMP reads in synchronous Custom
@@ -252,6 +271,17 @@ is always redacted: strong secret fields are defects, while API-key candidates
 remain Unclear until confirmed intentionally browser-public and restricted.
 Cache-buster, base64, `MutationObserver`, and network-call signals remain
 source facts or review candidates unless their exact use proves a defect.
+
+Keep dataLayer replacement independent from general code cleanup. Name every exact
+DLV/dataLayer key already read, every normalized source-key candidate, native GTM tag or
+variable, installed-template candidate, identical-code consolidation candidate, and
+site-side producer candidate. Before proposing replacement, compare value, type, format,
+timing, fallback, consent, trigger use, and every consumer. A key/name match is only a
+candidate. A code-changing operation must include the exact defective JSON path, locked
+source code hash, full concrete after-code, exact change summary, why the change fixes the
+defective path, and at least two named preserved behaviors (output/type, timing, consent,
+route, or side effect). The validator rejects stale source, prose in place of code,
+type-changing field substitutions, and whitespace/minification-only edits.
 
 If the optional AST parser is unavailable, fails, or returns parse errors,
 create a mandatory parser-coverage finding. It cannot be a false positive. A
@@ -267,8 +297,9 @@ polarity-locked: citing the right tokens while denying the behavior is a failed
 review. Static findings have a decision class. Deterministic defects include
 the explicit unwrapped-JavaScript, asynchronous-CMP-variable,
 unguarded-listener, debugger, `dataLayer.reset`, internal
-`google_tag_manager`, eval, originless-message, HTTP, cookie-attribute, and
-strong-secret signals. Parser/opaque/API-key uncertainty is an evidence
+`google_tag_manager`, eval, originless-message, HTTP, cookie set/update-attribute,
+and strong-secret signals. An unmatched cookie-deletion scope is an evidence
+boundary rather than permission to invent its original path/domain. Parser/opaque/API-key uncertainty is an evidence
 boundary. Generic inline-script, code-size, DOM/storage/global,
 dynamic-script, direct-sender, and guarded-listener patterns are review
 signals: inspect the complete code and consumer route, then use `No defect

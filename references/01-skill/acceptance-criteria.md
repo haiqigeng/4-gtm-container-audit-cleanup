@@ -50,8 +50,11 @@ A web analyst can call the result done only when:
   entity-like top-level layer is silently ignored. A failure blocks all three
   semantic reviews and mutation compilation.
 - Provided, high-confidence inferred, and unresolved context is visibly
-  separated; material intake questions are presented before semantic review,
-  and the complete intake state is protected by a stable context hash.
+  separated and the complete intake state is protected by a stable context hash.
+  Business, naming, folder, lifecycle, ownership, and preferred-target questions are
+  nonblocking audit decisions; only partial/ambiguous source, unmodelled layers, proof
+  gaps that prevent a complete configuration judgment, or missing required tooling stop
+  the audit. An unresolved choice blocks only its affected execution operation.
 - Context and shared-fact content are deterministically reconstructed at the
   package gate; copied matching hash strings cannot hide changed content.
 - One judgment-free deterministic fact artifact contains object identity,
@@ -71,6 +74,8 @@ A web analyst can call the result done only when:
   seal bound to its input bundle and unchanged canonical review. Deterministic scaffolds
   and shard tools cannot bulk-author semantic decisions; any declared semantic
   bulk-completion artifact fails the run.
+- High/Critical challenge rechecks use another fresh context and a neutral packet of
+  exact source coordinates/facts/question with no expected outcome or foreign rationale.
 - Built-in/system references are distinguished from missing references.
 - Web, server, consent, ecommerce, and business scope are stated without
   claiming evidence from an unseen container or live website.
@@ -205,11 +210,21 @@ A web analyst can call the result done only when:
   cannot be marked Correct by inferred implementation behavior.
 - Static code signals cover dataLayer resets, internal `google_tag_manager`
   access, manual `gtag`, debugger statements, literal-cookie Secure/SameSite
-  attributes, listener removal/once/registration guards, `document.write` plus
+  set/update attributes, cookie-deletion name/path/domain scope, listener timing,
+  readyState/load handling, repeated registration, timers/polling and observer cleanup,
+  `document.write` plus
   its support setting, missing Custom HTML script wrappers, Optimize/anti-
   flicker remnants, callback CMP reads, and redacted credential candidates,
   with a legitimate neighboring negative for each detector class. Cache-
   buster, base64, MutationObserver, and network signals alone remain facts.
+- Every code block receives a complete technical disposition across parser/syntax,
+  control flow, return/type/null/error paths, async/sync, lifecycle, DOM/storage,
+  security/privacy, network calls, script loading, performance, duplication/dead code, complexity,
+  readability, environment literals, deprecated APIs, portability, and maintainability.
+  dataLayer/native/template/consolidation/site-side candidates remain first-class and
+  are accepted only after exact value/type/format/timing/fallback/consent/trigger/
+  consumer equivalence. A code operation contains full after-code and source-bound
+  efficacy/preservation proof; cosmetic minification fails.
 - Confirmed technical issues/cleanup opportunities link to exactly one defect
   and one exact operation unless a complete exception or genuine owner
   decision applies. Identical code cannot receive differing technical outcomes
@@ -457,7 +472,8 @@ The derived `cleanup_plan.analyst.xlsx` is accepted only when:
 - it is built from a canonical workbook that already passed
   `gtm_audit_gate_check.py` and the all-sheet privacy scan;
 - `A1 Overview`, `A2 Actions`, `A3 Decisions`, `A4 Audit Register`, and
-  `A5 Custom HTML` precede all eight unchanged canonical tabs;
+  `A5 Custom HTML` precede all eight content-identical canonical tabs, which are
+  hidden by default in the analyst copy;
 - A2 has exactly eight visible columns and every atomic operation exactly once,
   in authoritative execution order. Literal problem, consequence, exact change,
   approval/preconditions, and static verification/rollback are independently
@@ -466,23 +482,27 @@ The derived `cleanup_plan.analyst.xlsx` is accepted only when:
 - A3 has exactly six visible columns and every `owner_decision_needed` source
   record exactly once under one decision topic, including affected measurement
   families and what the answer unlocks. The deterministic fallback works at any
-  record count and groups only identical normalized questions/recommendations;
+  record count and groups only the same answer class with compatible object/route
+  scope and target consequence, while retaining every source row as a child;
 - A4 has exactly six visible columns and every decision-ledger record exactly
   once;
 - A1 names the highest-priority first cleanup actions and summarizes the
-  retained/changed/owner-blocked measurement target state, not only counts and
+  retained/changed/owner-blocked measurement target state, reconciliation arithmetic,
+  approval scope, operation impact, and remaining records, not only counts and
   navigation instructions;
-- A5 has exactly four visible columns and every source Custom HTML tag exactly
-  once, including source-qualified dataLayer candidates and planned-deletion
-  conflicts;
+- A5 has exactly seven visible columns and every source Custom HTML tag exactly
+  once, including execution context, complete technical health/disposition,
+  source-qualified dataLayer/native/template/consolidation/site-side candidates,
+  simplest safe target, exact action/decision, and planned-deletion conflicts;
 - presentation grouping never replaces a finding, operation, owner-decision
   source record, or Custom HTML tag;
 - links target visible human tabs only; stable IDs and A1 unhide/filter
   instructions provide access to unchanged technical proof;
 - its manifest binds every consumed input, the canonical workbook, original
   sheet hashes, and the derived workbook by SHA-256;
-- original-sheet preservation covers values, formulas, comments, hyperlinks,
-  dimensions, and visibility; the gate cannot write to an audit input path;
+- original-sheet preservation covers values, formulas, comments, hyperlinks, and
+  dimensions; the only allowed presentation change is hiding every canonical tab by
+  default. The gate cannot write to an audit input path;
 - its separate gate passes preservation, coverage, direction, links,
   readability, reopen, and all-sheet privacy checks.
 

@@ -2262,7 +2262,7 @@ def operation_server_route_hosts(
 
 
 def operation_has_configured_activation_risk(operation: dict[str, Any]) -> bool:
-    """Flag mutations that can change configured reachability, never live firing."""
+    """Flag path-based candidates; the projected-container simulator is authoritative."""
     creation_risk = any(
         str(creation.get("layer") or "") == "tag"
         and bool(as_list((creation.get("object") or {}).get("firingTriggerId")))
@@ -2285,7 +2285,28 @@ def operation_has_configured_activation_risk(operation: dict[str, Any]) -> bool:
         for mutation in as_list(operation.get(field)):
             if not isinstance(mutation, dict):
                 continue
-            if ACTIVATION_PATH_RE.search(str(mutation.get("json_path") or "")):
+            path = str(mutation.get("json_path") or "")
+            if not ACTIVATION_PATH_RE.search(path):
+                continue
+            if field == "additions":
+                mutation_risk = True
+                continue
+            before = mutation.get("before")
+            after = mutation.get("after")
+            if path.endswith(".paused"):
+                if bool(before) and not bool(after):
+                    mutation_risk = True
+            elif path.endswith(".firingTriggerId"):
+                if set(map(str, as_list(after))) - set(map(str, as_list(before))):
+                    mutation_risk = True
+            elif path.endswith(".blockingTriggerId"):
+                removed = set(map(str, as_list(before))) - set(map(str, as_list(after)))
+                if removed:
+                    mutation_risk = True
+            elif path.endswith((".scheduleStartMs", ".scheduleEndMs")):
+                if after in (None, "", 0) and before not in (None, "", 0):
+                    mutation_risk = True
+            else:
                 mutation_risk = True
     return creation_risk or remap_risk or mutation_risk
 

@@ -16,6 +16,7 @@ from gtm_skill_identity import sha256_file
 
 BUNDLE_DIRECTORY = "review-bundles"
 SEAL_DIRECTORY = "review-seals"
+SCRATCH_DIRECTORY = "review-scratch"
 
 RUN_SPECS: dict[str, dict[str, Any]] = {
     "operational_sanitation": {
@@ -110,6 +111,8 @@ def prepare_review_bundles(
     for run_name, spec in RUN_SPECS.items():
         bundle_dir = bundle_root / run_name
         bundle_dir.mkdir()
+        scratch_dir = package_dir / SCRATCH_DIRECTORY / run_name
+        scratch_dir.mkdir(parents=True, exist_ok=True)
         records: list[dict[str, Any]] = []
         _copy_role(export_path, bundle_dir / "source_export.json", "raw_export", records)
         for role, filename in spec["package_roles"].items():
@@ -156,7 +159,9 @@ def prepare_review_bundles(
             "If a shard declares `configuration_completion_overlay`, read the matching "
             "object row in the bundle-local base review as the exhaustive evidence ledger, "
             "edit only the overlay fields, check every shard, and merge all overlays back "
-            "into that base review before sealing. Approved-requirement evidence, when "
+            "into that base review before sealing. Put all notes, temporary extracts, and "
+            f"drafts in `{scratch_dir.as_posix()}` outside this sealed bundle. Approved-"
+            "requirement evidence, when "
             "present, is separately labelled context and is never container proof.\n",
             encoding="utf-8",
         )
@@ -217,6 +222,7 @@ def prepare_review_bundles(
             "manifest": f"{BUNDLE_DIRECTORY}/{run_name}/bundle_manifest.json",
             "bundle_sha256": manifest["bundle_sha256"],
             "review_file": spec["review_file"],
+            "scratch_directory": f"{SCRATCH_DIRECTORY}/{run_name}",
         }
     return result
 
@@ -303,6 +309,71 @@ def _validator(run_name: str) -> Callable[[Path, Path], tuple[list[str], list[st
     return validate_review
 
 
+def relocate_unexpected_bundle_artifacts(
+    bundle_dir: Path, package_dir: Path, run_name: str
+) -> list[dict[str, str]]:
+    """Move accidental scratch out of a sealed bundle without deleting it."""
+
+    manifest_path = bundle_dir / "bundle_manifest.json"
+    if not manifest_path.is_file():
+        return []
+    manifest = load_json(manifest_path)
+    scratch_dir = package_dir / SCRATCH_DIRECTORY / run_name
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    moved: list[dict[str, str]] = []
+
+    def move_path(path: Path, relative_name: str) -> None:
+        target = scratch_dir / relative_name.replace("/", "__")
+        counter = 1
+        while target.exists():
+            target = scratch_dir / f"{relative_name.replace('/', '__')}.{counter}"
+            counter += 1
+        shutil.move(str(path), str(target))
+        moved.append(
+            {
+                "from": path.relative_to(bundle_dir).as_posix(),
+                "to": target.relative_to(package_dir).as_posix(),
+            }
+        )
+
+    declared = {
+        str(record.get("path") or "")
+        for record in manifest.get("input_files") or []
+        if str(record.get("path") or "")
+    }
+    for path in sorted(bundle_dir.iterdir(), key=lambda item: item.name):
+        if path.name not in declared | {"bundle_manifest.json"}:
+            move_path(path, path.name)
+
+    for record in manifest.get("input_files") or []:
+        if record.get("role") != "review_work_units":
+            continue
+        shard_dir = bundle_dir / str(record.get("path") or "")
+        if not shard_dir.is_dir():
+            continue
+        allowed = {
+            str(value)
+            for value in record.get("allowed_output_files") or []
+            if str(value)
+        }
+        for path in sorted(shard_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(shard_dir).as_posix()
+            if relative not in allowed:
+                move_path(path, f"{shard_dir.name}__{relative}")
+    if moved:
+        write_json(
+            scratch_dir / "scratch_recovery.json",
+            {
+                "kind": "gtm_review_scratch_recovery",
+                "review_run": run_name,
+                "moved_without_deletion": moved,
+            },
+        )
+    return moved
+
+
 def seal_review(
     export_path: Path,
     package_dir: Path,
@@ -319,6 +390,9 @@ def seal_review(
     if len(context_id.strip()) < 12:
         raise ValueError("context_id must identify one real fresh reasoning context")
     bundle_dir = (package_dir / BUNDLE_DIRECTORY / run_name).resolve()
+    scratch_recovery = relocate_unexpected_bundle_artifacts(
+        bundle_dir, package_dir, run_name
+    )
     manifest, errors = bundle_integrity_errors(bundle_dir)
     package_manifest_path = package_dir / "audit_package_manifest.json"
     if not package_manifest_path.is_file():
@@ -385,6 +459,7 @@ def seal_review(
         "independent_review_context_id": context_id,
         "validator_status": "pass",
         "validator_warnings": review_warnings,
+        "scratch_recovery": scratch_recovery,
     }
     seal["seal_sha256"] = seal_content_hash(seal)
     seal_path = seal_dir / f"{run_name}.json"

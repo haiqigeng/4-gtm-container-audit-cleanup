@@ -36,11 +36,13 @@ from gtm_configuration_review_groups import (
     structured_logic_reviews,
 )
 from gtm_consent_model import server_route_hosts
+from gtm_custom_code_extract import code_hash as code_hash_text
 from gtm_custom_code_extract import extract_export
 from gtm_lib import (
     ID_KEYS,
     as_list,
     behavior_projection,
+    code_identity_text,
     container_root_path,
     container_version,
     refs,
@@ -68,6 +70,7 @@ from gtm_review_common import (
     source_specific_owner_question_errors,
     specific_text,
     validate_challenge,
+    validate_neutral_recheck_contexts,
     validate_operation_set,
     validate_review_provenance,
     validate_structured_actions,
@@ -253,13 +256,14 @@ DETERMINISTIC_TECHNICAL_SIGNAL_MARKERS = (
     "runs text as javascript",
     "without an exported origin check",
     "unencrypted http://",
-    "literal cookie write omits",
+    "literal cookie set/update omits",
     "literal secret-like credential candidate",
 )
 TECHNICAL_EVIDENCE_BOUNDARY_MARKERS = (
     "no code body was exported",
     "no reviewable executable behavior",
     "literal api-key candidate",
+    "cookie deletion has no source-proven matching set/update scope",
 )
 GTM_PLATFORM_CONTRACTS = {
     "zone": {
@@ -3835,7 +3839,8 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
                 ("google_tag_manager", ("google_tag_manager", "supported", "documented")),
                 ("gtag()", ("gtag", "native google", "sender", "destination")),
                 ("debugger", ("debugger", "remove")),
-                ("cookie write", ("secure", "samesite", "cookie")),
+                ("cookie set/update", ("secure", "samesite", "cookie")),
+                ("cookie deletion", ("name", "path", "domain", "delete")),
                 ("event listener", ("once", "remove", "guard", "listener")),
             )
             statement = str(source.get("statement") or "").lower()
@@ -4211,6 +4216,93 @@ def validate_configuration_branches(
     return errors
 
 
+CODE_SIGNAL_RE = re.compile(
+    r"<[a-z][^>]*>|\b(?:function|return|if|for|while|const|let|var|try|catch)\b|"
+    r"\b(?:window|document|dataLayer)\s*\.|\b(?:fetch|gtag|fbq)\s*\(",
+    re.I,
+)
+CODE_TOKEN_RE = re.compile(
+    r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`|'
+    r"[A-Za-z_$][\w$]*|(?:\d+(?:\.\d+)?)|"
+    r"===|!==|==|!=|=>|<=|>=|\+\+|--|&&|\|\||\?\?|\*\*|\S",
+    re.S,
+)
+
+
+def formatting_insensitive_code_tokens(value: str) -> tuple[str, ...]:
+    """Compare formatting without erasing whitespace inside literals."""
+
+    return tuple(CODE_TOKEN_RE.findall(code_identity_text(value)))
+
+
+def validate_code_fix_efficacy(row: dict[str, Any], label: str) -> list[str]:
+    """Reject opaque or cosmetic Custom HTML/CJS rewrites before sealing."""
+
+    operation = row.get("operation") or {}
+    technical = row.get("technical_code_facts") or {}
+    code_hash = str(technical.get("code_hash") or "")
+    code_changes = [
+        change
+        for change in as_list(operation.get("changes"))
+        if isinstance(change, dict)
+        and isinstance(change.get("before"), str)
+        and isinstance(change.get("after"), str)
+        and (
+            (bool(code_hash) and code_hash_text(str(change.get("before") or "")) == code_hash)
+            or (
+                not code_hash
+                and (
+                    CODE_SIGNAL_RE.search(str(change.get("before") or ""))
+                    or CODE_SIGNAL_RE.search(str(change.get("after") or ""))
+                )
+            )
+        )
+    ]
+    if not code_changes:
+        return []
+    errors: list[str] = []
+    proof = operation.get("code_fix_proof")
+    if not isinstance(proof, dict):
+        return [
+            f"{label}: custom-code mutation requires one source-bound code_fix_proof"
+        ]
+    paths = {str(change.get("json_path") or "") for change in code_changes}
+    if str(proof.get("defective_path") or "") not in paths:
+        errors.append(
+            f"{label}: code_fix_proof defective_path must name the exact changed source path"
+        )
+    if code_hash and str(proof.get("source_code_hash") or "") != code_hash:
+        errors.append(f"{label}: code_fix_proof source_code_hash is stale or missing")
+    for field in ("exact_change_summary", "resolution_basis"):
+        if not specific_text(proof.get(field), 7):
+            errors.append(f"{label}: code_fix_proof {field} is incomplete")
+    preserved = [
+        str(value).strip()
+        for value in as_list(proof.get("preserved_behaviors"))
+        if str(value).strip()
+    ]
+    if len(preserved) < 2 or any(not specific_text(value, 4) for value in preserved):
+        errors.append(
+            f"{label}: code_fix_proof must name at least two exact preserved behaviors "
+            "such as output/type, timing, consent, route, or side effect"
+        )
+    for index, change in enumerate(code_changes, start=1):
+        before = str(change.get("before") or "")
+        after = str(change.get("after") or "")
+        if len(after.strip()) < 12 or not CODE_SIGNAL_RE.search(after):
+            errors.append(
+                f"{label}: code change {index} after value is not a complete executable body"
+            )
+        if formatting_insensitive_code_tokens(before) == formatting_insensitive_code_tokens(
+            after
+        ):
+            errors.append(
+                f"{label}: code change {index} is cosmetic whitespace/minification only; "
+                "do not mutate code without a source-bound functional or maintainability gain"
+            )
+    return errors
+
+
 def validate_operation(
     row: dict[str, Any],
     valid_keys: set[str],
@@ -4261,7 +4353,8 @@ def validate_operation(
             source_paths_by_key,
         )
     )
-    errors.extend(validate_challenge(flattened, label))
+    errors.extend(validate_challenge(flattened, label, source_paths_by_key))
+    errors.extend(validate_code_fix_efficacy(row, label))
     return errors
 
 
@@ -4900,6 +4993,18 @@ def validate_review(export_path: Path, review_path: Path) -> tuple[list[str], li
         )
     )
     errors.extend(validate_review_provenance(supplied, expected, "configuration review"))
+    errors.extend(
+        validate_neutral_recheck_contexts(
+            supplied,
+            str(
+                (supplied.get("completion_attestation") or {}).get(
+                    "independent_review_context_id"
+                )
+                or ""
+            ),
+            "configuration review",
+        )
+    )
     expected_by_key, supplied_by_key, set_errors = configuration_row_sets(
         supplied, expected
     )
