@@ -74,6 +74,10 @@ A web analyst can call the result done only when:
   seal bound to its input bundle and unchanged canonical review. Deterministic scaffolds
   and shard tools cannot bulk-author semantic decisions; any declared semantic
   bulk-completion artifact fails the run.
+- A correction to an already sealed run requires its exact parent seal and a
+  fresh reviewer context. The prior seal and exact review artifact remain in an
+  append-only amendment history; same-context, stale-parent, or parentless
+  replacement fails.
 - High/Critical challenge rechecks use another fresh context and a neutral packet of
   exact source coordinates/facts/question with no expected outcome or foreign rationale.
 - Built-in/system references are distinguished from missing references.
@@ -202,7 +206,8 @@ A web analyst can call the result done only when:
   proved send, request, DOM/script effect, dataLayer/storage action, listener,
   read, or return fails. Static findings distinguish advisory review signals,
   deterministic defects, and evidence boundaries. A source-present advisory
-  pattern may close as `No defect after review` with exact rationale but cannot
+  pattern may close as `No defect after review` only when its rationale names a
+  source-specific identifier and the exact safety condition that closes the risk; it cannot
   create an owner question by itself. No source-present pattern is dismissed
   as a false positive; cleanup, exception, and genuine owner verdicts require
   their source-bound action, exception basis, or question plus recommendation.
@@ -210,8 +215,12 @@ A web analyst can call the result done only when:
   cannot be marked Correct by inferred implementation behavior.
 - Static code signals cover dataLayer resets, internal `google_tag_manager`
   access, manual `gtag`, debugger statements, literal-cookie Secure/SameSite
-  set/update attributes, cookie-deletion name/path/domain scope, listener timing,
-  readyState/load handling, repeated registration, timers/polling and observer cleanup,
+  set/update attributes, dynamic-cookie attributes and day-unit arithmetic,
+  cookie-deletion name/path/domain scope, listener timing, readyState/load
+  handling, repeated registration, bounded recursive timeout polling, exact
+  postMessage origins, message-payload shape before dataLayer push, nullable
+  DLV string methods, missing-value string coercion, semantic name/output,
+  timers/polling and observer cleanup,
   `document.write` plus
   its support setting, missing Custom HTML script wrappers, Optimize/anti-
   flicker remnants, callback CMP reads, and redacted credential candidates,
@@ -226,8 +235,9 @@ A web analyst can call the result done only when:
   consumer equivalence. A code operation contains full after-code and source-bound
   efficacy/preservation proof; cosmetic minification fails.
 - Confirmed technical issues/cleanup opportunities link to exactly one defect
-  and one exact operation unless a complete exception or genuine owner
-  decision applies. Identical code cannot receive differing technical outcomes
+  and one exact operation. A deterministic technical defect cannot use approval
+  as an owner-decision fallback; only a complete source-bound documented
+  exception can retain it. Identical code cannot receive differing technical outcomes
   without a cited consumer-specific basis.
 - Vendor-facing objects and their consumed variables complete every generated,
   current official documentation topic for event, destination, fields, value
@@ -286,6 +296,10 @@ A web analyst can call the result done only when:
   Consent-looking names/events and arbitrary blockers remain candidates, not
   proof. Forwarding requires an exported server route plus payload/settings
   evidence, and mixed code retains every detected vendor.
+- A default consent writer uses the Consent Initialization system trigger. A
+  later custom-event route is an Issue with an exact trigger-field repair.
+  Consent CJS variables cannot call string methods on a DLV whose exported
+  default is disabled unless the code supplies a local type/null guard.
 
 ## Run 3: Business Architecture
 
@@ -296,6 +310,9 @@ A web analyst can call the result done only when:
 - Every generated exact, near, shared-source, shared-route, shared-event,
   destination, code, condition-subset, and business-step candidate has an
   explicit source-bound relationship verdict.
+- Same-host vendor/script loaders and multiple consent default/update writers
+  are generated relationship candidates even when no event parameter exists.
+  Reordering source objects does not change their candidate membership.
 - High-confidence dataLayer push/listener spelling near misses and SPA History
   Change/manual-page-view versus non-disabled Google `send_page_view` states
   are generated review candidates, never automatic repairs or live-firing

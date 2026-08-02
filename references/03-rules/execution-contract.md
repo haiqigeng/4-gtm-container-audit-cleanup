@@ -106,6 +106,13 @@ a sealed review, or declaring a semantic bulk-completion artifact fails before
 reconciliation. When three fresh contexts are unavailable, report the full
 audit as blocked; there is no same-context certification fallback.
 
+If a validator exposes an error after a run was sealed, the root does not edit
+that verdict artifact. Reopen only that run in a new reviewer context and reseal
+with `--amendment-of <current-seal-sha256>`. Sealing rejects same-context,
+missing-parent, and stale-parent amendments and archives the prior seal plus
+exact review artifact before promotion. This append-only chain preserves
+reviewer ownership without restarting valid foreign runs.
+
 Use `review-scratch/<run>/` for all notes, temporary extracts, and draft prompts.
 Only manifest-declared files may remain in a sealed bundle. If accidental scratch
 appears there, sealing moves it to the run scratch directory, records the move, and
@@ -137,6 +144,12 @@ run validator. The merge persists the checked shard filename, kind, completed-it
 count, and content hash, then reads back the merged review. If one shard fails, repair
 and recheck only that named shard; do not restart completed shards or continue from an
 unverified write.
+
+A local shard or validator failure is not an intake question and does not pause
+the whole audit. Repair only its reviewer-owned completion fields in the same run
+(or use the fresh amendment context above after sealing), recheck, and continue.
+Escalate to the user only for the true source/tooling blockers defined by this
+contract; never ask permission merely to resume deterministic validation work.
 
 ## Run 1: Operational Sanitation
 

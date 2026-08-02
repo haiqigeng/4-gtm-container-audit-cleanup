@@ -255,15 +255,36 @@ DETERMINISTIC_TECHNICAL_SIGNAL_MARKERS = (
     "internal google_tag_manager object",
     "runs text as javascript",
     "without an exported origin check",
+    "origin with substring matching",
+    "postmessage payload directly into datalayer",
     "unencrypted http://",
     "literal cookie set/update omits",
+    "dynamic cookie set/update omits",
+    "cookie duration multiplies the declared day count",
     "literal secret-like credential candidate",
+    "recursively schedules settimeout",
+    "missing input becomes the literal string 'undefined'",
+    "name promises an hour value",
 )
 TECHNICAL_EVIDENCE_BOUNDARY_MARKERS = (
     "no code body was exported",
     "no reviewable executable behavior",
     "literal api-key candidate",
     "cookie deletion has no source-proven matching set/update scope",
+)
+MATERIAL_REVIEW_SIGNAL_CLOSURE_TERMS: tuple[
+    tuple[str, tuple[str, ...]], ...
+] = (
+    ("registers browser event listeners", ("guard", "remove", "once", "trigger scope")),
+    ("writes shared window-level state", ("namespace", "consumer", "guard", "dependency")),
+    ("reads the page dom", ("selector", "route", "fallback", "missing element")),
+    ("changes the page dom", ("selector", "route", "scope", "visitor input")),
+    ("calls gtag() directly", ("destination", "native google", "routing", "consent")),
+    ("writes html into the page", ("visitor", "trusted", "escaped", "static html")),
+    ("uses cookies or browser storage", ("consent", "cookie", "storage key", "sensitive")),
+    ("mixed or unproven return types", ("fallback", "undefined", "return type", "consumer")),
+    ("hardcoded container, destination", ("environment", "destination", "portable", "approved id")),
+    ("creates or changes script urls", ("trusted", "allowlist", "static", "approved host")),
 )
 GTM_PLATFORM_CONTRACTS = {
     "zone": {
@@ -352,6 +373,12 @@ CONSENT_INITIALIZATION_TRIGGER_ID = "2147479593"
 CONSENT_MANAGEMENT_BEHAVIOR_RE = re.compile(
     r"\b(?:setDefaultConsentState|updateConsentState|setConsentSettings)\b|"
     r"\bgtag\s*\(\s*['\"]consent['\"]",
+    re.I,
+)
+CONSENT_DEFAULT_BEHAVIOR_RE = re.compile(
+    r"\bsetDefaultConsentState\b|"
+    r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"]default['\"]|"
+    r"(?:^|[^A-Za-z])command\s*[=:]\s*['\"]?default\b",
     re.I,
 )
 STRONG_SECRET_FIELD_RE = re.compile(
@@ -1536,6 +1563,7 @@ def required_configuration_obligations(
     shared: dict[str, Any],
     technical: dict[str, Any],
     source_facts: list[dict[str, Any]],
+    cv: dict[str, Any],
 ) -> list[dict[str, Any]]:
     obligations: dict[str, dict[str, Any]] = {}
     available = {str(fact.get("json_path") or "") for fact in source_facts}
@@ -1618,6 +1646,29 @@ def required_configuration_obligations(
             "affected_contract_topics": list(contract_topics),
             "required_conclusion_terms": list(dict.fromkeys(conclusion_terms))[:12],
         }
+
+    def configured_parameter(value: dict[str, Any], key: str) -> Any:
+        for parameter in as_list(value.get("parameter")):
+            if not isinstance(parameter, dict) or str(parameter.get("key") or "") != key:
+                continue
+            for field in ("value", "list", "map"):
+                if field in parameter:
+                    return parameter.get(field)
+        return None
+
+    def executable_code(value: dict[str, Any]) -> str:
+        return "\n".join(
+            str(parameter.get("value") or "")
+            for parameter in as_list(value.get("parameter"))
+            if isinstance(parameter, dict)
+            and str(parameter.get("key") or "") in {"html", "javascript"}
+        )
+
+    variable_records = {
+        str(variable.get("name") or ""): (index, variable)
+        for index, variable in enumerate(as_list(cv.get("variable")))
+        if str(variable.get("name") or "")
+    }
 
     for fact in as_list(shared.get("source_absence_facts")):
         path = str(fact.get("json_path") or "")
@@ -1763,6 +1814,126 @@ def required_configuration_obligations(
                 ("execution_scope_alignment", "consent_sequence_alignment"),
                 ("consent_and_timing",),
             )
+
+    if layer == "tag":
+        firing_ids = [str(value) for value in as_list(obj.get("firingTriggerId"))]
+        behavior_text = behavior_bearing_vendor_text(obj, layer)
+        command = str(configured_parameter(obj, "command") or "").strip().lower()
+        sets_default_consent = command == "default" or bool(
+            CONSENT_DEFAULT_BEHAVIOR_RE.search(behavior_text)
+        )
+        if sets_default_consent and CONSENT_INITIALIZATION_TRIGGER_ID not in firing_ids:
+            add(
+                "consent_default_wrong_initialization_trigger",
+                "Issue",
+                (
+                    "Tag exports a default consent command but does not fire on the "
+                    "Consent Initialization system trigger, so later tags can evaluate "
+                    "before the default state is established."
+                ),
+                [
+                    *anchors_for("command", "default", "setDefaultConsentState"),
+                    *anchors_for("firingTriggerId"),
+                ],
+                ("execution_scope_alignment", "consent_sequence_alignment"),
+                ("consent_and_timing",),
+            )
+            if "consent_default_wrong_initialization_trigger" in obligations:
+                obligations["consent_default_wrong_initialization_trigger"][
+                    "source_known_repair"
+                ] = {
+                    "mode": "change",
+                    "object_key": str(shared.get("object_key") or ""),
+                    "json_path": f"{own_prefix}.firingTriggerId",
+                    "before": firing_ids,
+                    "after": [CONSENT_INITIALIZATION_TRIGGER_ID],
+                }
+
+    if layer in {"tag", "variable"}:
+        code = executable_code(obj)
+        for reference in sorted(refs(code)):
+            record = variable_records.get(reference)
+            if not record:
+                continue
+            variable_index, variable = record
+            if str(variable.get("type") or "").lower() != "v":
+                continue
+            set_default = str(
+                configured_parameter(variable, "setDefaultValue") or ""
+            ).lower() == "true"
+            if set_default:
+                continue
+            escaped_reference = re.escape(reference)
+            direct_use = re.search(
+                rf"\{{\{{\s*{escaped_reference}\s*\}}\}}\s*\.\s*includes\s*\(",
+                code,
+                re.I,
+            )
+            assigned_uses: list[tuple[str, re.Match[str]]] = []
+            for assignment in re.finditer(
+                rf"\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*"
+                rf"\{{\{{\s*{escaped_reference}\s*\}}\}}",
+                code,
+                re.I,
+            ):
+                local_name = assignment.group(1)
+                if re.search(
+                    rf"\b{re.escape(local_name)}\s*\.\s*includes\s*\(",
+                    code[assignment.end() :],
+                    re.I,
+                ):
+                    assigned_uses.append((local_name, assignment))
+            unsafe_assigned = []
+            for local_name, assignment in assigned_uses:
+                prefix = code[assignment.end() :]
+                includes_match = re.search(
+                    rf"\b{re.escape(local_name)}\s*\.\s*includes\s*\(",
+                    prefix,
+                    re.I,
+                )
+                before_use = prefix[: includes_match.start()] if includes_match else ""
+                guarded = bool(
+                    re.search(
+                        rf"(?:typeof\s+{re.escape(local_name)}\s*===?\s*['\"]string['\"]|"
+                        rf"\b{re.escape(local_name)}\s*&&|!\s*{re.escape(local_name)}\b|"
+                        rf"String\s*\(\s*{re.escape(local_name)}\s*\|\|)",
+                        before_use,
+                        re.I,
+                    )
+                )
+                if not guarded:
+                    unsafe_assigned.append(local_name)
+            if direct_use or unsafe_assigned:
+                variable_prefix = f"{own_prefix.rsplit('.', 1)[0]}.variable[{variable_index}]"
+                peer_anchors = [
+                    path
+                    for path in available
+                    if path.startswith(variable_prefix)
+                    and any(
+                        token in path
+                        for token in ("setDefaultValue", ".name", "dataLayerVersion")
+                    )
+                ]
+                add(
+                    f"nullable_dlv_includes:{stable_hash({'reference': reference})}",
+                    "Issue",
+                    (
+                        f"Code calls .includes() on Data Layer Variable {reference!r}, "
+                        "whose exported setDefaultValue is false, without a local null/type "
+                        "guard; an absent dataLayer value throws before the consent result "
+                        "can be returned."
+                    ),
+                    [
+                        *anchors_for("html", "javascript", reference),
+                        *peer_anchors,
+                    ],
+                    (
+                        "input_output_consumer_alignment",
+                        "custom_code_behavior_alignment",
+                        "consent_sequence_alignment",
+                    ),
+                    ("consumer_value_shape_and_type", "consent_state_semantics"),
+                )
 
     def inspect_secret_fields(value: Any, path: str) -> None:
         if isinstance(value, dict):
@@ -2754,6 +2925,7 @@ def scaffold_review(
             shared,
             technical,
             evidence_facts,
+            cv,
         )
         logic_requirements = logic_cross_check_requirements(
             shared,
@@ -3788,6 +3960,40 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
                 str(source.get("statement") or ""),
             )
         )
+        if (
+            decision_class == "review_signal"
+            and review.get("verdict") == "No defect after review"
+        ):
+            statement = str(source.get("statement") or "").lower()
+            closure_terms = next(
+                (
+                    terms
+                    for marker, terms in MATERIAL_REVIEW_SIGNAL_CLOSURE_TERMS
+                    if marker in statement
+                ),
+                (),
+            )
+            if closure_terms and not any(term in rationale for term in closure_terms):
+                errors.append(
+                    f"{label}: technical finding {key} is dismissed without stating the "
+                    "exact safety condition that closes its configured risk"
+                )
+            code_facts = {
+                str(item.get("line_hash") or ""): item
+                for item in as_list(row.get("code_line_facts"))
+                if isinstance(item, dict)
+            }
+            source_tokens = code_block_source_tokens(
+                [str(value) for value in as_list(row.get("required_code_line_hashes"))],
+                code_facts,
+            )
+            if closure_terms and source_tokens and not any(
+                token in rationale for token in source_tokens
+            ):
+                errors.append(
+                    f"{label}: technical finding {key} dismissal does not name any "
+                    "source-specific function, endpoint, selector, key, or identifier"
+                )
         if source_proven_signal and review.get("verdict") == "False positive":
             errors.append(
                 f"{label}: source-proven {source.get('category')} signal {key} cannot be "
@@ -3878,7 +4084,16 @@ def validate_technical_findings(row: dict[str, Any], label: str) -> list[str]:
                     "requires an evidence-bound exception_basis"
                 )
         if (
-            decision_class in {"deterministic_defect", "evidence_boundary"}
+            decision_class == "deterministic_defect"
+            and review.get("verdict") == "Owner decision needed"
+        ):
+            errors.append(
+                f"{label}: deterministic technical defect {key} must become a cleanup "
+                "operation or a documented exception; approval is not a substitute for "
+                "drafting the safest exact repair"
+            )
+        if (
+            decision_class == "evidence_boundary"
             and review.get("verdict") == "Owner decision needed"
         ):
             owner_question = str(
@@ -4664,58 +4879,53 @@ def reference_repair_operation_errors(
     return errors
 
 
-def source_known_document_write_errors(
+def source_known_configuration_repair_errors(
     row: dict[str, Any], label: str
 ) -> list[str]:
-    obligation = next(
-        (
-            item
-            for item in as_list(row.get("required_configuration_obligations"))
-            if item.get("obligation_key")
-            in {
-                "unused_document_write_support",
-                "document_write_support_missing",
-            }
-        ),
-        None,
-    )
-    if not obligation:
+    obligations = [
+        item
+        for item in as_list(row.get("required_configuration_obligations"))
+        if isinstance(item, dict) and item.get("source_known_repair")
+    ]
+    if not obligations:
         return []
-    repair = obligation.get("source_known_repair") or {}
     if row.get("disposition") != "cleanup_operation":
         return [
-            f"{label}: the exported document.write support mismatch has a "
-            "source-known target and requires an exact cleanup operation"
+            f"{label}: a deterministic configuration defect has a source-known target "
+            "and requires an exact cleanup operation"
         ]
     operation = row.get("operation") or {}
     mutations = [
         *as_list(operation.get("changes")),
         *as_list(operation.get("additions")),
     ]
-    if not any(
-        str(item.get("object_key") or "") == str(row.get("object_key") or "")
-        and str(item.get("json_path") or "") == str(repair.get("json_path") or "")
-        and (
-            (
-                repair.get("mode") == "change"
-                and str(item.get("before") or "")
-                == str(repair.get("before") or "")
-                and str(item.get("after") or "")
-                == str(repair.get("after") or "")
+    errors: list[str] = []
+    for obligation in obligations:
+        repair = obligation.get("source_known_repair") or {}
+        if any(
+            str(item.get("object_key") or "") == str(row.get("object_key") or "")
+            and str(item.get("json_path") or "") == str(repair.get("json_path") or "")
+            and (
+                (
+                    repair.get("mode") == "change"
+                    and item.get("before") == repair.get("before")
+                    and item.get("after") == repair.get("after")
+                )
+                or (
+                    repair.get("mode") == "append"
+                    and item.get("mode") == "append"
+                    and item.get("value") == repair.get("value")
+                )
             )
-            or (
-                repair.get("mode") == "append"
-                and item.get("mode") == "append"
-                and item.get("value") == repair.get("value")
-            )
+            for item in mutations
+        ):
+            continue
+        errors.append(
+            f"{label}: configuration obligation "
+            f"{obligation.get('obligation_key')!r} must set its exact exported field "
+            "to the source-known target"
         )
-        for item in mutations
-    ):
-        return [
-            f"{label}: document.write support cleanup must set the exact exported "
-            "support field to the source-known target"
-        ]
-    return []
+    return errors
 
 
 def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
@@ -4732,10 +4942,9 @@ def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
             f"{label}: unresolved outcome requires one concrete recommended_action"
         )
     expected_dispositions = {
-        # A confirmed defect should normally become an operation. Some source-
-        # proven defects still need an owner to choose the valid replacement
-        # value; in that case the handoff must remain decision-ready and cite
-        # the affected object plus exact defect evidence below.
+        # Draft the safest exact repair whenever the source determines it.
+        # Owner routing remains valid only when the defect is proven but the
+        # replacement value or retirement choice is not container-visible.
         "Issue": {"cleanup_operation", "owner_decision_needed"},
         "Correct": {"keep"},
         "Owner decision needed": {"owner_decision_needed"},
@@ -4799,7 +5008,7 @@ def validate_row_outcome(row: dict[str, Any], label: str) -> list[str]:
             )
         else:
             errors.extend(reference_repair_operation_errors(row, label))
-    errors.extend(source_known_document_write_errors(row, label))
+    errors.extend(source_known_configuration_repair_errors(row, label))
     if row.get("correctness_verdict") == "Container evidence limit":
         boundary = " ".join(
             str(row.get(field) or "")

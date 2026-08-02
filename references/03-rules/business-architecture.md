@@ -54,6 +54,10 @@ Review every generated candidate:
 - exact configuration or duplicate name;
 - same tag payload with different routes;
 - same vendor, destination, and event;
+- multiple tags loading the same configured vendor/script host, including
+  loader-only tags with no event parameter;
+- multiple default/update consent writers with their exact commands, firing
+  routes, blockers, and sequence ownership;
 - tags and Google tag configurations sharing configured destination values;
 - Zones governing the same child-container public ID set;
 - same vendor/event with destination variants;
@@ -93,7 +97,7 @@ reviewed, perform one open discovery pass across every source object using:
 - environment/container portability variants in behavior-bearing values;
 - terminal source, formula, and output-shape overlap;
 - shared consumers, destination, vendor, or event intent;
-- consent, sequencing, and browser/server-route conflicts;
+- consent writers, sequencing, and browser/server-route conflicts;
 - funnel, question, journey, market, country, and product scopes.
 
 Add every newly plausible relationship as a `DISC-*` comparison with source
@@ -140,8 +144,8 @@ owner decision requires one precise interrogative question plus the analyst's
 concrete recommended action. `not_applicable` is not a valid escape from a
 generated cross-object relationship.
 
-Same-payload/different-route, shared-Zone-child, cyclic trigger-group, and
-browser/server consent/deduplication candidates are unsafe retention classes:
+Same-payload/different-route, shared-Zone-child, cyclic trigger-group,
+multiple-consent-writer, and browser/server consent/deduplication candidates are unsafe retention classes:
 generic `Keep` is invalid. They require a cleanup/conflict conclusion or a
 precise owner decision. A deterministic relationship already visible in the
 export cannot be classified wholly as `Container evidence limit`; conclude the

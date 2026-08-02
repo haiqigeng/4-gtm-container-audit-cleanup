@@ -18,6 +18,7 @@ from gtm_workbook_readability import (  # noqa: E402
     ORIGINAL_SHEETS,
     decision_topics,
     sha256_file,
+    visible_consequence,
     workbook_sheet_hashes,
 )
 from gtm_workbook_readability import (  # noqa: E402
@@ -67,6 +68,31 @@ class WorkbookReadabilityTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_context.cleanup()
+
+    def test_generic_impact_is_replaced_by_problem_specific_consequence(self) -> None:
+        operation = {
+            "affected_objects": "tag:7 Consent default",
+            "why_it_matters": (
+                "Preserves 2 affected measurement families; see the evidence package."
+            ),
+            "changes": [
+                {
+                    "object_key": "tag:7",
+                    "json_path": "$.containerVersion.tag[0].firingTriggerId",
+                    "before": ["10"],
+                    "after": ["2147479593"],
+                }
+            ],
+        }
+        consequence = visible_consequence(
+            operation,
+            (
+                "Tag exports a default consent command but does not fire on the "
+                "Consent Initialization system trigger."
+            ),
+        )
+        self.assertIn("after other tags have already evaluated", consequence)
+        self.assertNotIn("measurement families", consequence)
 
     def test_large_owner_register_has_no_arbitrary_grouping_gate(self) -> None:
         owners = [

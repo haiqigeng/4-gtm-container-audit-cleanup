@@ -552,6 +552,181 @@ class UtilityEvolutionTests(unittest.TestCase):
             )
         )
 
+    def test_configuration_detects_consent_timing_and_nullable_dlv_semantics(self) -> None:
+        data = minimal_export()
+        data["containerVersion"].update(
+            {
+                "trigger": [
+                    {"triggerId": "10", "name": "CMP ready", "type": "CUSTOM_EVENT"}
+                ],
+                "tag": [
+                    {
+                        "tagId": "1",
+                        "name": "Consent default too late",
+                        "type": "cvt_consent",
+                        "firingTriggerId": ["10"],
+                        "parameter": [
+                            {"key": "command", "type": "TEMPLATE", "value": "default"}
+                        ],
+                    },
+                    {
+                        "tagId": "2",
+                        "name": "Consent default on initialization",
+                        "type": "cvt_consent",
+                        "firingTriggerId": ["2147479593"],
+                        "parameter": [
+                            {"key": "command", "type": "TEMPLATE", "value": "default"}
+                        ],
+                    },
+                ],
+                "variable": [
+                    {
+                        "variableId": "10",
+                        "name": "Consent purposes",
+                        "type": "v",
+                        "parameter": [
+                            {"key": "name", "type": "TEMPLATE", "value": "purposes"},
+                            {
+                                "key": "setDefaultValue",
+                                "type": "BOOLEAN",
+                                "value": "false",
+                            },
+                        ],
+                    },
+                    {
+                        "variableId": "11",
+                        "name": "Unsafe consent mapping",
+                        "type": "jsm",
+                        "parameter": [
+                            {
+                                "key": "javascript",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "function(){var p={{Consent purposes}};"
+                                    "return p.includes(',1,')?'granted':'denied';}"
+                                ),
+                            }
+                        ],
+                    },
+                    {
+                        "variableId": "12",
+                        "name": "Guarded consent mapping",
+                        "type": "jsm",
+                        "parameter": [
+                            {
+                                "key": "javascript",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "function(){var p={{Consent purposes}};if(!p)return 'denied';"
+                                    "return p.includes(',1,')?'granted':'denied';}"
+                                ),
+                            }
+                        ],
+                    },
+                ],
+            }
+        )
+        review = scaffold_configuration(self.write_export(data, "semantic-risks.json"))
+        obligations = {
+            row["object_key"]: {
+                str(item.get("obligation_key") or "")
+                for item in row["required_configuration_obligations"]
+            }
+            for row in review["rows"]
+        }
+        self.assertIn(
+            "consent_default_wrong_initialization_trigger", obligations["tag:1"]
+        )
+        self.assertNotIn(
+            "consent_default_wrong_initialization_trigger", obligations["tag:2"]
+        )
+        self.assertTrue(
+            any(
+                key.startswith("nullable_dlv_includes:")
+                for key in obligations["variable:11"]
+            )
+        )
+        self.assertFalse(
+            any(
+                key.startswith("nullable_dlv_includes:")
+                for key in obligations["variable:12"]
+            )
+        )
+
+    def test_relationship_discovery_covers_loaders_and_consent_writers_stably(self) -> None:
+        cv = minimal_export()["containerVersion"]
+        cv["tag"] = [
+            {
+                "tagId": "1",
+                "name": "Vendor loader one",
+                "type": "html",
+                "parameter": [
+                    {
+                        "key": "html",
+                        "value": "<script src='https://cdn.vendor.example/sdk.js'></script>",
+                    }
+                ],
+            },
+            {
+                "tagId": "2",
+                "name": "Vendor loader two",
+                "type": "html",
+                "parameter": [
+                    {
+                        "key": "html",
+                        "value": (
+                            "<script>var s=document.createElement('script');"
+                            "s.src='https://cdn.vendor.example/sdk.js';</script>"
+                        ),
+                    }
+                ],
+            },
+            {
+                "tagId": "3",
+                "name": "Consent default",
+                "type": "cvt_consent",
+                "firingTriggerId": ["2147479593"],
+                "parameter": [{"key": "command", "value": "default"}],
+            },
+            {
+                "tagId": "4",
+                "name": "Consent update",
+                "type": "cvt_consent",
+                "firingTriggerId": ["20"],
+                "parameter": [{"key": "command", "value": "update"}],
+            },
+        ]
+        rows = relationship_candidates(cv)
+        comparison_types = {
+            comparison_type
+            for row in rows
+            for comparison_type in row["comparison_types"]
+        }
+        self.assertIn("duplicate_vendor_loader_review", comparison_types)
+        self.assertIn("consent_writer_sequence_review", comparison_types)
+
+        reversed_rows = relationship_candidates({**cv, "tag": list(reversed(cv["tag"]))})
+
+        def signature(candidates: list[dict]) -> set[tuple[tuple[str, ...], tuple[str, ...]]]:
+            return {
+                (
+                    tuple(row["candidate_object_keys"]),
+                    tuple(row["comparison_types"]),
+                )
+                for row in candidates
+            }
+
+        self.assertEqual(signature(rows), signature(reversed_rows))
+        one_loader = {**cv, "tag": [cv["tag"][0]]}
+        self.assertNotIn(
+            "duplicate_vendor_loader_review",
+            {
+                comparison_type
+                for row in relationship_candidates(one_loader)
+                for comparison_type in row["comparison_types"]
+            },
+        )
+
     def test_relationships_find_only_reviewable_push_and_spa_risks(self) -> None:
         self.assertEqual((False, 1.0), near_event_name("purchase", "purchase"))
         self.assertEqual((True, 0.99), near_event_name("Purchase", "purchase"))

@@ -160,6 +160,16 @@ DATA_LAYER_PUSH_OBJECT_RE = re.compile(
     r"\bdataLayer\s*\.\s*push\s*\(\s*\{(?P<body>.{0,1800}?)\}\s*\)",
     re.I | re.S,
 )
+SCRIPT_SOURCE_RE = re.compile(
+    r"(?:<script\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)|"
+    r"\.src\s*=\s*['\"]([^'\"]+))",
+    re.I,
+)
+CONSENT_WRITE_RE = re.compile(
+    r"\b(?:setDefaultConsentState|updateConsentState|setConsentSettings)\b|"
+    r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"](?:default|update)['\"]",
+    re.I,
+)
 PUSH_EVENT_FIELD_RE = re.compile(
     r"(?:['\"]?event['\"]?)\s*:\s*['\"]([^'\"]+)['\"]",
     re.I,
@@ -246,6 +256,8 @@ DISCOVERY_METHOD_BY_COMPARISON_TYPE = {
     "shared_business_scope": "funnel_question_market_and_product_families",
     "data_layer_push_listener_near_miss": "consumer_destination_and_event_overlap",
     "spa_history_send_page_view_review": "consumer_destination_and_event_overlap",
+    "duplicate_vendor_loader_review": "consumer_destination_and_event_overlap",
+    "consent_writer_sequence_review": "consent_sequence_and_server_route_conflicts",
 }
 
 
@@ -523,6 +535,34 @@ def custom_code(obj: dict[str, Any]) -> str:
     return ""
 
 
+def configured_script_hosts(record: dict[str, Any]) -> list[str]:
+    hosts: set[str] = set()
+    for match in SCRIPT_SOURCE_RE.finditer(custom_code(record["object"])):
+        value = str(match.group(1) or match.group(2) or "")
+        host = re.sub(r"^https?://", "", value, flags=re.I).split("/", 1)[0]
+        if host and "{{" not in host:
+            hosts.add(normalized_text(host))
+    return sorted(hosts)
+
+
+def consent_writer_command(record: dict[str, Any]) -> str:
+    command = normalized_text(parameter_value(record["object"], "command"))
+    if command in {"default", "update"}:
+        return command
+    code = custom_code(record["object"])
+    if re.search(r"\bsetDefaultConsentState\b", code, re.I) or re.search(
+        r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"]default['\"]", code, re.I
+    ):
+        return "default"
+    if re.search(r"\bupdateConsentState\b", code, re.I) or re.search(
+        r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"]update['\"]", code, re.I
+    ):
+        return "update"
+    if CONSENT_WRITE_RE.search(code):
+        return "consent_write"
+    return ""
+
+
 def pushed_data_layer_events(obj: dict[str, Any]) -> list[str]:
     code = strip_nonbehavior_comments(custom_code(obj))
     return sorted(
@@ -553,6 +593,65 @@ def trigger_custom_event_values(record: dict[str, Any]) -> list[str]:
 
     visit(record["object"])
     return sorted(values)
+
+
+def add_vendor_loader_candidates(
+    builder: CandidateBuilder, tags: list[dict[str, Any]]
+) -> None:
+    for key, group in keyed_record_groups(
+        tags,
+        lambda record: json.dumps(
+            {
+                "vendor": str(
+                    vendor_record(
+                        behavior_bearing_vendor_text(record["object"], record["layer"])
+                    ).get("name")
+                    or ""
+                ),
+                "hosts": configured_script_hosts(record),
+            },
+            sort_keys=True,
+        )
+        if configured_script_hosts(record)
+        else "",
+    ):
+        contract = json.loads(key)
+        builder.add(
+            "duplicate_vendor_loader_review",
+            group,
+            "Tags load scripts for the same configured vendor/host contract "
+            f"{contract!r}; establish one canonical loader and distinguish event-only "
+            "calls before retaining multiple initializers.",
+            0.9,
+        )
+
+
+def add_consent_writer_candidates(
+    builder: CandidateBuilder, tags: list[dict[str, Any]]
+) -> None:
+    writers = [record for record in tags if consent_writer_command(record)]
+    if len(writers) < 2:
+        return
+    routes = {
+        record["object_key"]: {
+            "command": consent_writer_command(record),
+            "firing": sorted(
+                str(value) for value in as_list(record["object"].get("firingTriggerId"))
+            ),
+            "blocking": sorted(
+                str(value) for value in as_list(record["object"].get("blockingTriggerId"))
+            ),
+        }
+        for record in writers
+    }
+    builder.add(
+        "consent_writer_sequence_review",
+        writers,
+        "Multiple tags write consent state with exported command/route signatures "
+        f"{routes!r}; compare default ownership, update ownership, ordering, and duplicate "
+        "writes before selecting the canonical sequence.",
+        0.95,
+    )
 
 
 def canonical_event_name(value: str) -> str:
@@ -1571,6 +1670,8 @@ def relationship_candidates(
     builder = CandidateBuilder()
     add_exact_candidates(builder, records)
     add_tag_family_candidates(builder, records.get("tag", []))
+    add_vendor_loader_candidates(builder, records.get("tag", []))
+    add_consent_writer_candidates(builder, records.get("tag", []))
     add_shared_business_input_candidates(builder, records.get("tag", []))
     add_consent_sequence_candidates(
         builder,

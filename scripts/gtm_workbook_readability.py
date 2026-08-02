@@ -814,7 +814,60 @@ GENERIC_IMPACT_MARKERS = (
     "improves maintainability",
     "reduces maintenance risk",
     "keeps the container clean",
+    "see the evidence package",
 )
+GENERIC_IMPACT_RE = re.compile(
+    r"\bpreserves?\s+\d+\s+affected measurement families\b|"
+    r"\bsee (?:the )?evidence package\b",
+    re.I,
+)
+
+
+def problem_specific_consequence(problem: str, object_text: str) -> str:
+    subject = object_text or "the affected object"
+    lowered = problem.casefold()
+    rules = (
+        (
+            ("settimeout", "without an exported attempt"),
+            f"{subject} can keep polling for the entire page lifetime after the expected dependency never becomes available.",
+        ),
+        (
+            ("origin", "substring"),
+            f"{subject} can accept a message from an unrelated origin whose URL merely contains the trusted text.",
+        ),
+        (
+            ("postmessage", "datalayer", "payload"),
+            f"{subject} can copy an unexpected cross-window payload into dataLayer and trigger downstream tags with unapproved fields.",
+        ),
+        (
+            ("consent", "initialization"),
+            f"{subject} can establish the default consent state after other tags have already evaluated their consent route.",
+        ),
+        (
+            ("cookie duration", "day count"),
+            f"{subject} retains the cookie for a different number of days than the setter and its callers declare.",
+        ),
+        (
+            ("cookie", "secure", "samesite"),
+            f"{subject} writes a cookie without the exported transport and cross-site attributes expected by the approved cookie policy.",
+        ),
+        (
+            ("setdefaultvalue", ".includes"),
+            f"{subject} can throw when the dataLayer value is absent, so the intended consent or routing value is not returned.",
+        ),
+        (
+            ("literal string 'undefined'",),
+            f"{subject} sends the text 'undefined' to its consumers instead of an explicit missing-value fallback.",
+        ),
+        (
+            ("promises an hour", "date.now"),
+            f"{subject} gives consumers an epoch-millisecond timestamp where its name promises an hour value.",
+        ),
+    )
+    for markers, consequence in rules:
+        if all(marker in lowered for marker in markers):
+            return consequence
+    return ""
 
 
 def visible_consequence(operation: dict[str, Any], problem: str) -> str:
@@ -822,9 +875,14 @@ def visible_consequence(operation: dict[str, Any], problem: str) -> str:
 
     supplied = safe_text(operation.get("why_it_matters"))
     lowered = supplied.casefold()
-    if supplied and not any(marker in lowered for marker in GENERIC_IMPACT_MARKERS):
+    if supplied and not any(
+        marker in lowered for marker in GENERIC_IMPACT_MARKERS
+    ) and not GENERIC_IMPACT_RE.search(supplied):
         return supplied
     object_text, _note = compact_objects(operation.get("affected_objects"), 220)
+    literal = problem_specific_consequence(problem, object_text)
+    if literal:
+        return safe_text(literal)
     if as_list(operation.get("remaps")):
         return safe_text(
             f"Without the remap, {object_text or 'the listed consumers'} continue to "

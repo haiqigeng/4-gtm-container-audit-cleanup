@@ -45,6 +45,11 @@ strong.
 | Active GA4 ecommerce uses UA paths without mapper proof. | High | Active measurement corruption, medium/high confidence: High |
 | CMP-ready/pageview gating differs across same-vendor routes. | High or Medium | Consent impact and active reach; owner/runtime uncertainty stays explicit: High or Medium |
 | Custom HTML injects a third-party script without consent or origin rationale. | High | Active consent/security and field-level rollback: High |
+| An active postMessage listener uses substring origin matching or pushes an unvalidated payload to dataLayer. | High | Active security/measurement corruption with a source-visible code repair: High |
+| Default consent is configured on a later custom event instead of Consent Initialization. | High | Active consent sequencing with an exact trigger repair: High |
+| Consent mapping can throw because `.includes()` reads a no-default DLV. | High or Medium | Active consent/measurement path and consumer reach: High or Medium |
+| Recursive vendor polling has no finite bound. | Medium; High when it blocks or multiplies a critical sender | Active stability/performance plus affected measurement reach |
+| A cookie day count has an extra multiplier or omits approved set attributes. | High or Medium | Consent/privacy or functional retention impact, calibrated by cookie purpose and active reach |
 | Custom JS fixed-index item variables power multi-item payloads. | High or Medium | Active measurement impact and consumer reach: High or Medium |
 | Duplicate page_view/PageView hits feed billing or optimization. | High; otherwise Medium | Active duplicate delivery: High or Medium |
 | A trigger group has one member and adds no behavior. | Medium | Active maintainability with reversible remap: Medium |

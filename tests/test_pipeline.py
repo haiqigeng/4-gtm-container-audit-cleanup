@@ -4771,6 +4771,85 @@ scenarios:
             any("changed after it was sealed" in error for error in stale_seal["errors"])
         )
 
+    def test_review_amendment_preserves_parent_and_requires_fresh_context(self) -> None:
+        package_dir = self.root / "amendment-package"
+        build_package(self.export_path, package_dir, pretty=True)
+        review = complete_configuration(self.export_path)
+        bundle_review = (
+            package_dir
+            / "review-bundles"
+            / "configuration_correctness"
+            / "configuration_review.json"
+        )
+        bundle_review.write_text(json.dumps(review), encoding="utf-8")
+        first_context = review["completion_attestation"][
+            "independent_review_context_id"
+        ]
+        first = seal_review(
+            self.export_path,
+            package_dir,
+            "configuration_correctness",
+            first_context,
+            bundle_review,
+        )
+
+        amended = copy.deepcopy(review)
+        amended_context = "configuration-amendment-context-002"
+        amended["completion_attestation"][
+            "independent_review_context_id"
+        ] = amended_context
+        bundle_review.write_text(json.dumps(amended), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "already sealed"):
+            seal_review(
+                self.export_path,
+                package_dir,
+                "configuration_correctness",
+                amended_context,
+                bundle_review,
+            )
+        with self.assertRaisesRegex(ValueError, "parent does not match"):
+            seal_review(
+                self.export_path,
+                package_dir,
+                "configuration_correctness",
+                amended_context,
+                bundle_review,
+                amendment_of="0" * 64,
+            )
+        with self.assertRaisesRegex(ValueError, "fresh reasoning context"):
+            seal_review(
+                self.export_path,
+                package_dir,
+                "configuration_correctness",
+                first_context,
+                bundle_review,
+                amendment_of=first["seal_sha256"],
+            )
+
+        second = seal_review(
+            self.export_path,
+            package_dir,
+            "configuration_correctness",
+            amended_context,
+            bundle_review,
+            amendment_of=first["seal_sha256"],
+        )
+        self.assertEqual(1, second["amendment_sequence"])
+        self.assertEqual(first["seal_sha256"], second["amendment_parent_seal_sha256"])
+        history = package_dir / "review-seals" / "history"
+        self.assertTrue(
+            (history / f"configuration_correctness.{first['seal_sha256']}.seal.json").is_file()
+        )
+        self.assertTrue(
+            (
+                history
+                / (
+                    "configuration_correctness."
+                    f"{first['completed_review_sha256']}.review.json"
+                )
+            ).is_file()
+        )
+
     def test_action_completeness_accepts_exact_actions_and_genuine_owner_limits(self) -> None:
         ledger = [
             {
@@ -6143,6 +6222,65 @@ scenarios:
                 f"actionable technical finding {risk_key} must link" in error
                 for error in confirmed_errors
             )
+        )
+
+    def test_run2_no_defect_closure_names_source_and_safety_condition(self) -> None:
+        data = sample_export()
+        data["containerVersion"]["tag"].append(
+            {
+                "tagId": "901",
+                "name": "Guarded click listener",
+                "type": "html",
+                "parameter": [
+                    {
+                        "key": "html",
+                        "type": "TEMPLATE",
+                        "value": (
+                            "<script>if(!window.clickListenerBound){"
+                            "window.clickListenerBound=true;"
+                            "window.addEventListener('click',handler);}</script>"
+                        ),
+                    }
+                ],
+            }
+        )
+        export = self.root / "guarded-listener-closure.json"
+        export.write_text(json.dumps(data), encoding="utf-8")
+        review = complete_configuration(export)
+        row = next(item for item in review["rows"] if item["object_key"] == "tag:901")
+        finding = next(
+            item
+            for item in row["technical_finding_reviews"]
+            if "Registers browser event listeners" in item["source_statement"]
+        )
+        finding.update(
+            {
+                "verdict": "No defect after review",
+                "rationale": (
+                    "The browser event listener registration has a stable guard and an "
+                    "appropriately bounded trigger scope for repeated execution."
+                ),
+                "exception_basis": "",
+            }
+        )
+        generic_errors, _ = validate_configuration(
+            export,
+            self.write_review("generic-listener-closure.json", review),
+        )
+        self.assertTrue(
+            any("does not name any source-specific" in error for error in generic_errors)
+        )
+
+        finding["rationale"] += (
+            " The exported window.clickListenerBound identifier is the registration guard."
+        )
+        specific_errors, _ = validate_configuration(
+            export,
+            self.write_review("specific-listener-closure.json", review),
+        )
+        self.assertFalse(
+            any("does not name any source-specific" in error for error in specific_errors),
+            specific_errors,
         )
 
     def test_run2_binds_malformed_controls_and_contradictions_to_every_verdict_layer(

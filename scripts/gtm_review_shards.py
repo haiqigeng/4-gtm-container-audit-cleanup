@@ -1055,10 +1055,20 @@ def merge_review(
     discovery_filename = str(manifest.get("discovery_shard") or "")
     if discovery_filename:
         declared_filenames.append(discovery_filename)
-    shard_receipts = [
-        check_shard(base_review_path, shard_dir, filename)
-        for filename in declared_filenames
-    ]
+    def checked_receipts(stage: str) -> list[dict[str, Any]]:
+        receipts: list[dict[str, Any]] = []
+        for filename in declared_filenames:
+            try:
+                receipts.append(check_shard(base_review_path, shard_dir, filename))
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    f"{stage}: shard {filename!r} requires local repair; repair only "
+                    "this declared shard, rerun check, then resume merge: "
+                    f"{exc}"
+                ) from exc
+        return receipts
+
+    shard_receipts = checked_receipts("pre-merge validation")
     merged = merge_primary_shards(base, collections, manifest, shard_dir)
     restore_primary_collections(base, collections, merged)
     if (
@@ -1069,10 +1079,7 @@ def merge_review(
 
     if base.get("kind") == "gtm_business_architecture_review":
         merge_architecture_discovery(base, manifest, shard_dir)
-    post_merge_receipts = [
-        check_shard(base_review_path, shard_dir, filename)
-        for filename in declared_filenames
-    ]
+    post_merge_receipts = checked_receipts("pre-write revalidation")
     if post_merge_receipts != shard_receipts:
         raise ValueError("a review shard changed while the merge was being assembled")
     base["run_status"] = "complete"

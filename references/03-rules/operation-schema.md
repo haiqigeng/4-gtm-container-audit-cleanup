@@ -48,6 +48,9 @@ cannot leave a deterministic operational defect or source-known configuration
 repair in `owner_decision_needed`. If a confirmed configuration Issue genuinely
 requires an owner-selected replacement, its recommendation names the object,
 defect ID or exact evidence anchor, and concrete repair/remap/removal direction.
+A deterministic custom-code defect likewise becomes an exact code/field
+operation or a complete source-bound documented exception; the later approval
+step is not a reason to hand the repair back as an owner question.
 
 ## Required Human Fields
 

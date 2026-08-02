@@ -11,7 +11,10 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from gtm_change_log_build import build_change_log  # noqa: E402
-from gtm_configuration_review import validate_code_fix_efficacy  # noqa: E402
+from gtm_configuration_review import (  # noqa: E402
+    source_known_configuration_repair_errors,
+    validate_code_fix_efficacy,
+)
 from gtm_custom_code_extract import (  # noqa: E402
     code_hash,
     cookie_write_facts,
@@ -222,6 +225,148 @@ class RegressionSafetyTests(unittest.TestCase):
         )["technical_code_health_findings"]
         self.assertIn("clearInterval lifecycle", " ".join(interval))
 
+    def test_material_custom_code_detectors_keep_safe_neighbors(self) -> None:
+        unbounded = technical_code_review(
+            "tag",
+            (
+                "function poll(){if(!window.vendor){setTimeout(poll,50);return;}"
+                "window.vendor.send();} poll();"
+            ),
+            ["timer"],
+        )
+        self.assertIn(
+            "without an exported attempt",
+            " ".join(unbounded["technical_code_health_findings"]),
+        )
+        bounded = technical_code_review(
+            "tag",
+            (
+                "var attempts=0,maxAttempts=20; function poll(){"
+                "if(window.vendor){window.vendor.send();return;} attempts++;"
+                "if(attempts>=maxAttempts){return;} setTimeout(poll,50);} poll();"
+            ),
+            ["timer"],
+        )
+        self.assertNotIn(
+            "without an exported attempt",
+            " ".join(bounded["technical_code_health_findings"]),
+        )
+
+        weak_message = technical_code_review(
+            "tag",
+            (
+                "window.addEventListener('message',function(event){"
+                "if(event.origin.indexOf('trusted.example')===-1)return;"
+                "dataLayer.push(event.data.payload);});"
+            ),
+            ["event listener", "dataLayer push"],
+        )
+        weak_text = " ".join(weak_message["technical_code_security_findings"])
+        self.assertIn("origin with substring matching", weak_text)
+        self.assertIn("payload directly into dataLayer", weak_text)
+
+        guarded_message = technical_code_review(
+            "tag",
+            (
+                "var allowedOrigins=['https://trusted.example'];"
+                "window.addEventListener('message',function(event){"
+                "if(allowedOrigins.indexOf(event.origin)===-1)return;"
+                "if(typeof event.data.payload!=='object')return;"
+                "dataLayer.push(event.data.payload);});"
+            ),
+            ["event listener", "dataLayer push"],
+        )
+        guarded_text = " ".join(guarded_message["technical_code_security_findings"])
+        self.assertNotIn("origin with substring matching", guarded_text)
+        self.assertNotIn("payload directly into dataLayer", guarded_text)
+
+        guarded_direct_data = technical_code_review(
+            "tag",
+            (
+                "window.addEventListener('message',function(event){"
+                "if(event.origin!=='https://trusted.example')return;"
+                "if(typeof event.data!=='object')return;dataLayer.push(event.data);});"
+            ),
+            ["event listener", "dataLayer push"],
+        )
+        self.assertNotIn(
+            "payload directly into dataLayer",
+            " ".join(guarded_direct_data["technical_code_security_findings"]),
+        )
+
+        wrong_duration = technical_code_review(
+            "tag",
+            (
+                "function setCookie(name,value,days){var expiry=Date.now()+"
+                "days*13*24*60*60*1000;document.cookie=name+'='+value+"
+                "'; Secure; SameSite=Lax; expires='+expiry;}"
+            ),
+            ["cookie write"],
+        )
+        self.assertIn(
+            "declared day count by 13",
+            " ".join(wrong_duration["technical_code_security_findings"]),
+        )
+        correct_duration = technical_code_review(
+            "tag",
+            (
+                "function setCookie(name,value,days){var expiry=Date.now()+"
+                "days*24*60*60*1000;document.cookie=name+'='+value+"
+                "'; Secure; SameSite=Lax; expires='+expiry;}"
+            ),
+            ["cookie write"],
+        )
+        self.assertNotIn(
+            "declared day count",
+            " ".join(correct_duration["technical_code_security_findings"]),
+        )
+
+        undefined_string = technical_code_review(
+            "variable",
+            (
+                "function getCookie(){if(document.cookie)return 'yes';}"
+                "var value=getCookie();return String(value);"
+            ),
+            ["cookie read"],
+        )
+        self.assertIn(
+            "literal string 'undefined'",
+            " ".join(undefined_string["technical_code_health_findings"]),
+        )
+        safe_string = technical_code_review(
+            "variable",
+            (
+                "function getCookie(){if(document.cookie)return 'yes';return ''; }"
+                "var value=getCookie();return String(value);"
+            ),
+            ["cookie read"],
+        )
+        self.assertNotIn(
+            "literal string 'undefined'",
+            " ".join(safe_string["technical_code_health_findings"]),
+        )
+
+        named_hour = technical_code_review(
+            "variable",
+            "function(){return Date.now();}",
+            [],
+            object_name="Device Local Hour",
+        )
+        self.assertIn(
+            "name promises an hour value",
+            " ".join(named_hour["technical_code_health_findings"]),
+        )
+        actual_hour = technical_code_review(
+            "variable",
+            "function(){return new Date().getHours();}",
+            [],
+            object_name="Device Local Hour",
+        )
+        self.assertNotIn(
+            "name promises an hour value",
+            " ".join(actual_hour["technical_code_health_findings"]),
+        )
+
     def test_source_exact_actions_reject_stale_values_and_trigger_names(self) -> None:
         export = {
             "containerVersion": {
@@ -285,6 +430,46 @@ class RegressionSafetyTests(unittest.TestCase):
             )
             self.assertTrue(any("locked source value" in error for error in errors))
             self.assertTrue(any("trigger names or unknown trigger IDs" in error for error in errors))
+
+    def test_source_known_consent_trigger_repair_cannot_be_owner_fallback(self) -> None:
+        row = {
+            "object_key": "tag:7",
+            "required_configuration_obligations": [
+                {
+                    "obligation_key": "consent_default_wrong_initialization_trigger",
+                    "source_known_repair": {
+                        "mode": "change",
+                        "object_key": "tag:7",
+                        "json_path": "$.containerVersion.tag[0].firingTriggerId",
+                        "before": ["10"],
+                        "after": ["2147479593"],
+                    },
+                }
+            ],
+            "disposition": "owner_decision_needed",
+            "operation": {},
+        }
+        self.assertTrue(
+            source_known_configuration_repair_errors(row, "consent default")
+        )
+        row.update(
+            {
+                "disposition": "cleanup_operation",
+                "operation": {
+                    "changes": [
+                        {
+                            "object_key": "tag:7",
+                            "json_path": "$.containerVersion.tag[0].firingTriggerId",
+                            "before": ["10"],
+                            "after": ["2147479593"],
+                        }
+                    ]
+                },
+            }
+        )
+        self.assertEqual(
+            [], source_known_configuration_repair_errors(row, "consent default")
+        )
 
     def test_code_rewrite_requires_noncosmetic_source_bound_proof(self) -> None:
         before = "<script>window.dataLayer.push({event:'legacy'});</script>"

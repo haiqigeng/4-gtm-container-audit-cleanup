@@ -102,6 +102,36 @@ class ArchitecturePolicyTests(unittest.TestCase):
             any("identical source configuration" in error for error in exact_errors)
         )
 
+    def test_multiple_consent_writers_cannot_be_generically_retained(self) -> None:
+        expected = {
+            "comparison_types": ["consent_writer_sequence_review"],
+            "candidate_object_keys": ["tag:3", "tag:4"],
+        }
+        keep_errors = deterministic_comparison_policy_errors(
+            {
+                "relationship_verdict": "Complementary",
+                "disposition": "keep",
+                "operations": [],
+            },
+            expected,
+            "consent writer comparison",
+        )
+        self.assertTrue(
+            any("multiple exported consent writers" in error for error in keep_errors)
+        )
+        self.assertEqual(
+            [],
+            deterministic_comparison_policy_errors(
+                {
+                    "relationship_verdict": "Owner decision needed",
+                    "disposition": "owner_decision_needed",
+                    "operations": [],
+                },
+                expected,
+                "consent writer comparison",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

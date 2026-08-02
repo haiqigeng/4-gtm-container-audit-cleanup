@@ -24,21 +24,21 @@ verified resulting container when execution is approved—is the product.
 
 It is designed for Codex, Claude Code, Gemini, and other file-capable agents.
 
-## v1.10.0 Highlights
+## v1.11.0 Highlights
 
-- Preserves the exhaustive three independent scans while requiring fresh,
-  neutral source-only rechecks for every High/Critical operation.
-- Validates edits against exact locked JSON paths, source values, value types,
-  trigger IDs, and source names before a plan can seal.
-- Deepens Custom HTML/CJS review across code health, readability, lifecycle,
-  cookie scope, native/dataLayer/template/site-side replacement, and
-  source-bound code-fix efficacy.
-- Makes simulator-confirmed configured activation authoritative, while retaining
-  path heuristics separately for traceability.
-- Keeps unresolved business choices nonblocking for the audit, strengthens
-  sharded-run recovery/receipts, and makes the analyst workbook more literal:
-  reconciled A1 counts, lossless decision grouping, seven-column A5 coverage,
-  and hidden-by-default content-identical canonical proof tabs.
+- Adds source-bound detection for unbounded polling, unsafe `postMessage`,
+  dynamic-cookie defects, nullable dataLayer variables, missing-value coercion,
+  consent-initialisation timing, and semantic name/output mismatches, with safe
+  neighbours that prevent pattern-only false positives.
+- Generates stable architecture candidates for duplicate vendor loaders and
+  competing consent-writer sequences even when no event parameter exists.
+- Requires source-specific closure for material review signals and prevents a
+  deterministic technical defect from being parked as an owner decision.
+- Preserves the three independent scans while adding append-only fresh-context
+  amendments and named-shard repair/resume instead of restarting valid work.
+- Makes analyst consequences literal and problem-specific, and reduces
+  `SKILL.md` from 295 to 211 lines by routing duplicated detail to authoritative
+  contracts without reducing audit scope or evidence.
 
 ## Who It Helps
 
@@ -108,7 +108,10 @@ copied or stale hash is not enough to pass.
    parser coverage cannot be certified as Correct. Lookup/regex row/default/order
    defects, behavior-bearing portability literals, dataLayer resets, GTM
    internals, manual gtag senders, cookie set/update versus deletion scope,
-   listener registration/readiness, interval/observer lifecycle, and full
+   dynamic-cookie attributes/retention arithmetic, listener registration/readiness,
+   bounded recursive polling, exact postMessage origin/payload validation,
+   nullable DLV string use, missing-value coercion, semantic name/output alignment,
+   interval/observer lifecycle, and full
    code-health/maintainability findings are explicit obligations. The same locked review covers `document.write`
    support, missing Custom HTML script wrappers, Optimize/anti-flicker
    remnants, callback-based CMP reads, and redacted credential candidates.
@@ -120,7 +123,7 @@ copied or stale hash is not enough to pass.
    source-proven send, request, DOM/script effect, dataLayer/storage action, or
    return while citing the right tokens. Source-proven health/security signals
    require a finding, concrete proposed action, evidence-bound exception basis,
-   or source-specific owner question; relabeling the verdict is not resolution.
+   or source-specific closure; relabeling the verdict is not resolution.
    A confirmed technical issue links to exactly one concrete defect.
    Evidence collection remains exhaustive for every object. The source-locked
    ledger retains every leaf, recursive trace, code segment, contract topic,
@@ -141,7 +144,8 @@ copied or stale hash is not enough to pass.
    families. It finds functional overlap, conflicting funnel logic, duplicate
    destinations, Zones governing the same child container, unnecessary
    variants, trigger-group cycles, custom-code business events, route/consent
-   variants, behavior-equivalent environment/container variants, browser/server event-destination-consent families, unresolved
+   variants, duplicate vendor loaders, multiple consent-writer sequences,
+   behavior-equivalent environment/container variants, browser/server event-destination-consent families, unresolved
    chain edges, dataLayer push/listener spelling near misses, SPA History versus
    `send_page_view` conflicts, and missed consolidation that exact matching cannot reveal.
    Visible unsafe relationships cannot be retained or hidden behind a generic
@@ -327,6 +331,8 @@ Use a distinct fresh reasoning context per run and never provide another run's
 verdict artifact as input. Follow each run's `review_work_units` strategy. For a
 sharded run, work inside its bundle, check every declared shard, merge it back
 to the bundle-local review path, and then seal the complete validator-passing run.
+If a sealed run needs correction, amend only that run from a fresh context with
+`--amendment-of <current-seal-sha256>`; the prior review and seal remain archived.
 
 The exact compilation, future-state, workbook, privacy, and change-log commands
 are in `references/02-commands/validation-commands.md`. Before approved
@@ -374,7 +380,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.10.0
+python -B scripts/check_release.py --tag v1.11.0
 git diff --check
 ```
 

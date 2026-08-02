@@ -189,7 +189,12 @@ Use exactly eight visible columns:
 Every row must be understandable without opening JSON or a hidden proof sheet.
 State the exact configured problem separately from its concrete maintenance or
 measurement consequence. Reject generic impact boilerplate and do not repeat the
-same sentence in both columns. `Exact change` comes only from structured
+same sentence in both columns. Translate the configured failure into its literal
+effect: for example, an unbounded retry can poll for the page lifetime, a weak
+origin check can accept an unrelated sender, a nullable string method can throw,
+and late default consent can be evaluated after other tags. Family-preservation
+counts and “see evidence” are traceability, not a substitute for that consequence.
+`Exact change` comes only from structured
 creations, additions, changes, remaps, renames, and deletions; editorial wording
 may improve grammar but cannot select or reverse direction.
 

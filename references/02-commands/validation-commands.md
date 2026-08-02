@@ -170,6 +170,15 @@ python -B scripts/gtm_review_isolation.py seal container.json audit-package conf
 python -B scripts/gtm_review_isolation.py seal container.json audit-package business_architecture --context-id "<actual-run-3-context-id>" --pretty
 ```
 
+If a sealed run needs a validator-driven semantic correction, complete only that
+run in a fresh reviewer context and preserve the prior artifact:
+
+```powershell
+python -B scripts/gtm_review_isolation.py seal container.json audit-package configuration_correctness --context-id "<fresh-amendment-context-id>" --amendment-of "<current-seal-sha256>" --pretty
+```
+
+Never reuse the original context ID or overwrite a seal without its exact parent hash.
+
 The three context IDs must be real, distinct, and identical to their completed
 review attestations. A review edited after sealing, a changed immutable bundle
 input, or a review supplied from outside its bundle fails the completion gate.

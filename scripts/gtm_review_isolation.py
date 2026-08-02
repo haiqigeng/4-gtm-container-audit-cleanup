@@ -17,6 +17,7 @@ from gtm_skill_identity import sha256_file
 BUNDLE_DIRECTORY = "review-bundles"
 SEAL_DIRECTORY = "review-seals"
 SCRATCH_DIRECTORY = "review-scratch"
+SEAL_HISTORY_DIRECTORY = "history"
 
 RUN_SPECS: dict[str, dict[str, Any]] = {
     "operational_sanitation": {
@@ -380,6 +381,7 @@ def seal_review(
     run_name: str,
     context_id: str,
     completed_review: Path | None = None,
+    amendment_of: str | None = None,
     *,
     pretty: bool = True,
 ) -> dict[str, Any]:
@@ -390,6 +392,30 @@ def seal_review(
     if len(context_id.strip()) < 12:
         raise ValueError("context_id must identify one real fresh reasoning context")
     bundle_dir = (package_dir / BUNDLE_DIRECTORY / run_name).resolve()
+    seal_dir = package_dir / SEAL_DIRECTORY
+    seal_path = seal_dir / f"{run_name}.json"
+    previous_seal: dict[str, Any] | None = None
+    if seal_path.is_file():
+        previous_seal = load_json(seal_path)
+        previous_hash = str(previous_seal.get("seal_sha256") or "")
+        if not amendment_of:
+            raise ValueError(
+                "review run is already sealed; a correction requires --amendment-of "
+                "with the current seal hash and a fresh reviewer context"
+            )
+        if amendment_of != previous_hash:
+            raise ValueError("amendment parent does not match the current review seal")
+        if previous_seal.get("independent_review_context_id") == context_id:
+            raise ValueError("review amendment must use a fresh reasoning context")
+        canonical_previous = package_dir / str(RUN_SPECS[run_name]["review_file"])
+        if (
+            not canonical_previous.is_file()
+            or previous_seal.get("completed_review_sha256")
+            != sha256_file(canonical_previous)
+        ):
+            raise ValueError("previous sealed review changed before amendment")
+    elif amendment_of:
+        raise ValueError("amendment parent was supplied but no prior seal exists")
     scratch_recovery = relocate_unexpected_bundle_artifacts(
         bundle_dir, package_dir, run_name
     )
@@ -436,15 +462,26 @@ def seal_review(
     review_errors, review_warnings = _validator(run_name)(export_path, review_path)
     if review_errors:
         raise ValueError("review validator failed: " + "; ".join(review_errors))
-    seal_dir = package_dir / SEAL_DIRECTORY
-    for existing_path in seal_dir.glob("*.json") if seal_dir.is_dir() else []:
+    existing_seal_paths = list(seal_dir.glob("*.json")) if seal_dir.is_dir() else []
+    history_dir = seal_dir / SEAL_HISTORY_DIRECTORY
+    if history_dir.is_dir():
+        existing_seal_paths.extend(history_dir.glob("*.seal.json"))
+    for existing_path in existing_seal_paths:
         existing = load_json(existing_path)
-        if (
-            existing.get("review_run") != run_name
-            and existing.get("independent_review_context_id") == context_id
-        ):
-            raise ValueError("context_id is already sealed for another review run")
+        if existing.get("independent_review_context_id") == context_id:
+            raise ValueError("context_id is already present in the review seal history")
     canonical_path = package_dir / str(RUN_SPECS[run_name]["review_file"])
+    if previous_seal:
+        history_dir = seal_dir / SEAL_HISTORY_DIRECTORY
+        history_dir.mkdir(parents=True, exist_ok=True)
+        previous_seal_hash = str(previous_seal.get("seal_sha256") or "")
+        previous_review_hash = str(previous_seal.get("completed_review_sha256") or "")
+        archived_seal = history_dir / f"{run_name}.{previous_seal_hash}.seal.json"
+        archived_review = history_dir / f"{run_name}.{previous_review_hash}.review.json"
+        if archived_seal.exists() or archived_review.exists():
+            raise ValueError("review amendment history target already exists")
+        shutil.copy2(seal_path, archived_seal)
+        shutil.copy2(canonical_path, archived_review)
     shutil.copy2(review_path, canonical_path)
     seal = {
         "kind": "gtm_isolated_review_seal",
@@ -460,9 +497,21 @@ def seal_review(
         "validator_status": "pass",
         "validator_warnings": review_warnings,
         "scratch_recovery": scratch_recovery,
+        "amendment_sequence": (
+            int(previous_seal.get("amendment_sequence") or 0) + 1
+            if previous_seal
+            else 0
+        ),
+        "amendment_parent_seal_sha256": (
+            str(previous_seal.get("seal_sha256") or "") if previous_seal else ""
+        ),
+        "amendment_parent_review_sha256": (
+            str(previous_seal.get("completed_review_sha256") or "")
+            if previous_seal
+            else ""
+        ),
     }
     seal["seal_sha256"] = seal_content_hash(seal)
-    seal_path = seal_dir / f"{run_name}.json"
     write_json(seal_path, seal, pretty)
     return seal
 
@@ -507,6 +556,35 @@ def review_seal_errors(package_dir: Path, manifest: dict[str, Any]) -> list[str]
             context_ids.append(context_id)
         if seal.get("validator_status") != "pass":
             errors.append(f"{run_name} review seal is not validator-passing")
+        parent_seal_hash = str(seal.get("amendment_parent_seal_sha256") or "")
+        parent_review_hash = str(seal.get("amendment_parent_review_sha256") or "")
+        sequence = int(seal.get("amendment_sequence") or 0)
+        if parent_seal_hash or parent_review_hash or sequence:
+            history_dir = package_dir / SEAL_DIRECTORY / SEAL_HISTORY_DIRECTORY
+            parent_seal_path = (
+                history_dir / f"{run_name}.{parent_seal_hash}.seal.json"
+            )
+            parent_review_path = (
+                history_dir / f"{run_name}.{parent_review_hash}.review.json"
+            )
+            if sequence < 1 or not parent_seal_hash or not parent_review_hash:
+                errors.append(f"{run_name} review amendment chain is incomplete")
+            elif not parent_seal_path.is_file() or not parent_review_path.is_file():
+                errors.append(f"{run_name} review amendment history is missing")
+            else:
+                parent_seal = load_json(parent_seal_path)
+                if (
+                    parent_seal.get("seal_sha256") != parent_seal_hash
+                    or seal_content_hash(parent_seal) != parent_seal_hash
+                ):
+                    errors.append(f"{run_name} parent review seal is invalid")
+                if sha256_file(parent_review_path) != parent_review_hash:
+                    errors.append(f"{run_name} parent review artifact is invalid")
+                if (
+                    parent_seal.get("independent_review_context_id")
+                    == seal.get("independent_review_context_id")
+                ):
+                    errors.append(f"{run_name} review amendment reused its parent context")
     if len(context_ids) != len(set(context_ids)):
         errors.append("isolated review seals reuse a reasoning context identity")
     return errors
@@ -521,6 +599,7 @@ def main() -> int:
     seal.add_argument("run_name", choices=sorted(RUN_SPECS))
     seal.add_argument("--context-id", required=True)
     seal.add_argument("--completed-review", type=Path)
+    seal.add_argument("--amendment-of")
     seal.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
     try:
@@ -530,6 +609,7 @@ def main() -> int:
             args.run_name,
             args.context_id,
             args.completed_review,
+            args.amendment_of,
             pretty=args.pretty,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:

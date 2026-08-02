@@ -97,6 +97,7 @@ NON_RETENTION_COMPARISON_TYPES = {
     "shared_zone_child_container",
     "cyclic_trigger_group_dependency",
     "browser_server_consent_deduplication_review",
+    "consent_writer_sequence_review",
 }
 EXACT_CONFIGURATION_SEMANTIC_POLICY_TYPES = {
     "different_consent_purposes_same_logic",
@@ -117,6 +118,9 @@ UNSAFE_DISCOVERY_METHOD_REQUIREMENTS = {
     },
     "browser_server_consent_deduplication_review": {
         "consumer_destination_and_event_overlap",
+        "consent_sequence_and_server_route_conflicts",
+    },
+    "consent_writer_sequence_review": {
         "consent_sequence_and_server_route_conflicts",
     },
 }
@@ -2301,6 +2305,15 @@ def deterministic_comparison_policy_errors(
         errors.append(
             f"{label}: browser/server delivery requires a visible deduplication, consent, "
             "and ownership decision before it can be retained"
+        )
+    if "consent_writer_sequence_review" in comparison_types and verdict not in {
+        "Conflict",
+        "Consolidation candidate",
+        "Owner decision needed",
+    }:
+        errors.append(
+            f"{label}: multiple exported consent writers require one visible default/update "
+            "ownership and sequence decision before they can be retained"
         )
     if verdict == "Container evidence limit":
         errors.append(

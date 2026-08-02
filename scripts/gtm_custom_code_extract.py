@@ -72,6 +72,25 @@ HTML_WRITE_RE = re.compile(
 )
 MESSAGE_LISTENER_RE = re.compile(r"addEventListener\s*\(\s*['\"]message['\"]", re.I)
 ORIGIN_CHECK_RE = re.compile(r"\b(?:event|e|evt)\s*\.\s*origin\b|\borigin\b", re.I)
+WEAK_ORIGIN_SUBSTRING_RE = re.compile(
+    r"\b(?:event|e|evt)\s*\.\s*origin\s*\.\s*(?:indexOf|includes)\s*\(",
+    re.I,
+)
+MESSAGE_DATA_LAYER_PUSH_RE = re.compile(
+    r"\bdataLayer\s*\.\s*push\s*\(\s*(?:event|e|evt)\s*\.\s*data"
+    r"(?:\s*\.\s*[A-Za-z_$][\w$]*)?\s*\)",
+    re.I,
+)
+MESSAGE_PAYLOAD_GUARD_RE = re.compile(
+    r"(?:typeof\s+(?:event|e|evt)\s*\.\s*data"
+    r"(?:\s*\.\s*(?:payload|data))?\s*"
+    r"(?:===?|!==?)\s*['\"](?:object|string)['\"]|"
+    r"Array\s*\.\s*isArray\s*\(\s*(?:event|e|evt)\s*\.\s*data"
+    r"(?:\s*\.\s*(?:payload|data))?|"
+    r"(?:event|e|evt)\s*\.\s*data(?:\s*\.\s*(?:payload|data))?\s*&&\s*"
+    r"(?:event|e|evt)\s*\.\s*data(?:\s*\.\s*(?:payload|data))?\s*\.)",
+    re.I,
+)
 HTTP_URL_RE = re.compile(r"http://[^\s\"'<>\\)]+", re.I)
 GLOBAL_WRITE_RE = re.compile(r"\bwindow\s*\.\s*[A-Za-z_$][\w$]*\s*=", re.I)
 GTM_INTERNAL_OBJECT_RE = re.compile(
@@ -134,6 +153,17 @@ SET_INTERVAL_RE = re.compile(r"\bsetInterval\s*\(", re.I)
 CLEAR_INTERVAL_RE = re.compile(r"\bclearInterval\s*\(", re.I)
 SET_TIMEOUT_RE = re.compile(r"\bsetTimeout\s*\(", re.I)
 CLEAR_TIMEOUT_RE = re.compile(r"\bclearTimeout\s*\(", re.I)
+FUNCTION_DECLARATION_RE = re.compile(
+    r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{", re.I
+)
+COOKIE_ASSIGNMENT_RE = re.compile(
+    r"\bdocument\s*\.\s*cookie\s*=\s*(?P<rhs>[^;]{1,1600})", re.I | re.S
+)
+COOKIE_DAY_MULTIPLIER_RE = re.compile(
+    r"\b(?P<input>days?|expires?|duration|ttl)\b\s*\*\s*"
+    r"(?P<factor>\d+(?:\.\d+)?)\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000\b",
+    re.I,
+)
 READY_STATE_RE = re.compile(r"\bdocument\s*\.\s*readyState\b", re.I)
 WINDOW_LOAD_LISTENER_RE = re.compile(
     r"(?:window\s*\.\s*)?addEventListener\s*\(\s*['\"]load['\"]", re.I
@@ -383,6 +413,206 @@ def javascript_source(layer: str, code: str) -> str:
     return "\n".join(blocks) if blocks else code
 
 
+def _balanced_brace_body(source: str, opening_brace: int) -> str:
+    """Return one JavaScript block body without pretending to be a full parser."""
+
+    depth = 0
+    quote = ""
+    escaped = False
+    line_comment = False
+    block_comment = False
+    index = opening_brace
+    while index < len(source):
+        char = source[index]
+        following = source[index + 1] if index + 1 < len(source) else ""
+        if line_comment:
+            if char in "\r\n":
+                line_comment = False
+            index += 1
+            continue
+        if block_comment:
+            if char == "*" and following == "/":
+                block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            index += 1
+            continue
+        if char == "/" and following == "/":
+            line_comment = True
+            index += 2
+            continue
+        if char == "/" and following == "*":
+            block_comment = True
+            index += 2
+            continue
+        if char in "'\"`":
+            quote = char
+            index += 1
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening_brace + 1 : index]
+        index += 1
+    return ""
+
+
+def declared_function_bodies(layer: str, code: str) -> dict[str, str]:
+    source = javascript_source(layer, code)
+    bodies: dict[str, str] = {}
+    for match in FUNCTION_DECLARATION_RE.finditer(source):
+        body = _balanced_brace_body(source, match.end() - 1)
+        if body:
+            bodies[match.group(1)] = body
+    return bodies
+
+
+def recursive_timeout_facts(layer: str, code: str) -> list[dict[str, Any]]:
+    """Find source-visible self-scheduling setTimeout loops and their bounds."""
+
+    facts: list[dict[str, Any]] = []
+    for name, body in declared_function_bodies(layer, code).items():
+        escaped_name = re.escape(name)
+        direct = re.search(
+            rf"\bsetTimeout\s*\(\s*{escaped_name}\b", body, re.I
+        )
+        callback = any(
+            re.search(rf"\b{escaped_name}\s*\(", match.group(0), re.I)
+            for match in re.finditer(
+                r"\bsetTimeout\s*\(.{0,700}?\)", body, re.I | re.S
+            )
+        )
+        if not (direct or callback):
+            continue
+        counter_term = r"(?:attempts?|tries|retries|retry|count|polls?|deadline|max\w*)"
+        has_limit = bool(
+            re.search(
+                rf"\bif\s*\([^)]*\b{counter_term}\b[^)]*(?:>=|>|<=|<|===?|!==?)[^)]*\)",
+                body,
+                re.I,
+            )
+            or re.search(
+                rf"\bif\s*\([^)]*(?:Date\s*\.\s*now\s*\(\)|\b{counter_term}\b)"
+                rf"[^)]*(?:deadline|timeout|max\w*)[^)]*\)",
+                body,
+                re.I,
+            )
+        )
+        facts.append(
+            {
+                "function": name,
+                "bounded": has_limit,
+                "scheduling": "direct_callback" if direct else "nested_callback",
+            }
+        )
+    return facts
+
+
+def cookie_duration_multiplier_facts(code: str) -> list[dict[str, str]]:
+    facts: list[dict[str, str]] = []
+    for match in COOKIE_DAY_MULTIPLIER_RE.finditer(code):
+        factor = float(match.group("factor"))
+        declares_days = bool(
+            match.group("input").lower().startswith("day")
+            or re.search(r"\b(?:is|in|as)\s+days?\b", code, re.I)
+        )
+        if declares_days and factor != 1:
+            facts.append(
+                {
+                    "input": match.group("input"),
+                    "factor": match.group("factor"),
+                    "expression": re.sub(r"\s+", " ", match.group(0)).strip(),
+                }
+            )
+    return facts
+
+
+def dynamic_cookie_missing_attributes(code: str) -> list[str]:
+    """Identify non-literal cookie setters that visibly omit modern attributes."""
+
+    if not COOKIE_ASSIGNMENT_RE.search(code):
+        return []
+    literal_facts = cookie_write_facts(code)
+    if any(fact.get("operation") == "set_or_update" for fact in literal_facts):
+        return []
+    if literal_facts and all(fact.get("operation") == "delete" for fact in literal_facts):
+        return []
+    deletion_signals = bool(
+        re.search(
+            r"\b(?:delete|remove|erase)Cookie\b|max-age\s*=\s*-|"
+            r"(?:01\s+jan\s+1970|1970-01-01)|setTime\s*\(\s*0\s*\)",
+            code,
+            re.I,
+        )
+    )
+    setter_signals = bool(
+        re.search(r"\bsetCookie\b|\b(?:expires?|days?|ttl)\b", code, re.I)
+    )
+    if deletion_signals and not setter_signals:
+        return []
+    missing = []
+    if not re.search(r"\bSecure\b", code, re.I):
+        missing.append("Secure")
+    if not re.search(r"\bSameSite\b", code, re.I):
+        missing.append("SameSite")
+    return missing
+
+
+def string_coercion_undefined_facts(layer: str, code: str) -> list[dict[str, str]]:
+    """Find String(value) where the visible producer can fall through as undefined."""
+
+    facts: list[dict[str, str]] = []
+    bodies = declared_function_bodies(layer, code)
+    for returned in re.finditer(
+        r"\breturn\s+String\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*;?", code, re.I
+    ):
+        variable = returned.group(1)
+        assignment = re.search(
+            rf"\b(?:var|let|const)\s+{re.escape(variable)}\s*=\s*"
+            r"([A-Za-z_$][\w$]*)\s*\(",
+            code,
+        )
+        if not assignment:
+            continue
+        producer = assignment.group(1)
+        body = bodies.get(producer, "")
+        if not body or not re.search(r"\bif\s*\([^)]*\)\s*return\b", body, re.I):
+            continue
+        tail = re.sub(r"\s+", " ", body).strip()
+        if re.search(
+            r"(?:^|[;}])\s*(?:return\b[^;]*|throw\b[^;]*);?\s*$", tail, re.I
+        ):
+            continue
+        facts.append({"variable": variable, "producer": producer})
+    return facts
+
+
+def semantic_name_output_findings(layer: str, object_name: str, code: str) -> list[str]:
+    normalized_name = re.sub(r"[^a-z0-9]+", " ", object_name.lower()).strip()
+    if (
+        layer == "variable"
+        and re.search(r"\b(?:local\s+)?hour\b", normalized_name)
+        and re.search(r"\bDate\s*\.\s*now\s*\(\s*\)", code)
+        and not re.search(r"\bget(?:UTC)?Hours\s*\(", code, re.I)
+    ):
+        return [
+            "Variable name promises an hour value but the exported function returns "
+            "Date.now(), which is an epoch timestamp in milliseconds."
+        ]
+    return []
+
+
 def javascript_ast_facts(layer: str, code: str) -> dict[str, Any]:
     """Add optional AST facts; line review and static signals remain separate obligations."""
     source = javascript_source(layer, code)
@@ -542,7 +772,10 @@ def container_evidence_limits(code: str, effects: list[str]) -> list[str]:
 
 
 def code_health_findings(
-    layer: str, code: str, ast_facts: dict[str, Any] | None = None
+    layer: str,
+    code: str,
+    ast_facts: dict[str, Any] | None = None,
+    object_name: str = "",
 ) -> list[str]:
     findings: list[str] = []
     ast_facts = ast_facts or {}
@@ -600,6 +833,13 @@ def code_health_findings(
             "Starts setInterval without an exported clearInterval lifecycle; repeated GTM "
             "execution can retain duplicate polling loops."
         )
+    for fact in recursive_timeout_facts(layer, code):
+        if not fact["bounded"]:
+            findings.append(
+                "Recursively schedules setTimeout for function "
+                f"{fact['function']!r} without an exported attempt, duration, or "
+                "completion bound; the polling loop can continue for the page lifetime."
+            )
     if MUTATION_OBSERVER_RE.search(code) and not MUTATION_OBSERVER_DISCONNECT_RE.search(code):
         findings.append(
             "Creates a MutationObserver without an exported disconnect lifecycle; bound its "
@@ -631,6 +871,13 @@ def code_health_findings(
             "Custom JavaScript variable exposes mixed or unproven return types; define null, "
             "undefined, error, and fallback behavior for every consumer path."
         )
+    for fact in string_coercion_undefined_facts(layer, code):
+        findings.append(
+            f"String() converts {fact['variable']!r} from {fact['producer']!r}, whose "
+            "exported function can fall through without a value; missing input becomes the "
+            "literal string 'undefined'."
+        )
+    findings.extend(semantic_name_output_findings(layer, object_name, code))
     branch_count = int(ast_facts.get("ast_branch_count") or 0)
     if branch_count >= 16:
         findings.append(
@@ -731,6 +978,19 @@ def code_security_findings(code: str) -> list[str]:
             "Listens to messages from other windows without an exported origin check.",
         ),
         (
+            MESSAGE_LISTENER_RE.search(code) and WEAK_ORIGIN_SUBSTRING_RE.search(code),
+            "Checks postMessage origin with substring matching on event.origin; an unrelated "
+            "origin containing the trusted text can pass. Use exact origins or an exact "
+            "allowlist lookup.",
+        ),
+        (
+            MESSAGE_LISTENER_RE.search(code)
+            and MESSAGE_DATA_LAYER_PUSH_RE.search(code)
+            and not MESSAGE_PAYLOAD_GUARD_RE.search(code),
+            "Pushes a postMessage payload directly into dataLayer without an exported payload "
+            "shape/type allowlist; validate the accepted object and fields before the push.",
+        ),
+        (
             HTTP_URL_RE.search(code),
             "Loads or calls an unencrypted http:// URL; use https:// or remove it.",
         ),
@@ -758,6 +1018,21 @@ def code_security_findings(code: str) -> list[str]:
             "the container and rotate the credential if confirmed."
         )
     findings.extend(dict.fromkeys(cookie_attribute_findings))
+    missing_dynamic_attributes = dynamic_cookie_missing_attributes(code)
+    if missing_dynamic_attributes:
+        findings.append(
+            "Dynamic cookie set/update omits exported "
+            + " and ".join(missing_dynamic_attributes)
+            + " attributes; add the policy-approved attributes or use the maintained "
+            "consent-controlled cookie implementation."
+        )
+    for fact in cookie_duration_multiplier_facts(code):
+        findings.append(
+            "Cookie duration multiplies the declared day count by "
+            f"{fact['factor']} before the normal day-to-millisecond conversion "
+            f"({fact['expression']}); remove the unintended extra multiplier or rename and "
+            "document the actual input unit."
+        )
     return findings
 
 
@@ -835,9 +1110,10 @@ def technical_code_review(
     effects: list[str],
     formulas: dict[str, Any] | None = None,
     ast_facts: dict[str, Any] | None = None,
+    object_name: str = "",
 ) -> dict[str, Any]:
     formulas = formulas or expression_facts(code)
-    health = code_health_findings(layer, code, ast_facts)
+    health = code_health_findings(layer, code, ast_facts, object_name)
     security = code_security_findings(code)
     optimization = code_optimization_findings(layer, code, effects, formulas)
     status, recommendation = code_health_status(health, security, optimization)
@@ -869,6 +1145,9 @@ def technical_action_candidate(
         for marker in (
             "without an exported <script> wrapper",
             "callback-based CMP read",
+            "Recursively schedules setTimeout",
+            "missing input becomes the literal string 'undefined'",
+            "name promises an hour value",
         )
     ):
         return "fix_required"
@@ -1033,6 +1312,14 @@ def technical_exact_action(
         actions.append(
             "Add an explicit allowed-origin check before accepting postMessage data, or remove the message listener."
         )
+    if has_finding(review, "origin with substring matching"):
+        actions.append(
+            "Replace event.origin substring matching with equality against the complete approved origin or membership in an exact-origin allowlist."
+        )
+    if has_finding(review, "postMessage payload directly into dataLayer"):
+        actions.append(
+            "Before dataLayer.push(), require the approved payload type and copy only the allowed event and parameter fields into a new object."
+        )
     if has_finding(review, "http://"):
         actions.append(
             "Replace every http:// endpoint with an approved https:// endpoint, or remove the call when no secure endpoint exists."
@@ -1053,6 +1340,14 @@ def technical_exact_action(
     if has_finding(review, "Literal cookie set/update omits"):
         actions.append(
             "For each cookie set/update, add only the policy-approved Secure and SameSite attributes, or replace the custom writer with the maintained consent-controlled implementation."
+        )
+    if has_finding(review, "Dynamic cookie set/update omits"):
+        actions.append(
+            "Add the policy-approved Secure and SameSite attributes to the dynamic cookie setter, preserving its exact name, path, domain, value, and consent route."
+        )
+    if has_finding(review, "Cookie duration multiplies the declared day count"):
+        actions.append(
+            "Remove the extra duration multiplier so the declared day count is converted once with days × 24 × 60 × 60 × 1000, then preserve the intended retention period explicitly."
         )
     if has_finding(review, "Literal cookie deletion has no source-proven"):
         actions.append(
@@ -1084,6 +1379,10 @@ def technical_exact_action(
         actions.append(
             "Store the interval handle and clear it at the source-proven completion or teardown condition, or replace polling with the existing event/dataLayer signal."
         )
+    if has_finding(review, "Recursively schedules setTimeout"):
+        actions.append(
+            "Add a finite attempt or elapsed-time limit to the recursive timeout and stop scheduling after success or expiry; prefer an existing readiness event when available."
+        )
     if has_finding(review, "MutationObserver without"):
         actions.append(
             "Disconnect the observer after its bounded completion condition and prevent duplicate observer construction on repeated tag execution."
@@ -1094,6 +1393,14 @@ def technical_exact_action(
         )
     if has_finding(review, "debugger statement"):
         actions.append("Remove the debugger statement from production custom code.")
+    if has_finding(review, "literal string 'undefined'"):
+        actions.append(
+            "Return an explicit empty/null fallback before String() coercion so an absent source cannot become the literal text 'undefined'."
+        )
+    if has_finding(review, "name promises an hour value"):
+        actions.append(
+            "Either return the intended local hour with Date.getHours() or rename the variable and every consumer to state that it returns an epoch-millisecond timestamp."
+        )
     if row.get("dataLayer_pushes_or_writes"):
         actions.append(
             "List the exact dataLayer event and fields written, keep one canonical writer, and remove a duplicate writer only when exported logic proves equivalence."
@@ -1323,6 +1630,7 @@ def extract_export(path: Path) -> dict[str, Any]:
                 "clear_interval": bool(CLEAR_INTERVAL_RE.search(code)),
                 "set_timeout": bool(SET_TIMEOUT_RE.search(code)),
                 "clear_timeout": bool(CLEAR_TIMEOUT_RE.search(code)),
+                "recursive_timeout_functions": recursive_timeout_facts(layer, code),
             },
             "observer_lifecycle": {
                 "mutation_observer": bool(MUTATION_OBSERVER_RE.search(code)),
@@ -1339,6 +1647,23 @@ def extract_export(path: Path) -> dict[str, Any]:
                 layer == "variable" and ASYNC_CMP_CALLBACK_RE.search(code)
             ),
             "secret_like_credential_signals": secret_like_credential_signals(code),
+            "postmessage_security": {
+                "listener": bool(MESSAGE_LISTENER_RE.search(code)),
+                "origin_check_present": bool(ORIGIN_CHECK_RE.search(code)),
+                "weak_origin_substring_check": bool(WEAK_ORIGIN_SUBSTRING_RE.search(code)),
+                "direct_data_layer_payload_push": bool(
+                    MESSAGE_DATA_LAYER_PUSH_RE.search(code)
+                ),
+                "payload_shape_guard": bool(MESSAGE_PAYLOAD_GUARD_RE.search(code)),
+            },
+            "cookie_duration_multiplier_facts": cookie_duration_multiplier_facts(code),
+            "dynamic_cookie_missing_attributes": dynamic_cookie_missing_attributes(code),
+            "string_coercion_undefined_facts": string_coercion_undefined_facts(
+                layer, code
+            ),
+            "semantic_name_output_findings": semantic_name_output_findings(
+                layer, object_name, code
+            ),
             "cache_buster_signals": bool(CACHE_BUSTER_RE.search(code)),
             "base64_signals": bool(BASE64_RE.search(code)),
             "mutation_observer_signals": bool(MUTATION_OBSERVER_RE.search(code)),
@@ -1363,7 +1688,9 @@ def extract_export(path: Path) -> dict[str, Any]:
         formulas = expression_facts(code)
         row.update(formulas)
         row.update(javascript_ast_facts(layer, code))
-        review = technical_code_review(layer, code, effects, formulas, row)
+        review = technical_code_review(
+            layer, code, effects, formulas, row, object_name=object_name
+        )
         row.update(review)
         action = technical_action_candidate(
             review,

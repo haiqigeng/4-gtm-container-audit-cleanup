@@ -96,33 +96,13 @@ Reconcile only after every run passes its own validator.
 
 ## Automatic Work Sharding
 
-Package creation automatically reuses `scripts/gtm_review_shards.py` when a run
-has more than 40 primary review items or Run 2 exceeds 120 authored behavior
-work units. It records each run's `single_file` or `sharded` strategy, exact
-evidence-obligation count, authored-work count, and shard count in
-`audit_package_manifest.json`. These are execution metrics, never audit limits.
-
-For a sharded run:
-
-- work only in that run's `review-bundles/<run>/` directory and complete every
-  primary shard declared by its `shard_manifest.json`;
-- keep operational, configuration, and architecture shards separate;
-- for current Run-2 schema, inspect the complete adjacent base review and edit
-  only the source-hashed completion overlay in each shard; raw branches, traces,
-  code facts, contracts, and findings remain losslessly available in the base;
-- check each completed shard immediately against that bundle-local base review;
-- keep drafts and temporary extracts only in the run's declared `review-scratch/`
-  directory; sealing moves accidental undeclared bundle scratch there without deleting it;
-- rely on the persisted per-shard content-hash receipts in the merged review, and on
-  failure repair only the named shard before resuming;
-- complete the dedicated architecture open-discovery shard and attestation;
-- merge the complete run back to the bundle-local review file, validate it, then seal it into the canonical package;
-- never treat sharding as reduced scope or as additional verdict runs.
-
-Current packages never create per-obligation micro-shards; those remain supported
-only for resumability of legacy packages. Use manual `split` only for a legacy
-package or when a lower row bound is needed for an unusually dense object. A
-missing, pending, duplicated, or source-mismatched shard leaves that run incomplete.
+Package creation automatically shards large runs under the thresholds and exact
+resume contract in `execution-contract.md`. Sharding changes workload shape, never
+scope, depth, or the number of independent verdict runs. Work only inside the run's
+allowlisted bundle, inspect its complete base evidence, check each declared shard,
+repair only the named failing shard, merge without loss, validate, and seal. Keep
+drafts in `review-scratch/`; never create new per-obligation micro-shards for current
+packages. Exact commands are in `validation-commands.md`.
 
 ## Three Audit Runs
 
@@ -134,40 +114,18 @@ Do not delete or consolidate from a signature alone. Prove reachability, every s
 
 ### Run 2: Configuration Correctness
 
-Read `references/03-rules/configuration-correctness.md` and every applicable topic in `references/03-rules/domain-contracts.md`. Complete every semantic object, source-owned logic leaf, recursive reference trace, consumer/peer context, D3 cross-check, applicable official contract, technical finding, and executable custom-code line exactly once.
+Read `configuration-correctness.md` and applicable `domain-contracts.md` topics.
+Complete their exact object, branch, recursive dependency, consumer/peer, contract,
+technical, code-line, and D3 obligations. Generated narration is evidence, not a
+verdict. Author substantive object and behavior-group conclusions wherever the
+contract escalates risk; a `Correct` verdict is valid only after every source-visible
+signal has a source-specific closure. A proven defect gets the simplest exact operation
+when the target is container-visible; a genuinely unknown target keeps one precise
+owner/evidence boundary and recommendation.
 
-Explain literal configured behavior with allowed source anchors. The scaffold keeps
-an exact deterministic ledger of every leaf, trace, code segment, contract topic,
-technical finding, and D3 check, then groups related evidence into meaningful
-behavior questions such as purpose/output, execution/scope, inputs/consumers,
-consent/sequence, routing, code, and vendor contract. Inspect the full ledger.
-Generated branch or trace narration is evidence rendering, not a correctness
-verdict; replace its completion conclusion whenever the evidence shows a defect,
-risk, ambiguity, or unsupported assumption.
-
-Author one object-level correctness basis plus conclusions for every escalated
-behavior group. Routine source-proven structure may retain its deterministic
-completion rendering, but all tags, triggers, code/templates, formulas/lookups/
-regex, consent/vendor/server routing, findings, ambiguity, owner decisions,
-unresolved dependencies, and heavily shared objects require substantive judgment.
-A source-visible Issue requires a concrete defect and exact operation when the
-target state is known; a genuine unknown retains the precise evidence boundary,
-owner question where applicable, and analyst recommendation. Do not use generic
-summaries, inferred runtime behavior, or `Not applicable` as fallback. Every raw
-obligation remains covered exactly once even though repetitive prose is not
-authored seven times.
-
-For every Custom HTML, Custom JavaScript, and executable template block, review
-syntax/parser coverage, control flow, return/type/null/error behavior, async versus
-synchronous use, listeners/timers/observers, globals, DOM/storage, security/privacy,
-network/script loading, performance, dead/duplicate code, complexity, readability,
-hardcoded IDs/endpoints/environments, deprecated APIs, portability, and maintainability.
-Select one explicit keep/optimise/repair/shorten/refactor/consolidate/replace/remove/
-owner disposition. Keep dataLayer/native/template/site-side replacement as a separate
-first-class question: name exact DLV/dataLayer keys and consumers, then compare value,
-type, format, timing, fallback, consent, trigger use, and every consumer before replacement.
-Never propose cosmetic minification. A code mutation carries its exact source path/hash,
-complete after-code, resolution basis, and named preserved behaviors.
+Apply the complete custom-code health and replacement review defined there, including
+dataLayer/native/template/site-side replacement, null/type/timing contracts, security,
+readability, and maintainability. Never substitute cosmetic minification for a repair.
 
 Use the bundled official vendor registry first. For an unknown integration, perform current official-source research, update and validate the registry, rebuild the scaffold, and only then certify the contract.
 
@@ -207,57 +165,15 @@ confidence, or score.
 
 ## Build The Human Cleanup Plan
 
-Read `references/03-rules/workbook-architecture.md`, then build and gate the
-canonical eight-tab workbook with the existing exact commands in
-`references/02-commands/validation-commands.md`. Do not change that workflow,
-tab contract, or gate.
-
-Only after the canonical workbook and its all-sheet privacy scan pass, read
-`references/03-rules/workbook-output-contract.md`. Run the readability builder
-and its independent gate as the final output step. The derived workbook is a
-copy with five analyst tabs at the front; it is never an input to a review,
-validator, reconciliation, compiler, future-state simulation, or completion
-gate.
-
-The visible workbook is an analyst decision document, not a proof dump:
-
-- show every operation and genuine owner decision with a concrete recommendation;
-- state the literal GTM problem, why it behaves that way, exact change, preserved behavior/settings, priority, approval, static readback, and rollback;
-- retain the canonical filterable general category, exact problem type, and `layer:ID - Name` object labels;
-- summarize retained business families and target architecture as well as defects;
-- keep exhaustive paths, hashes, traces, branches, contracts, and code-line proof in JSON/hidden proof;
-- show only the blocked draft row when action completeness fails;
-- keep the cleanup plan and post-execution change log separate.
-
-Do not weaken or omit actions to make the workbook shorter. Consolidate presentation only where every atomic operation, object, approval choice, and verification remains explicit.
-
-In the derived analyst workbook, preserve complete coverage with rows rather
-than extra columns:
-
-- put every atomic operation first in `A2 Actions`, with literal problem,
-  consequence, exact change, preconditions/approval, and static verification/
-  rollback readable without opening proof tabs;
-- put every owner-decision source record under exactly one topic in
-  `A3 Decisions`, including affected measurement families and what the answer
-  unlocks; an unanswered owner question never blocks output generation;
-- include every decision-ledger record in `A4 Audit Register`;
-- inventory every Custom HTML tag in `A5 Custom HTML`, including long or legacy
-  code, state/execution context, functional role, complete technical health,
-  dataLayer/native/template/consolidation/site-side candidates, simplest safe target,
-  and exact action/decision, including conflicts where a candidate variable is also
-  scheduled for deletion;
-- retain all eight canonical tabs content-identical but hidden by default; A1 explains
-  how to unhide them.
-
-Use conservative semantic grouping for any number of owner-decision source records:
-group only records with the same answer class, compatible object/route scope, and target
-consequence, while retaining every source record as a child. An analyst-authored topic
-map may prove additional equivalence. Do not add a traceability tab or link into hidden sheets; use stable IDs, links among
-visible analyst tabs, notes for complete long scopes, and A1 unhide/filter
-instructions. If the derived build or gate fails, reject only that file,
-deliver the already validated canonical workbook, and report the readability
-failure separately. Never rerun or loosen an audit stage to make the
-presentation pass.
+Build and gate the canonical workbook exactly as `workbook-architecture.md` defines.
+After its privacy scan passes, build and independently gate the derived analyst copy
+under `workbook-output-contract.md`. The analyst tabs must expose every atomic action,
+genuine owner topic, retained business family, and Custom HTML technical/replacement
+decision in literal analyst language; keep exhaustive proof in the canonical/JSON
+record. Group only answer-equivalent owner records without losing children. Never use
+the derived workbook as audit input, weaken actions for brevity, or loosen an audit
+gate to improve presentation. If only the derived file fails, deliver the validated
+canonical workbook and report that presentation failure separately.
 
 ## Approval And Optional Execution
 

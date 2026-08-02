@@ -217,6 +217,12 @@ replace an intentional server-enforcement design. A missing, partial, swapped,
 stale, or route-specific consent signal is a concrete configuration issue;
 absence of the unseen server export alone is not.
 
+A tag that writes the default consent state must execute on GTM's Consent
+Initialization system trigger. A later custom-event route is a source-visible
+ordering defect, not a runtime question. For consent-mapping code, resolve every
+referenced DLV's exported default/null contract: string methods such as
+`.includes()` require a source-proven string default or a local type/null guard.
+
 ## Template Objects
 
 Judge event name, template mode, configured fields, variable outputs, trigger
@@ -262,6 +268,16 @@ from the source was preserved. For listeners, compare the exact GTM trigger and 
 state with registration timing, `document.readyState`, load-already-fired behavior,
 stable guards, removal, timers/polling, and observer disconnect. `{once:true}` limits a
 registered callback; it does not prevent duplicate registration before the event.
+Treat an `event.origin` substring search as unsafe: accept only complete approved
+origins through equality or an exact allowlist. Before pushing `postMessage` data
+into `dataLayer`, validate the approved payload type and copy only allowed fields.
+Recursive `setTimeout` polling needs a finite attempt/elapsed-time/completion bound;
+a one-shot timeout is not a polling defect. Resolve dynamic cookie setters as well
+as literal writes, and flag a declared day count multiplied by an additional factor
+before the normal day-to-millisecond conversion. Check fall-through producers before
+`String()` coercion so missing input cannot become literal `"undefined"`, and compare
+semantic variable names with their returned value (for example, hour versus epoch
+milliseconds).
 Also resolve explicit
 `document.write()` against the exported Support document.write setting;
 JavaScript-looking Custom HTML without a `<script>` wrapper; Google
@@ -297,13 +313,17 @@ polarity-locked: citing the right tokens while denying the behavior is a failed
 review. Static findings have a decision class. Deterministic defects include
 the explicit unwrapped-JavaScript, asynchronous-CMP-variable,
 unguarded-listener, debugger, `dataLayer.reset`, internal
-`google_tag_manager`, eval, originless-message, HTTP, cookie set/update-attribute,
-and strong-secret signals. An unmatched cookie-deletion scope is an evidence
+`google_tag_manager`, eval, originless/substring-origin message,
+unvalidated message-to-dataLayer payload, HTTP, cookie set/update-attribute or
+duration, unbounded recursive timeout, unsafe missing-value coercion, semantic
+name/output, and strong-secret signals. An unmatched cookie-deletion scope is an evidence
 boundary rather than permission to invent its original path/domain. Parser/opaque/API-key uncertainty is an evidence
 boundary. Generic inline-script, code-size, DOM/storage/global,
 dynamic-script, direct-sender, and guarded-listener patterns are review
 signals: inspect the complete code and consumer route, then use `No defect
-after review` when the pattern is present but no defect exists. An advisory
+after review` only when the rationale names the exact source identifier and the
+safety condition—guard, allowlist, fallback, selector scope, destination,
+consent, or consumer contract—that closes the risk. An advisory
 pattern alone cannot create an owner question, and a source-present pattern
 cannot be called a false positive. `Cleanup opportunity` supplies a concrete
 `proposed_action`; `Documented exception` supplies a source-bound
@@ -319,8 +339,10 @@ fails action completeness.
 A `Confirmed issue` links by `technical_finding_keys` to exactly one concrete,
 source-evidenced defect before the overall object can be considered resolved.
 Every confirmed issue or cleanup opportunity also propagates to an exact
-cleanup operation unless a complete source-bound exception or genuine owner
-decision applies. Identical executable code receives one consistent technical
+cleanup operation. A deterministic technical defect cannot be handed back as
+an owner question merely because execution still requires approval; use a
+complete source-bound documented exception only when an accepted constraint
+genuinely requires retention. Identical executable code receives one consistent technical
 disposition unless different exported consumers justify a cited,
 consumer-specific outcome.
 An exported Support `document.write` mismatch has a visible Boolean target:

@@ -1227,6 +1227,17 @@ class AdversarialAuditTests(unittest.TestCase):
         primary_path.write_text(json.dumps(primary), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "pending items"):
             check_shard(review_path, shard_dir, primary_name)
+        with self.assertRaises(ValueError) as merge_error:
+            merge_review(
+                review_path,
+                shard_dir,
+                self.root / "should-not-merge.json",
+            )
+        self.assertIn(primary_name, str(merge_error.exception))
+        self.assertIn(
+            "repair only this declared shard, rerun check, then resume merge",
+            str(merge_error.exception),
+        )
 
     def test_shard_manifest_cannot_escape_its_directory(self) -> None:
         review = complete_operational(self.export)
