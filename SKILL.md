@@ -205,6 +205,12 @@ Before mutation, read `references/03-rules/mutation-playbook.md` and:
 - stop on drift, missing references, consent uncertainty, unexpected recreation, or any unapproved change;
 - never publish or create a version unless separately requested.
 
+Offline import generation may use the locked source and approved passing
+simulation without opening GTM authentication. Treat that artifact as
+planned/unapplied; a fresh identity-bound readback is mandatory immediately
+before applying it, and only the final post-import readback can certify an
+executed change log.
+
 Certify execution only when the final complete readback equals the approved simulation and every observed field change links to one approved operation. Treat that readback as the sole authoritative execution result; an executed change-log workbook must be regenerated from its passing certification. Produce the separate field-level change log only after execution or generated cleanup artifact creation.
 
 End every stage with one concrete next step.

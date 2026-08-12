@@ -304,6 +304,41 @@ def custom_code_return_terms(shared: dict[str, Any]) -> list[str]:
     return compact_terms(terms, 24)
 
 
+def source_leaf_distinction_terms(shared: dict[str, Any]) -> list[str]:
+    """Expose exact non-metadata leaf path/value pairs as a retention fallback."""
+
+    base = str(shared.get("source_json_path") or "")
+    ignored_leaves = {
+        "accountId",
+        "containerId",
+        "workspaceId",
+        "fingerprint",
+        "path",
+        "tagManagerUrl",
+        "notes",
+        "name",
+        *ID_KEYS.values(),
+    }
+    terms: list[str] = []
+    for fact in as_list(shared.get("source_leaf_facts")):
+        if not isinstance(fact, dict):
+            continue
+        path = str(fact.get("json_path") or "")
+        leaf = re.split(r"[.\[]", path.rstrip("]"))[-1].rstrip("]")
+        if leaf in ignored_leaves:
+            continue
+        relative = path[len(base) :] if base and path.startswith(base) else path
+        value = usable_behavior_preview(fact.get("value_preview"))
+        if not relative or not value or len(value) > 100:
+            continue
+        term = usable_distinguishing_term(
+            f"source field {relative.lstrip('.')} value {value}"
+        )
+        if term:
+            terms.append(term)
+    return compact_terms(terms, 80)
+
+
 def object_behavior_terms(shared: dict[str, Any]) -> list[str]:
     contract = shared.get("vendor_event_contract") or {}
     consent = shared.get("effective_consent_route") or {}
@@ -382,6 +417,7 @@ def object_behavior_terms(shared: dict[str, Any]) -> list[str]:
                 else ""
             ),
             *as_list(consent.get("detected_vendors")),
+            *source_leaf_distinction_terms(shared),
         ],
         160,
     )
@@ -1723,11 +1759,12 @@ def validate_retention_distinctions(
                 f"{label}: {key} retention rationale uses an opaque signature instead "
                 "of a source-visible semantic distinction"
             )
-        # Some behaviorally distinct members have no individually unique
-        # normalized token after source extraction.  Their member assessment
-        # is still required to be tied to source facts above; do not require
-        # a nonexistent unique token as an additional impossible condition.
-        if terms and not any(term in text for term in terms):
+        if not terms:
+            errors.append(
+                f"{label}: {key} retention lacks an exact differing source field "
+                "path/value; use Owner decision needed when no such fact is visible"
+            )
+        elif not any(term in text for term in terms):
             errors.append(
                 f"{label}: {key} retention rationale lacks a configuration term unique to that member"
             )

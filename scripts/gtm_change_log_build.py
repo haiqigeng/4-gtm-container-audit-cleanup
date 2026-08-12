@@ -32,6 +32,10 @@ def build_change_log(payload: dict[str, Any], output: Path) -> None:
         and bool(verification.get("readback_configuration_sha256"))
         and verification.get("readback_configuration_sha256")
         == verification.get("expected_configuration_sha256")
+        and (verification.get("container_identity_binding") or {}).get("status")
+        == "pass"
+        and (verification.get("operation_packet_binding") or {}).get("status")
+        == "pass"
         and final_readback.get("authoritative") is True
     )
     if execution_mode == "executed" and not certified:

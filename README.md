@@ -24,6 +24,24 @@ verified resulting container when execution is approved—is the product.
 
 It is designed for Codex, Claude Code, Gemini, and other file-capable agents.
 
+## v1.12.0 Highlights
+
+- Binds pre-mutation and final-readback certification to a strong GTM
+  container identity while accepting compatible extra identity metadata and
+  ignoring workspace-only readback churn.
+- Computes cleanup-created orphan closure from the simulated future graph, so
+  indexed edits, trigger groups, Zones, templates, and newly created consumers
+  are handled without adding another scan.
+- Makes nullable `.includes()` guard review lexical-scope aware and requires
+  source-visible CMP/template consent behavior instead of treating a generic
+  `command=default` field as proof.
+- Preserves the declared canonical target when equivalent operations reconcile,
+  blocks competing canonical targets, and accepts only the exact registered
+  GTM system-trigger IDs.
+- Moves cleanup approval packets to schema 5 and requires v1.12.0's execution
+  boundaries to enforce that dependency contract, while keeping the three
+  independent scans and their coverage unchanged.
+
 ## v1.11.1 Highlights
 
 - Closes cleanup-created orphan chains after the three independent scans,
@@ -356,8 +374,8 @@ If a sealed run needs correction, amend only that run from a fresh context with
 `--amendment-of <current-seal-sha256>`; the prior review and seal remain archived.
 
 The exact compilation, future-state, workbook, privacy, and change-log commands
-are in `references/02-commands/validation-commands.md`. Before approved
-mutation or import generation, `gtm_execution_guard.py` enforces exact
+are in `references/02-commands/validation-commands.md`. Before approved direct
+mutation or applying an import artifact, `gtm_execution_guard.py` enforces exact
 do-not-touch, server-route, activation, quarantine, source, and future-state
 preconditions.
 
@@ -366,7 +384,7 @@ Create and validate the exact row-level approval surface before mutation:
 ```powershell
 python -B scripts/gtm_approval_response.py template reconciled_operations.json approval_response.json --pretty
 python -B scripts/gtm_approval_response.py validate reconciled_operations.json approval_response.json --pretty
-python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --approval-response approval_response.json --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --pretty
 ```
 
 Compare two independently completed full audits without reusing old conclusions:
@@ -401,7 +419,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.11.1
+python -B scripts/check_release.py --tag v1.12.0
 git diff --check
 ```
 

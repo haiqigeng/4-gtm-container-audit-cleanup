@@ -298,8 +298,14 @@ A web analyst can call the result done only when:
   evidence, and mixed code retains every detected vendor.
 - A default consent writer uses the Consent Initialization system trigger. A
   later custom-event route is an Issue with an exact trigger-field repair.
+  A generic `command=default` or `command=update` parameter is not consent
+  behavior proof unless an identified CMP or the resolved tag/template code
+  visibly invokes a consent API. An API name in a string/comment, an import
+  without invocation, or a same-named local declaration is not an invocation.
   Consent CJS variables cannot call string methods on a DLV whose exported
-  default is disabled unless the code supplies a local type/null guard.
+  default is disabled unless every call is protected by a dominating guard in
+  the same lexical scope; conditional or unused nested-function guards do not
+  suppress the Issue.
 
 ## Run 3: Business Architecture
 
@@ -414,7 +420,10 @@ A web analyst can call the result done only when:
   orphan, folder, trigger, or naming finding and resolves every operational
   finding selected for cleanup.
 - After the three independent reviews, reconciliation computes cleanup-created
-  orphan closure to a fixed point without feeding a verdict back into a scan.
+  orphan closure from the simulated future consumer graph to a fixed point
+  without feeding a verdict back into a scan. New consumers introduced by
+  creations prevent deletion; indexed edits, groups, Zones, and templates are
+  covered by their resulting graph edges.
   Each derived deletion is separately visible, cites every source consumer,
   requires the exact operations that make it unused, and excludes runtime-root
   tags and pre-existing unreferenced objects.
@@ -442,9 +451,19 @@ A web analyst can call the result done only when:
   future-state mismatch, unconfirmed server or activation risk, or quarantined
   deletion without post-observation confirmation.
 - The execution preflight also requires a fresh complete GTM workspace readback
-  whose container identity and metadata-neutral modeled object graph equal the
-  locked audited source. Drift requires a fresh audit/plan; it is not accepted
-  as an execution-time amendment.
+  whose strong container identity and metadata-neutral modeled object graph
+  equal the locked audited source. `publicId`, or the account/container ID pair,
+  must be comparable; a missing identity or an equal graph from another
+  container fails. Compatible extra readback identity fields are accepted and
+  workspace-only ID churn is ignored. Drift requires a fresh audit/plan; it is
+  not accepted as an execution-time amendment.
+- Mutation paths accept only the explicitly registered GTM system-trigger IDs;
+  an arbitrary ID that merely resembles the reserved numeric range fails.
+- Retaining behaviorally distinct Run-3 members requires each member's exact
+  unique source-visible term. When normalized terms are empty, an exact
+  differing leaf path/value is generated as the fallback; if none exists, the
+  relationship remains `Owner decision needed` rather than accepting generic
+  retention prose.
 - The decision ledger contains every source obligation exactly once and links
   every cleanup disposition to a compiled operation. Reconciliation removes or
   narrows stale owner/keep rows when their objects are deleted, and fails if a
@@ -477,8 +496,11 @@ A web analyst can call the result done only when:
   obligation shards.
 - A row-level approval response covers every operation exactly once with
   `Approve`, `Reject`, or `Amend`; its packet and operation hashes match the
-  compiled schema-4 operation packet. Risk confirmations remain explicit and
+  compiled schema-5 operation packet. Risk confirmations remain explicit and
   separate. Missing, duplicate, foreign, or altered rows fail preflight.
+- Preflight, final-readback certification, and executed-workbook generation
+  each revalidate the schema-5 packet binding; direct approval flags cannot
+  bypass a legacy, foreign-kind, or modified packet.
 - An audit delta accepts only two independently complete, sealed packages (and
   complete operation packets when present). It compares objective objects,
   findings, operations, decisions, families, and counts without carrying prior

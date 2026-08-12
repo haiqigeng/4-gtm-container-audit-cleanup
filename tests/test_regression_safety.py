@@ -51,6 +51,25 @@ from gtm_review_isolation import relocate_unexpected_bundle_artifacts  # noqa: E
 
 
 class RegressionSafetyTests(unittest.TestCase):
+    def test_only_registered_system_trigger_ids_bypass_object_lookup(self) -> None:
+        for trigger_id in ("2147479553", "2147479573", "2147479593"):
+            self.assertEqual(
+                [],
+                _reference_list_errors(
+                    "$.containerVersion.tag[0].firingTriggerId",
+                    [trigger_id],
+                    set(),
+                    "test change",
+                ),
+            )
+        errors = _reference_list_errors(
+            "$.containerVersion.tag[0].firingTriggerId",
+            ["2147479999"],
+            set(),
+            "test change",
+        )
+        self.assertTrue(any("exact system-trigger registry" in value for value in errors))
+
     def test_references_are_leaf_aware_and_exclude_object_metadata(self) -> None:
         self.assertEqual(set(), refs({"name": "{{Ghost}}", "notes": "{{Also ghost}}"}))
         self.assertEqual(set(), refs({"left": "{{Ghost", "right": "}}"}))
@@ -758,6 +777,62 @@ class RegressionSafetyTests(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual(1, len(merged))
         self.assertEqual(["variable:42"], merged[0]["source_object_keys"])
+
+    def test_equal_deletions_preserve_the_only_declared_canonical_target(self) -> None:
+        operational = normalized_operation(
+            {
+                "operation_key": "operational-delete",
+                "deletions": [{"object_key": "variable:42", "reason": "Unused."}],
+            },
+            "operational_sanitation",
+            "BASE-42",
+            ["variable:42"],
+        )
+        architecture = normalized_operation(
+            {
+                "operation_key": "architecture-delete",
+                "canonical_object_key": "variable:43",
+                "deletions": [
+                    {"object_key": "variable:42", "reason": "Superseded."}
+                ],
+            },
+            "business_architecture",
+            "REL-42",
+            ["variable:42", "variable:43"],
+        )
+        errors: list[str] = []
+
+        merged = merge_compatible_operations([operational, architecture], errors)
+
+        self.assertEqual([], errors)
+        self.assertEqual("variable:43", merged[0]["canonical_object_key"])
+
+    def test_equal_deletions_block_conflicting_canonical_targets(self) -> None:
+        first = normalized_operation(
+            {
+                "operation_key": "first",
+                "canonical_object_key": "variable:43",
+                "deletions": [{"object_key": "variable:42", "reason": "Duplicate."}],
+            },
+            "business_architecture",
+            "REL-42-A",
+            ["variable:42", "variable:43"],
+        )
+        second = normalized_operation(
+            {
+                "operation_key": "second",
+                "canonical_object_key": "variable:44",
+                "deletions": [{"object_key": "variable:42", "reason": "Duplicate."}],
+            },
+            "business_architecture",
+            "REL-42-B",
+            ["variable:42", "variable:44"],
+        )
+        errors: list[str] = []
+
+        merge_compatible_operations([first, second], errors)
+
+        self.assertTrue(any("conflicting canonical targets" in value for value in errors))
 
     def test_ineffective_blocker_can_retire_only_its_orphaned_dependency_chain(self) -> None:
         finding = {

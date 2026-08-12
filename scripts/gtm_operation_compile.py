@@ -15,11 +15,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from gtm_approval_response import approval_contract
+from gtm_approval_response import CLEANUP_PACKET_SCHEMA_VERSION, approval_contract
 from gtm_architecture_review import validate_review as validate_architecture_review
 from gtm_baseline_audit import build_execution_reachability
 from gtm_configuration_review import validate_review as validate_configuration_review
 from gtm_consent_model import server_route_hosts
+from gtm_future_state_check import apply_operations
 from gtm_lib import (
     ID_KEYS,
     REF_RE,
@@ -32,6 +33,7 @@ from gtm_operational_review import validate_review as validate_operational_revie
 from gtm_review_common import (
     as_list,
     object_consumer_map,
+    object_consumer_map_from_data,
     object_name_map,
     object_source_path_map,
     specific_text,
@@ -624,6 +626,21 @@ def merge_compatible_operations(
         )
         first["affected_object_keys"] = sorted(
             {value for row in rows for value in as_list(row.get("affected_object_keys"))}
+        )
+        canonical_targets = sorted(
+            {
+                str(row.get("canonical_object_key") or "")
+                for row in rows
+                if str(row.get("canonical_object_key") or "")
+            }
+        )
+        if len(canonical_targets) > 1:
+            errors.append(
+                f"compiled operation {first['operation_key']!r} has conflicting "
+                f"canonical targets: {canonical_targets!r}"
+            )
+        first["canonical_object_key"] = (
+            canonical_targets[0] if len(canonical_targets) == 1 else ""
         )
         errors.extend(
             validate_challenge(
@@ -2186,6 +2203,8 @@ def cleanup_closure_operations(
     operations: list[dict[str, Any]],
     catalog: dict[str, dict[str, Any]],
     expected_consumers: dict[str, set[str]] | None,
+    source_export: dict[str, Any] | None = None,
+    compiler_errors: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Close cleanup-created orphan chains without inventing a fourth scan.
 
@@ -2199,13 +2218,31 @@ def cleanup_closure_operations(
     if not expected_consumers or not catalog:
         return [], []
 
+    future_consumers: dict[str, set[str]] | None = None
+    if source_export is not None:
+        future, application_errors = apply_operations(
+            source_export,
+            {"operations": operations},
+        )
+        if application_errors:
+            if compiler_errors is not None:
+                compiler_errors.extend(
+                    f"cleanup closure simulation: {error}"
+                    for error in application_errors
+                )
+            return [], []
+        future_consumers = object_consumer_map_from_data(future)
+
     deleted_by_key: dict[str, set[str]] = defaultdict(set)
     detached_by_key: dict[str, dict[str, set[str]]] = defaultdict(
         lambda: defaultdict(set)
     )
     protected_keys: set[str] = set()
+    operations_touching: dict[str, set[str]] = defaultdict(set)
     for index, operation in enumerate(operations, start=1):
         operation_key = str(operation.get("operation_key") or f"operation-{index}")
+        for key in action_object_keys(operation):
+            operations_touching[key].add(operation_key)
         for deletion in as_list(operation.get("deletions")):
             key = str(deletion.get("object_key") or "")
             if key:
@@ -2238,34 +2275,57 @@ def cleanup_closure_operations(
         and key not in planned_deleted
         and key not in protected_keys
         and bool(expected_consumers.get(key))
+        and (future_consumers is None or key in future_consumers)
     }
 
     while True:
-        newly_orphaned: list[tuple[str, set[str], set[str]]] = []
+        newly_orphaned: list[tuple[str, set[str], set[str], set[str]]] = []
         for key in sorted(remaining_candidates):
             source_consumers = set(expected_consumers.get(key, set()))
-            detached_consumers = set(detached_by_key.get(key, {}))
-            surviving_consumers = (
-                source_consumers - planned_deleted - detached_consumers
-            )
+            if future_consumers is None:
+                current_consumers = source_consumers
+                detached_consumers = set(detached_by_key.get(key, {}))
+                surviving_consumers = (
+                    current_consumers - planned_deleted - detached_consumers
+                )
+            else:
+                current_consumers = set(future_consumers.get(key, set()))
+                surviving_consumers = current_consumers - planned_deleted
             if surviving_consumers:
                 continue
+            evidence_consumers = source_consumers | current_consumers
             prerequisite_keys = {
                 operation_key
-                for consumer in source_consumers
+                for consumer in evidence_consumers
                 for operation_key in deleted_by_key.get(consumer, set())
             }
-            prerequisite_keys.update(
-                operation_key
-                for consumer in source_consumers
-                for operation_key in detached_by_key.get(key, {}).get(consumer, set())
-            )
+            if future_consumers is None:
+                prerequisite_keys.update(
+                    operation_key
+                    for consumer in source_consumers
+                    for operation_key in detached_by_key.get(key, {}).get(
+                        consumer, set()
+                    )
+                )
+            else:
+                prerequisite_keys.update(
+                    operation_key
+                    for touched_key in {key, *evidence_consumers}
+                    for operation_key in operations_touching.get(touched_key, set())
+                )
             if prerequisite_keys:
-                newly_orphaned.append((key, source_consumers, prerequisite_keys))
+                newly_orphaned.append(
+                    (key, source_consumers, current_consumers, prerequisite_keys)
+                )
         if not newly_orphaned:
             break
 
-        for key, source_consumers, prerequisite_keys in newly_orphaned:
+        for (
+            key,
+            source_consumers,
+            current_consumers,
+            prerequisite_keys,
+        ) in newly_orphaned:
             remaining_candidates.remove(key)
             planned_deleted.add(key)
             label = str(catalog.get(key, {}).get("object_name") or key)
@@ -2327,11 +2387,13 @@ def cleanup_closure_operations(
                 "prerequisite_operation_keys": sorted(prerequisite_keys),
                 "closure_evidence": {
                     "source_consumer_object_keys": sorted(source_consumers),
+                    "future_consumer_object_keys": sorted(current_consumers),
                     "result": "unreferenced_after_prerequisites",
                 },
             }
             derived.append(operation)
             deleted_by_key[key].add(operation_key)
+            operations_touching[key].add(operation_key)
             decisions.append(
                 {
                     "decision_id": decision_id,
@@ -2412,6 +2474,11 @@ def dependency_order_operations(
                         consumer, set()
                     )
                     if key != owner
+                )
+                dependencies[owner].update(
+                    key
+                    for key, action_keys in action_keys_by_operation.items()
+                    if key != owner and consumer in action_keys
                 )
             dependencies[owner].update(
                 key
@@ -3681,6 +3748,7 @@ def compile_operations(
     expected_consumers: dict[str, set[str]] | None = None,
     object_names: dict[str, str] | None = None,
     source_paths_by_key: dict[str, str] | None = None,
+    source_export: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     errors, hashes, fact_hashes, context_hashes = validate_review_bundle(
         operational, configuration, architecture, route
@@ -3700,6 +3768,8 @@ def compile_operations(
         merged,
         catalog or {},
         expected_consumers,
+        source_export,
+        errors,
     )
     merged.extend(derived_closure)
     ledger.extend(closure_decisions)
@@ -3753,7 +3823,7 @@ def compile_operations(
     )
     payload = {
         "kind": "gtm_reconciled_operations",
-        "schema_version": 4,
+        "schema_version": CLEANUP_PACKET_SCHEMA_VERSION,
         "source_file": operational.get("source_file"),
         "source_sha256": next(iter(hashes), ""),
         "shared_facts_sha256": next(iter(fact_hashes), ""),
@@ -3825,6 +3895,7 @@ def main() -> int:
         object_consumer_map(args.export),
         object_name_map(args.export),
         object_source_path_map(args.export),
+        load_json(args.export),
     )
     if errors:
         for error in errors:

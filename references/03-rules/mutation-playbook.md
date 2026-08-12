@@ -19,10 +19,12 @@ Never mutate or publish from an audit request alone.
 3. Generate the packet-bound response and record `Approve`, `Reject`, or `Amend`
    for every operation.
 4. Confirm rollback export and blockers.
-5. Re-read the complete workspace, validate the response, regenerate the
-   selected future state, and run the execution preflight against that fresh
-   readback.
-6. Execute only the approved operations that pass the preflight.
+5. For direct mutation or actual import application, re-read the complete
+   workspace, validate the response, regenerate the selected future state, and
+   run the execution preflight against that fresh readback.
+6. Execute or apply only the approved operations that pass the preflight. An
+   offline import artifact may be generated earlier from the locked source and
+   approved simulation, but remains planned/unapplied until this step.
 
 Audit and recommendation depth are independent of this choice. Do not use
 aggressiveness modes; approval is operation-specific. Treat a subset as staged
@@ -89,6 +91,11 @@ list presented as importable.
 
 Generate it from the simulated complete future export, then validate the full
 effective container before delivery.
+
+Offline generation does not require GTM authentication or a live readback. It
+does not certify execution: run the fresh-readback preflight immediately before
+the artifact is imported, and generate an executed change log only from the
+final complete post-import readback.
 
 Import behavior may delete/recreate templates, tags, triggers, or variables and
 can pollute View Changes. Same-container identity matching is not a reliable

@@ -264,14 +264,17 @@ cleanup rather than a change to the active measurement graph. It does not need
 a fabricated Run 3 relationship, but complete reference validation and the
 future-state gate remain mandatory.
 
-After the three sealed judgments reconcile, compute cleanup closure to a fixed
-point from the complete locked consumer graph. If approved source operations
-remove or detach the last consumer of a trigger, variable, built-in, folder, or
-template, add one visible, separately approvable reconciliation operation with
-the exact prerequisite operations. Do not feed this consequence back into any
-review, treat it as a fourth scan, add runtime roots, or infer that a business
-tag is obsolete. Topologically order the resulting operations so consumers are
-retired or remapped before their dependencies.
+After the three sealed judgments reconcile, apply their structured mutations to
+the locked source and compute cleanup closure to a fixed point from that
+simulated future consumer graph. This must preserve dependencies introduced by
+creations and detect detachments made through indexed fields, trigger groups,
+Zones, folders, sequenced tags, and templates. If the result removes the last
+consumer of a trigger, variable, built-in, folder, or template, add one visible,
+separately approvable reconciliation operation with the exact prerequisite
+operations. Do not feed this consequence back into any review, treat it as a
+fourth scan, add runtime roots, or infer that a business tag is obsolete.
+Topologically order the resulting operations so consumers are retired or
+remapped before their dependencies.
 
 An exact source-bound, non-destructive Run-1 or Run-2 repair may proceed with
 completed Run-3 family coverage rather than a duplicated architecture mutation.
@@ -416,11 +419,14 @@ operations stay visible in the analyst's decision record and require the future
 state to be regenerated before mutation. A subset is a staged, incomplete
 cleanup and cannot inherit the full plan's completion claim.
 
-Generate the response template from the schema-4 operation packet. Its packet
+Generate the response template from the schema-5 operation packet. Its packet
 hash locks the complete approval surface and each operation hash locks the row.
 Validation rejects missing, duplicate, foreign, or changed rows. Server-coupled,
 configured-activation-risk, and post-observation confirmations remain separate
-from `Approve` and must also pass the execution preflight.
+from `Approve` and must also pass the execution preflight. Preflight and final
+readback certification independently revalidate packet kind, schema, source
+binding, operation identities, and approval contract; direct flags cannot make
+an older or foreign packet executable.
 
 An optional audit delta may compare two independently completed and sealed full
 packages after their own scans and reconciliation. It reports objective source,

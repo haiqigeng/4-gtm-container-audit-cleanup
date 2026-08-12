@@ -2170,6 +2170,40 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertTrue(any("opaque signature" in error for error in errors), errors)
 
+    def test_retention_without_unique_term_requires_owner_decision(self) -> None:
+        from gtm_architecture_review import validate_retention_distinctions
+
+        errors = validate_retention_distinctions(
+            {
+                "relationship_verdict": "Intentional variant",
+                "member_assessments": [
+                    {
+                        "object_key": "tag:1",
+                        "distinguishing_configuration": (
+                            "General source review found another business role here."
+                        ),
+                    },
+                    {
+                        "object_key": "tag:2",
+                        "distinguishing_configuration": (
+                            "General source review found another business role here."
+                        ),
+                    },
+                ],
+            },
+            ["tag:1", "tag:2"],
+            {"tag:1": [], "tag:2": []},
+            {
+                "tag:1": {"execution_route": "route-a"},
+                "tag:2": {"execution_route": "route-b"},
+            },
+            "zero-term retention",
+        )
+
+        self.assertTrue(
+            any("exact differing source field path/value" in error for error in errors)
+        )
+
     def test_distinguishing_terms_preserve_source_visible_baseline_scope(self) -> None:
         from gtm_architecture_review import (
             configured_parameter_terms,

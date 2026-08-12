@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gtm-container-audit-cleanup"
-version = "1.11.1"
+version = "1.12.0"
 description = "Agent-neutral GTM web-analyst audit and cleanup tooling"
 readme = {text = "Container-only GTM web-analyst audit and cleanup tooling.", content-type = "text/plain"}
 license = "MIT"

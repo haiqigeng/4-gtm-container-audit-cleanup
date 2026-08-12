@@ -13,6 +13,7 @@ from gtm_lib import as_list, load_json, stable_hash, write_json
 
 RESPONSE_KIND = "gtm_cleanup_approval_response"
 RESPONSE_SCHEMA_VERSION = 1
+CLEANUP_PACKET_SCHEMA_VERSION = 5
 ALLOWED_DECISIONS = {"Approve", "Reject", "Amend"}
 
 
@@ -62,6 +63,37 @@ def approval_contract(packet: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def cleanup_packet_errors(packet: dict[str, Any]) -> list[str]:
+    """Validate the immutable cleanup packet at every execution boundary."""
+
+    errors: list[str] = []
+    if packet.get("kind") != "gtm_reconciled_operations":
+        errors.append("cleanup packet kind is invalid")
+    if packet.get("schema_version") != CLEANUP_PACKET_SCHEMA_VERSION:
+        errors.append("cleanup packet schema version is invalid")
+    if packet.get("plan_status") != "complete":
+        errors.append("cleanup packet is not approval-ready")
+    if not str(packet.get("source_sha256") or ""):
+        errors.append("cleanup packet source hash is missing")
+    if (packet.get("approval_contract") or {}) != approval_contract(packet):
+        errors.append(
+            "cleanup packet approval contract is missing, changed, or unsupported"
+        )
+    raw_operations = as_list(packet.get("operations"))
+    operation_ids = [
+        str(operation.get("operation_id") or "")
+        for operation in raw_operations
+        if isinstance(operation, dict)
+    ]
+    if len(operation_ids) != len(raw_operations):
+        errors.append("cleanup packet contains a malformed operation")
+    if any(not value for value in operation_ids) or len(operation_ids) != len(
+        set(operation_ids)
+    ):
+        errors.append("cleanup packet operation IDs must be unique and nonblank")
+    return errors
+
+
 def required_confirmation_fields(operation: dict[str, Any]) -> list[str]:
     safety = operation.get("execution_safety") or {}
     fields = []
@@ -103,17 +135,8 @@ def response_template(packet: dict[str, Any]) -> dict[str, Any]:
 def validate_response(
     packet: dict[str, Any], response: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
-    errors: list[str] = []
-    contract = packet.get("approval_contract") or {}
+    errors = cleanup_packet_errors(packet)
     calculated_hash = approval_packet_sha256(packet)
-    if packet.get("kind") != "gtm_reconciled_operations":
-        errors.append("cleanup packet kind is invalid")
-    if packet.get("schema_version") != 4:
-        errors.append("cleanup packet schema version is invalid")
-    if packet.get("plan_status") != "complete":
-        errors.append("cleanup packet is not approval-ready")
-    if contract != approval_contract(packet):
-        errors.append("cleanup packet approval contract is missing, changed, or unsupported")
     if response.get("kind") != RESPONSE_KIND:
         errors.append("approval response kind is invalid")
     if response.get("schema_version") != RESPONSE_SCHEMA_VERSION:
@@ -124,17 +147,6 @@ def validate_response(
         errors.append("approval response targets another cleanup packet")
 
     raw_operations = as_list(packet.get("operations"))
-    operation_ids = [
-        str(operation.get("operation_id") or "")
-        for operation in raw_operations
-        if isinstance(operation, dict)
-    ]
-    if len(operation_ids) != len(raw_operations):
-        errors.append("cleanup packet contains a malformed operation")
-    if any(not value for value in operation_ids) or len(operation_ids) != len(
-        set(operation_ids)
-    ):
-        errors.append("cleanup packet operation IDs must be unique and nonblank")
     operations = {
         str(operation.get("operation_id") or ""): operation
         for operation in raw_operations

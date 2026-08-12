@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtm_approval_response import CLEANUP_PACKET_SCHEMA_VERSION
 from gtm_lib import as_list, load_json, stable_hash, write_json
 from gtm_review_isolation import review_seal_errors
 
@@ -96,10 +97,13 @@ def package_artifacts(
         operations = artifacts["operations"]
         if (
             operations.get("kind") != "gtm_reconciled_operations"
-            or operations.get("schema_version") != 4
+            or operations.get("schema_version") != CLEANUP_PACKET_SCHEMA_VERSION
             or operations.get("plan_status") != "complete"
         ):
-            raise ValueError("audit delta operations must be a complete schema-4 packet")
+            raise ValueError(
+                "audit delta operations must be a complete schema-"
+                f"{CLEANUP_PACKET_SCHEMA_VERSION} packet"
+            )
         for field, expected in (
             ("source_sha256", source_sha256),
             ("shared_facts_sha256", shared_sha256),

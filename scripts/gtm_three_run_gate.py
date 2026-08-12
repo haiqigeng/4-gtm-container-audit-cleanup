@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtm_approval_response import CLEANUP_PACKET_SCHEMA_VERSION
 from gtm_architecture_review import validate_review as validate_architecture
 from gtm_configuration_review import validate_review as validate_configuration
 from gtm_context_model import build_context_model, context_content_hash
@@ -254,8 +255,11 @@ def run_gate(
         expected_hash = source_descriptor(export)["source_sha256"]
         if operations.get("source_sha256") != expected_hash:
             errors.append("operations source hash differs from the export")
-        elif operations.get("schema_version") != 4:
-            errors.append("operations schema_version must be 4")
+        elif operations.get("schema_version") != CLEANUP_PACKET_SCHEMA_VERSION:
+            errors.append(
+                "operations schema_version must be "
+                f"{CLEANUP_PACKET_SCHEMA_VERSION}"
+            )
         elif set((operations.get("run_statuses") or {}).values()) != {"complete"}:
             errors.append("operations do not record three complete input runs")
         else:
@@ -271,6 +275,7 @@ def run_gate(
                 object_consumer_map(export),
                 object_name_map(export),
                 object_source_path_map(export),
+                load_json(export),
             )
             errors.extend(f"operation recompile: {error}" for error in compile_errors)
             if not compile_errors and operations != expected_operations:

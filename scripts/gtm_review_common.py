@@ -20,6 +20,7 @@ from gtm_lib import (
     container_root_path,
     container_version,
     is_system_trigger_reference,
+    resembles_system_trigger_reference,
     stable_hash,
 )
 from gtm_shared_facts import build_shared_facts
@@ -551,8 +552,17 @@ def _reference_list_errors(
             and not is_system_trigger_reference(str(item))
         )
         if unknown:
+            reserved_like = [
+                value for value in unknown if resembles_system_trigger_reference(value)
+            ]
             errors.append(
                 f"{prefix} uses trigger names or unknown trigger IDs: {unknown!r}"
+                + (
+                    "; reserved-looking IDs are not accepted unless present in the "
+                    f"exact system-trigger registry: {reserved_like!r}"
+                    if reserved_like
+                    else ""
+                )
             )
     return errors
 
@@ -1030,6 +1040,12 @@ def object_keys(export_path: Path) -> set[str]:
 
 def object_consumer_map(export_path: Path) -> dict[str, set[str]]:
     data = json.loads(export_path.read_text(encoding="utf-8"))
+    return object_consumer_map_from_data(data)
+
+
+def object_consumer_map_from_data(data: dict[str, Any]) -> dict[str, set[str]]:
+    """Return dependency consumers from an export or simulated future state."""
+
     cv = container_version(data)
     consumers = build_consumers(cv, container_root_path(data))
     result: dict[str, set[str]] = {}

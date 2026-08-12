@@ -44,6 +44,7 @@ READBACK_VOLATILE_FIELDS = frozenset(
         "containerId",
         "fingerprint",
         "path",
+        "tagManagerUrl",
         "workspaceId",
     }
 )
@@ -537,6 +538,58 @@ def container_identity(data: dict[str, Any]) -> dict[str, str]:
     return {key: str(value) for key, value in values.items() if str(value or "")}
 
 
+def container_identity_binding(
+    expected: dict[str, Any], actual: dict[str, Any]
+) -> dict[str, Any]:
+    """Compare two GTM identities without rejecting compatible extra evidence.
+
+    ``publicId`` is globally meaningful.  The numeric ``containerId`` is scoped
+    to an account, so it is strong only when ``accountId`` is also shared.  A
+    readback may legitimately expose more identity fields than an older export;
+    matching shared strong fields is therefore required instead of exact-dict
+    equality.
+    """
+
+    expected_identity = container_identity(expected)
+    actual_identity = container_identity(actual)
+    shared_fields = sorted(set(expected_identity) & set(actual_identity))
+    conflicting_fields = sorted(
+        field
+        for field in shared_fields
+        if expected_identity[field] != actual_identity[field]
+    )
+    strong_shared_fields: list[str] = []
+    if "publicId" in shared_fields:
+        strong_shared_fields.append("publicId")
+    if {"accountId", "containerId"} <= set(shared_fields):
+        strong_shared_fields.extend(["accountId", "containerId"])
+    strong_shared_fields = sorted(set(strong_shared_fields))
+
+    errors: list[str] = []
+    if not expected_identity:
+        errors.append("audited source has no strong GTM container identity")
+    if not actual_identity:
+        errors.append("readback has no strong GTM container identity")
+    if conflicting_fields:
+        errors.append(
+            "readback conflicts with the audited container identity at: "
+            + ", ".join(conflicting_fields)
+        )
+    if not conflicting_fields and not strong_shared_fields:
+        errors.append(
+            "audited source and readback share no comparable strong container identity"
+        )
+    return {
+        "status": "pass" if not errors else "fail",
+        "expected_identity": expected_identity,
+        "actual_identity": actual_identity,
+        "shared_identity_fields": shared_fields,
+        "strong_shared_identity_fields": strong_shared_fields,
+        "conflicting_identity_fields": conflicting_fields,
+        "errors": errors,
+    }
+
+
 def code_identity_text(value: Any) -> str:
     """Normalize transport-only code differences without changing JS literals."""
 
@@ -832,9 +885,16 @@ def is_system_variable_reference(name: str) -> bool:
 
 
 def is_system_trigger_reference(trigger_id: str) -> bool:
-    return trigger_id in KNOWN_SYSTEM_TRIGGER_REFERENCES or bool(
-        SYSTEM_TRIGGER_RE.match(trigger_id)
-    )
+    # Mutation and reference validation must fail closed.  A value that merely
+    # resembles Google's reserved range is not proof that GTM owns that exact
+    # ID; add future IDs to the explicit registry only after source confirmation.
+    return trigger_id in KNOWN_SYSTEM_TRIGGER_REFERENCES
+
+
+def resembles_system_trigger_reference(trigger_id: str) -> bool:
+    """Return whether an unregistered trigger ID resembles GTM's reserved range."""
+
+    return bool(SYSTEM_TRIGGER_RE.fullmatch(trigger_id))
 
 
 def system_reference_description(kind: str, value: str) -> str:

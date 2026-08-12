@@ -10,9 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from gtm_approval_response import (  # noqa: E402
+    CLEANUP_PACKET_SCHEMA_VERSION,
+    approval_contract,
+)
 from gtm_change_log_build import build_change_log  # noqa: E402
 from gtm_diff_operations import execution_verification  # noqa: E402
 from gtm_diff_operations import operations as diff_operations  # noqa: E402
+from gtm_execution_guard import live_readback_binding  # noqa: E402
 from gtm_future_state_check import apply_operations  # noqa: E402
 from gtm_lib import container_version  # noqa: E402
 
@@ -20,6 +25,7 @@ from gtm_lib import container_version  # noqa: E402
 def mutation_export() -> dict:
     return {
         "containerVersion": {
+            "publicId": "GTM-MUTATION-TEST",
             "tag": [
                 {"tagId": "1", "name": "Source Tag", "type": "html"},
                 {"tagId": "2", "name": "Target Tag", "type": "html"},
@@ -77,7 +83,48 @@ def empty_actions(**values: object) -> dict:
     return operation
 
 
+def cleanup_packet(operation_rows: list[dict] | None = None) -> dict:
+    packet = {
+        "kind": "gtm_reconciled_operations",
+        "schema_version": CLEANUP_PACKET_SCHEMA_VERSION,
+        "source_sha256": "source",
+        "plan_status": "complete",
+        "operations": list(operation_rows or []),
+    }
+    packet["approval_contract"] = approval_contract(packet)
+    return packet
+
+
 class MutationSafetyTests(unittest.TestCase):
+    def test_live_binding_accepts_additional_compatible_identity_fields(self) -> None:
+        source = {"containerVersion": {"publicId": "GTM-SAME", "tag": []}}
+        readback = {
+            "containerVersion": {
+                "publicId": "GTM-SAME",
+                "accountId": "1",
+                "containerId": "2",
+                "tag": [],
+            }
+        }
+
+        report, errors = live_readback_binding(
+            source, readback, "source", "source"
+        )
+
+        self.assertEqual([], errors)
+        self.assertEqual("pass", report["container_identity_binding"]["status"])
+
+    def test_live_binding_rejects_identity_free_equal_graphs(self) -> None:
+        source = {"containerVersion": {"tag": []}}
+
+        report, errors = live_readback_binding(
+            source, copy.deepcopy(source), "source", "source"
+        )
+
+        self.assertEqual("fail", report["status"])
+        self.assertTrue(errors)
+        self.assertTrue(any("identity" in error for error in errors))
+
     def test_executed_workbook_rejects_uncertified_readback(self) -> None:
         payload = {
             "execution_mode": "executed",
@@ -101,6 +148,8 @@ class MutationSafetyTests(unittest.TestCase):
                 "unlinked_change_ids": [],
                 "expected_configuration_sha256": fingerprint,
                 "readback_configuration_sha256": fingerprint,
+                "container_identity_binding": {"status": "pass"},
+                "operation_packet_binding": {"status": "pass"},
             },
             "final_readback": {"authoritative": True},
             "changes": [],
@@ -324,8 +373,8 @@ class MutationSafetyTests(unittest.TestCase):
         self.assertEqual(original, source)
 
     def test_execution_verification_certifies_exact_approved_readback(self) -> None:
-        approved = {
-            "operations": [
+        approved = cleanup_packet(
+            [
                 empty_actions(
                     operation_id="OP-RENAME",
                     why_it_matters="Give the retained tag its approved canonical name.",
@@ -338,7 +387,7 @@ class MutationSafetyTests(unittest.TestCase):
                     ],
                 )
             ]
-        }
+        )
         source_cv = container_version(mutation_export())
         future, errors = apply_operations(mutation_export(), approved)
         self.assertEqual([], errors)
@@ -374,8 +423,8 @@ class MutationSafetyTests(unittest.TestCase):
         )
 
     def test_execution_verification_rejects_readback_drift(self) -> None:
-        approved = {
-            "operations": [
+        approved = cleanup_packet(
+            [
                 empty_actions(
                     operation_id="OP-RENAME",
                     why_it_matters="Give the retained tag its approved canonical name.",
@@ -388,7 +437,7 @@ class MutationSafetyTests(unittest.TestCase):
                     ],
                 )
             ]
-        }
+        )
         source_cv = container_version(mutation_export())
         readback, errors = apply_operations(mutation_export(), approved)
         self.assertEqual([], errors)
@@ -412,6 +461,65 @@ class MutationSafetyTests(unittest.TestCase):
         self.assertIn(
             "tag:3", verification["configuration_differences"]["changed_object_keys"]
         )
+
+    def test_execution_verification_rejects_another_container_with_same_graph(self) -> None:
+        approved = cleanup_packet()
+        source_cv = container_version(mutation_export())
+        other_cv = copy.deepcopy(source_cv)
+        other_cv["publicId"] = "GTM-OTHER-CONTAINER"
+
+        verification = execution_verification(source_cv, other_cv, approved, [])
+
+        self.assertEqual("fail", verification["status"])
+        self.assertEqual(
+            "fail", verification["container_identity_binding"]["status"]
+        )
+        self.assertTrue(
+            any("identity" in error for error in verification["errors"])
+        )
+
+    def test_execution_verification_ignores_workspace_id_only(self) -> None:
+        approved = cleanup_packet()
+        source_cv = container_version(mutation_export())
+        source_cv["workspaceId"] = "100"
+        readback_cv = copy.deepcopy(source_cv)
+        readback_cv["workspaceId"] = "101"
+
+        verification = execution_verification(
+            source_cv, readback_cv, approved, []
+        )
+
+        self.assertEqual("pass", verification["status"])
+        self.assertEqual(0, verification["unexpected_or_missing_field_count"])
+
+    def test_execution_verification_ignores_readback_tag_manager_url(self) -> None:
+        approved = cleanup_packet()
+        source_cv = container_version(mutation_export())
+        readback_cv = copy.deepcopy(source_cv)
+        readback_cv["tag"][0]["tagManagerUrl"] = (
+            "https://tagmanager.google.com/#/container/accounts/1/containers/2"
+        )
+
+        verification = execution_verification(
+            source_cv, readback_cv, approved, []
+        )
+
+        self.assertEqual("pass", verification["status"])
+        self.assertEqual(0, verification["unexpected_or_missing_field_count"])
+
+    def test_execution_verification_rejects_legacy_packet_schema(self) -> None:
+        approved = cleanup_packet()
+        approved["schema_version"] = 4
+        approved["approval_contract"] = approval_contract(approved)
+        source_cv = container_version(mutation_export())
+
+        verification = execution_verification(
+            source_cv, copy.deepcopy(source_cv), approved, []
+        )
+
+        self.assertEqual("fail", verification["status"])
+        self.assertEqual("fail", verification["operation_packet_binding"]["status"])
+        self.assertFalse(verification["matches_approved_future_state"])
 
 
 if __name__ == "__main__":

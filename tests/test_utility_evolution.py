@@ -13,6 +13,7 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from gtm_approval_response import (  # noqa: E402
+    CLEANUP_PACKET_SCHEMA_VERSION,
     approval_contract,
     response_template,
     validate_response,
@@ -40,6 +41,7 @@ from gtm_relationships import (  # noqa: E402
     relationship_candidates,
 )
 from gtm_requirement_evidence import build_requirement_evidence  # noqa: E402
+from gtm_review_common import object_consumer_map_from_data  # noqa: E402
 from gtm_shared_facts import build_shared_facts  # noqa: E402
 from gtm_skill_identity import (  # noqa: E402
     declared_identity_errors,
@@ -74,6 +76,18 @@ def minimal_export() -> dict:
     }
 
 
+def cleanup_packet(rows: list[dict], source_sha256: str = "source") -> dict:
+    packet = {
+        "kind": "gtm_reconciled_operations",
+        "schema_version": CLEANUP_PACKET_SCHEMA_VERSION,
+        "source_sha256": source_sha256,
+        "plan_status": "complete",
+        "operations": rows,
+    }
+    packet["approval_contract"] = approval_contract(packet)
+    return packet
+
+
 class UtilityEvolutionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -100,7 +114,7 @@ class UtilityEvolutionTests(unittest.TestCase):
         }
         packet = {
             "kind": "gtm_reconciled_operations",
-            "schema_version": 4,
+            "schema_version": CLEANUP_PACKET_SCHEMA_VERSION,
             "source_sha256": "a" * 64,
             "shared_facts_sha256": "b" * 64,
             "context_sha256": "c" * 64,
@@ -139,6 +153,16 @@ class UtilityEvolutionTests(unittest.TestCase):
         non_boolean["responses"][0]["confirm_server_coupled"] = "false"
         _selection, errors = validate_response(packet, non_boolean)
         self.assertTrue(any("must be true or false" in error for error in errors))
+
+        legacy_packet = copy.deepcopy(packet)
+        legacy_packet["schema_version"] = 4
+        legacy_packet["approval_contract"] = approval_contract(legacy_packet)
+        legacy_response = response_template(legacy_packet)
+        legacy_response["responses"][0].update(
+            {"decision": "Approve", "confirm_server_coupled": True}
+        )
+        _selection, errors = validate_response(legacy_packet, legacy_response)
+        self.assertTrue(any("schema version" in error for error in errors))
 
     def test_audit_delta_compares_fresh_artifacts_without_carrying_verdicts(self) -> None:
         def artifacts(source_hash: str, object_hash: str, defect: str) -> dict:
@@ -567,16 +591,20 @@ class UtilityEvolutionTests(unittest.TestCase):
                     {
                         "tagId": "1",
                         "name": "Consent default too late",
-                        "type": "cvt_consent",
+                        "type": "html",
                         "firingTriggerId": ["10"],
                         "parameter": [
-                            {"key": "command", "type": "TEMPLATE", "value": "default"}
+                            {
+                                "key": "html",
+                                "type": "TEMPLATE",
+                                "value": "<script>gtag('consent','default',{});</script>",
+                            }
                         ],
                     },
                     {
                         "tagId": "2",
                         "name": "Consent default on initialization",
-                        "type": "cvt_consent",
+                        "type": "cvt_1_99",
                         "firingTriggerId": ["2147479593"],
                         "parameter": [
                             {"key": "command", "type": "TEMPLATE", "value": "default"}
@@ -590,6 +618,52 @@ class UtilityEvolutionTests(unittest.TestCase):
                         "parameter": [
                             {"key": "command", "type": "TEMPLATE", "value": "default"}
                         ],
+                    },
+                    {
+                        "tagId": "4",
+                        "name": "Consent call in a string only",
+                        "type": "html",
+                        "firingTriggerId": ["2147479593"],
+                        "parameter": [
+                            {
+                                "key": "html",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "<script>var note=\"gtag('consent','default',{})\";"
+                                    "</script>"
+                                ),
+                            }
+                        ],
+                    },
+                    {
+                        "tagId": "5",
+                        "name": "Consent API imported but not invoked",
+                        "type": "cvt_1_100",
+                        "firingTriggerId": ["2147479593"],
+                    },
+                ],
+                "customTemplate": [
+                    {
+                        "accountId": "1",
+                        "templateId": "99",
+                        "name": "Consent template",
+                        "templateData": (
+                            "___SANDBOXED_JS_FOR_WEB_TEMPLATE___\n"
+                            "const setDefaultConsentState = "
+                            "require('setDefaultConsentState');\n"
+                            "setDefaultConsentState({ad_storage:'denied'});"
+                        ),
+                    },
+                    {
+                        "accountId": "1",
+                        "templateId": "100",
+                        "name": "Import-only template",
+                        "templateData": (
+                            "___SANDBOXED_JS_FOR_WEB_TEMPLATE___\n"
+                            "const setDefaultConsentState = "
+                            "require('setDefaultConsentState');\n"
+                            "data.gtmOnSuccess();"
+                        ),
                     },
                 ],
                 "variable": [
@@ -668,6 +742,70 @@ class UtilityEvolutionTests(unittest.TestCase):
                             }
                         ],
                     },
+                    {
+                        "variableId": "15",
+                        "name": "Conditionally guarded consent mapping",
+                        "type": "jsm",
+                        "parameter": [
+                            {
+                                "key": "javascript",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "function(){var p={{Consent purposes}};"
+                                    "if(window.ready){if(typeof p !== 'string'){return 'denied';}}"
+                                    "return p.includes(',1,')?'granted':'denied';}"
+                                ),
+                            }
+                        ],
+                    },
+                    {
+                        "variableId": "16",
+                        "name": "Nested unused guard consent mapping",
+                        "type": "jsm",
+                        "parameter": [
+                            {
+                                "key": "javascript",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "function(){var p={{Consent purposes}};"
+                                    "function unused(){if(typeof p !== 'string'){return;}}"
+                                    "return p.includes(',1,')?'granted':'denied';}"
+                                ),
+                            }
+                        ],
+                    },
+                    {
+                        "variableId": "17",
+                        "name": "One unsafe call after a guarded call",
+                        "type": "jsm",
+                        "parameter": [
+                            {
+                                "key": "javascript",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "function(){var p={{Consent purposes}};"
+                                    "var first=p&&p.includes(',1,');"
+                                    "return p.includes(',2,')||first;}"
+                                ),
+                            }
+                        ],
+                    },
+                    {
+                        "variableId": "18",
+                        "name": "Guard invalidated before includes",
+                        "type": "jsm",
+                        "parameter": [
+                            {
+                                "key": "javascript",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "function(){var p={{Consent purposes}};"
+                                    "if(typeof p !== 'string'){return 'denied';}"
+                                    "p=undefined;return p.includes(',1,');}"
+                                ),
+                            }
+                        ],
+                    },
                 ],
             }
         )
@@ -685,8 +823,14 @@ class UtilityEvolutionTests(unittest.TestCase):
         self.assertNotIn(
             "consent_default_wrong_initialization_trigger", obligations["tag:2"]
         )
-        self.assertNotIn(
+        self.assertIn(
             "consent_initialization_non_consent_tag", obligations["tag:3"]
+        )
+        self.assertIn(
+            "consent_initialization_non_consent_tag", obligations["tag:4"]
+        )
+        self.assertIn(
+            "consent_initialization_non_consent_tag", obligations["tag:5"]
         )
         self.assertTrue(
             any(
@@ -712,6 +856,19 @@ class UtilityEvolutionTests(unittest.TestCase):
                 for key in obligations["variable:14"]
             )
         )
+        for object_key in (
+            "variable:15",
+            "variable:16",
+            "variable:17",
+            "variable:18",
+        ):
+            self.assertTrue(
+                any(
+                    key.startswith("nullable_dlv_includes:")
+                    for key in obligations[object_key]
+                ),
+                object_key,
+            )
 
     def test_relationship_discovery_covers_loaders_and_consent_writers_stably(self) -> None:
         cv = minimal_export()["containerVersion"]
@@ -1040,10 +1197,7 @@ class UtilityEvolutionTests(unittest.TestCase):
         )
         self.assertFalse(low_packet["execution_safety"]["decommission"]["required"])
 
-        operations = {
-            "source_sha256": "source",
-            "operations": [packet],
-        }
+        operations = cleanup_packet([packet])
         future = {
             "source_sha256": "source",
             "status": "pass",
@@ -1054,6 +1208,7 @@ class UtilityEvolutionTests(unittest.TestCase):
         }
         preflight_source = {
             "containerVersion": {
+                "publicId": "GTM-PREFLIGHT-TEST",
                 "tag": [
                     {
                         "tagId": "1",
@@ -1118,6 +1273,29 @@ class UtilityEvolutionTests(unittest.TestCase):
         )
         self.assertEqual("pass", allowed["status"])
 
+        legacy_operations = copy.deepcopy(operations)
+        legacy_operations["schema_version"] = 4
+        legacy_operations["approval_contract"] = approval_contract(
+            legacy_operations
+        )
+        legacy = execution_preflight(
+            legacy_operations,
+            {
+                "context": {"do_not_touch": []},
+                "context_evidence": {"do_not_touch": {"status": "provided"}},
+            },
+            future,
+            {packet["operation_id"]},
+            {packet["operation_id"]},
+            {packet["operation_id"]},
+            {packet["operation_id"]},
+            source_export=preflight_source,
+            live_readback=copy.deepcopy(preflight_source),
+            source_export_sha256="source",
+        )
+        self.assertEqual("fail", legacy["status"])
+        self.assertTrue(any("schema version" in value for value in legacy["errors"]))
+
     def test_cleanup_closure_is_separate_approvable_and_dependency_ordered(self) -> None:
         source_operation = {
             "operation_key": "replace-trigger",
@@ -1174,6 +1352,243 @@ class UtilityEvolutionTests(unittest.TestCase):
         self.assertEqual(["OP-0001"], packets[1]["depends_on_operation_ids"])
         self.assertEqual(["OP-0002"], packets[2]["depends_on_operation_ids"])
 
+    def test_cleanup_closure_uses_indexed_edits_and_future_graph(self) -> None:
+        source = minimal_export()
+        source["containerVersion"].update(
+            {
+                "tag": [
+                    {
+                        "tagId": "1",
+                        "name": "Event tag",
+                        "type": "html",
+                        "firingTriggerId": ["10"],
+                    }
+                ],
+                "trigger": [
+                    {
+                        "triggerId": "10",
+                        "name": "Legacy event",
+                        "type": "CUSTOM_EVENT",
+                        "customEventFilter": [
+                            condition("EQUALS", "{{Legacy value}}", "yes")
+                        ],
+                    },
+                    {"triggerId": "11", "name": "New event", "type": "CUSTOM_EVENT"},
+                ],
+                "variable": [
+                    {"variableId": "20", "name": "Legacy value", "type": "v"}
+                ],
+            }
+        )
+        operation = {
+            "operation_key": "replace-indexed-trigger",
+            "creations": [],
+            "additions": [],
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].firingTriggerId[0]",
+                    "before": "10",
+                    "after": "11",
+                }
+            ],
+            "remaps": [],
+            "renames": [],
+            "deletions": [],
+        }
+        consumers = object_consumer_map_from_data(source)
+        catalog = {
+            "tag:1": {"layer": "tag", "object_name": "Event tag"},
+            "trigger:10": {"layer": "trigger", "object_name": "Legacy event"},
+            "trigger:11": {"layer": "trigger", "object_name": "New event"},
+            "variable:20": {"layer": "variable", "object_name": "Legacy value"},
+        }
+
+        closure, _decisions = cleanup_closure_operations(
+            [operation], catalog, consumers, source
+        )
+
+        self.assertEqual(
+            ["trigger:10", "variable:20"],
+            [row["deletions"][0]["object_key"] for row in closure],
+        )
+        self.assertEqual(
+            ["replace-indexed-trigger"],
+            closure[0]["prerequisite_operation_keys"],
+        )
+
+    def test_cleanup_closure_preserves_dependency_used_by_a_creation(self) -> None:
+        source = minimal_export()
+        source["containerVersion"].update(
+            {
+                "tag": [
+                    {
+                        "tagId": "1",
+                        "name": "Existing consumer",
+                        "type": "html",
+                        "parameter": [
+                            {"key": "html", "value": "{{Legacy value}}"}
+                        ],
+                    }
+                ],
+                "variable": [
+                    {"variableId": "20", "name": "Legacy value", "type": "v"}
+                ],
+            }
+        )
+        operation = {
+            "operation_key": "move-consumer",
+            "creations": [
+                {
+                    "layer": "tag",
+                    "object": {
+                        "tagId": "2",
+                        "name": "New consumer",
+                        "type": "html",
+                        "parameter": [
+                            {"key": "html", "value": "{{Legacy value}}"}
+                        ],
+                    },
+                }
+            ],
+            "additions": [],
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].parameter",
+                    "before": [{"key": "html", "value": "{{Legacy value}}"}],
+                    "after": [{"key": "html", "value": "no reference"}],
+                }
+            ],
+            "remaps": [],
+            "renames": [],
+            "deletions": [],
+        }
+        catalog = {
+            "tag:1": {"layer": "tag", "object_name": "Existing consumer"},
+            "variable:20": {"layer": "variable", "object_name": "Legacy value"},
+        }
+
+        closure, _decisions = cleanup_closure_operations(
+            [operation],
+            catalog,
+            object_consumer_map_from_data(source),
+            source,
+        )
+
+        self.assertEqual([], closure)
+
+    def test_cleanup_closure_covers_groups_zones_and_custom_templates(self) -> None:
+        source = minimal_export()
+        source["containerVersion"].update(
+            {
+                "tag": [
+                    {
+                        "tagId": "1",
+                        "name": "Grouped tag",
+                        "type": "html",
+                        "firingTriggerId": ["20"],
+                    },
+                    {
+                        "tagId": "2",
+                        "name": "Template tag",
+                        "type": "cvt_1_99",
+                    },
+                ],
+                "trigger": [
+                    {"triggerId": "10", "name": "Member", "type": "CUSTOM_EVENT"},
+                    {"triggerId": "11", "name": "Replacement", "type": "CUSTOM_EVENT"},
+                    {
+                        "triggerId": "20",
+                        "name": "Legacy group",
+                        "type": "TRIGGER_GROUP",
+                        "parameter": [
+                            {
+                                "key": "triggerIds",
+                                "type": "LIST",
+                                "list": [{"type": "TRIGGER_REFERENCE", "value": "10"}],
+                            }
+                        ],
+                    },
+                ],
+                "zone": [
+                    {
+                        "zoneId": "40",
+                        "name": "Legacy zone route",
+                        "boundary": {"customEvaluationTriggerId": ["10"]},
+                    }
+                ],
+                "customTemplate": [
+                    {
+                        "accountId": "1",
+                        "templateId": "99",
+                        "name": "Legacy template",
+                        "templateData": "___SANDBOXED_JS_FOR_WEB_TEMPLATE___\ndata.gtmOnSuccess();",
+                    }
+                ],
+            }
+        )
+        operations = [
+            {
+                "operation_key": "replace-routes",
+                "creations": [],
+                "additions": [],
+                "changes": [
+                    {
+                        "object_key": "tag:1",
+                        "json_path": "$.containerVersion.tag[0].firingTriggerId[0]",
+                        "before": "20",
+                        "after": "11",
+                    },
+                    {
+                        "object_key": "zone:40",
+                        "json_path": (
+                            "$.containerVersion.zone[0].boundary."
+                            "customEvaluationTriggerId[0]"
+                        ),
+                        "before": "10",
+                        "after": "11",
+                    },
+                ],
+                "remaps": [],
+                "renames": [],
+                "deletions": [],
+            },
+            {
+                "operation_key": "delete-template-tag",
+                "creations": [],
+                "additions": [],
+                "changes": [],
+                "remaps": [],
+                "renames": [],
+                "deletions": [{"object_key": "tag:2"}],
+            },
+        ]
+        catalog = {
+            "tag:1": {"layer": "tag", "object_name": "Grouped tag"},
+            "tag:2": {"layer": "tag", "object_name": "Template tag"},
+            "trigger:10": {"layer": "trigger", "object_name": "Member"},
+            "trigger:11": {"layer": "trigger", "object_name": "Replacement"},
+            "trigger:20": {"layer": "trigger", "object_name": "Legacy group"},
+            "zone:40": {"layer": "zone", "object_name": "Legacy zone route"},
+            "customTemplate:99": {
+                "layer": "customTemplate",
+                "object_name": "Legacy template",
+            },
+        }
+
+        closure, _decisions = cleanup_closure_operations(
+            operations,
+            catalog,
+            object_consumer_map_from_data(source),
+            source,
+        )
+
+        self.assertEqual(
+            {"customTemplate:99", "trigger:20", "trigger:10"},
+            {row["deletions"][0]["object_key"] for row in closure},
+        )
+
     def test_inactive_consent_named_trigger_uses_structural_deletion_risk(self) -> None:
         packet = packetize_operations(
             [
@@ -1220,15 +1635,15 @@ class UtilityEvolutionTests(unittest.TestCase):
     ) -> None:
         source = {
             "containerVersion": {
+                "publicId": "GTM-GUARD-TEST",
                 "tag": [{"tagId": "1", "name": "Legacy", "type": "html"}],
                 "trigger": [
                     {"triggerId": "10", "name": "Legacy event", "type": "CUSTOM_EVENT"}
                 ],
             }
         }
-        operations = {
-            "source_sha256": "source",
-            "operations": [
+        operations = cleanup_packet(
+            [
                 {
                     "operation_id": "OP-0001",
                     "execution_order": 1,
@@ -1239,8 +1654,8 @@ class UtilityEvolutionTests(unittest.TestCase):
                     "execution_order": 2,
                     "depends_on_operation_ids": ["OP-0001"],
                 },
-            ],
-        }
+            ]
+        )
         context = {
             "context": {"do_not_touch": []},
             "context_evidence": {"do_not_touch": {"status": "provided"}},

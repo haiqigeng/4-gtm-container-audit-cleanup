@@ -45,6 +45,9 @@ from gtm_lib import (
     code_identity_text,
     container_root_path,
     container_version,
+    custom_template_executable_code,
+    custom_template_ids,
+    custom_template_type_index,
     refs,
     source_descriptor,
     source_integrity_findings,
@@ -370,16 +373,10 @@ JS_OBJECT_FIELD_RE = re.compile(
     re.S,
 )
 CONSENT_INITIALIZATION_TRIGGER_ID = "2147479593"
-CONSENT_MANAGEMENT_BEHAVIOR_RE = re.compile(
-    r"\b(?:setDefaultConsentState|updateConsentState|setConsentSettings)\b|"
-    r"\bgtag\s*\(\s*['\"]consent['\"]",
-    re.I,
-)
-CONSENT_DEFAULT_BEHAVIOR_RE = re.compile(
-    r"\bsetDefaultConsentState\b|"
-    r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"]default['\"]|"
-    r"(?:^|[^A-Za-z])command\s*[=:]\s*['\"]?default\b",
-    re.I,
+CONSENT_TEMPLATE_API_NAMES = (
+    "setDefaultConsentState",
+    "updateConsentState",
+    "setConsentSettings",
 )
 STRONG_SECRET_FIELD_RE = re.compile(
     r"^(?:client[_-]?secret|api[_-]?secret|access[_-]?token|refresh[_-]?token|"
@@ -406,6 +403,205 @@ PRIVATE_KEY_VALUE_RE = re.compile(
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
     re.I,
 )
+
+
+def javascript_scope_map(code: str) -> tuple[list[int], list[bool]]:
+    """Return lexical brace-scope IDs and code membership for each offset.
+
+    A unique ID per brace scope prevents a guard in a sibling block or nested
+    helper function from being mistaken for a guard that dominates the actual
+    ``.includes`` call.
+    """
+
+    scope_ids = [0] * (len(code) + 1)
+    is_code = [True] * (len(code) + 1)
+    scope_stack = [0]
+    next_scope_id = 1
+    state = "code"
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(code):
+        scope_ids[index] = scope_stack[-1]
+        char = code[index]
+        next_char = code[index + 1] if index + 1 < len(code) else ""
+        if state == "line_comment":
+            is_code[index] = False
+            if char in "\r\n":
+                state = "code"
+            index += 1
+            continue
+        if state == "block_comment":
+            is_code[index] = False
+            if char == "*" and next_char == "/":
+                is_code[index + 1] = False
+                scope_ids[index + 1] = scope_stack[-1]
+                index += 2
+                state = "code"
+                continue
+            index += 1
+            continue
+        if state == "string":
+            is_code[index] = False
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                state = "code"
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            is_code[index] = False
+            is_code[index + 1] = False
+            scope_ids[index + 1] = scope_stack[-1]
+            index += 2
+            state = "line_comment"
+            continue
+        if char == "/" and next_char == "*":
+            is_code[index] = False
+            is_code[index + 1] = False
+            scope_ids[index + 1] = scope_stack[-1]
+            index += 2
+            state = "block_comment"
+            continue
+        if char in {"'", '"', "`"}:
+            is_code[index] = False
+            quote = char
+            state = "string"
+            index += 1
+            continue
+        if char == "{":
+            scope_stack.append(next_scope_id)
+            next_scope_id += 1
+        elif char == "}":
+            if len(scope_stack) > 1:
+                scope_stack.pop()
+        index += 1
+    scope_ids[len(code)] = scope_stack[-1]
+    return scope_ids, is_code
+
+
+def local_includes_is_guarded(
+    code: str,
+    assignment_end: int,
+    includes_start: int,
+    local_name: str,
+    scope_ids: list[int],
+    code_positions: list[bool],
+) -> bool:
+    """Recognize only a guard that dominates one local ``.includes`` call.
+
+    This deliberately prefers a review finding over accepting a guard inside a
+    conditional branch, nested function, comment, or unrelated expression.
+    """
+
+    escaped = re.escape(local_name)
+    use_scope = scope_ids[includes_start]
+    before_use = code[assignment_end:includes_start]
+
+    def source_dominating(match: re.Match[str]) -> bool:
+        absolute = assignment_end + match.start()
+        return code_positions[absolute] and scope_ids[absolute] == use_scope
+
+    def unsafe_reassignment_after(match_end: int) -> bool:
+        tail = before_use[match_end:]
+        safe_assignment = re.compile(
+            rf"\b{escaped}\s*=\s*(?:"
+            rf"String\s*\(\s*{escaped}\s*(?:\|\||\?\?)|"
+            rf"{escaped}\s*(?:\|\||\?\?)\s*['\"]|"
+            rf"Array\.isArray\s*\(\s*{escaped}\s*\)\s*\?\s*{escaped}\s*:\s*\[|"
+            rf"['\"]|\[\s*\])",
+            re.I,
+        )
+        for reassignment in re.finditer(
+            rf"\b{escaped}\s*(?:=(?!=)|\+=|-=|\*=|/=|\?\?=|\|\|=)",
+            tail,
+        ):
+            absolute = assignment_end + match_end + reassignment.start()
+            if not code_positions[absolute] or scope_ids[absolute] != use_scope:
+                continue
+            if safe_assignment.match(tail, reassignment.start()):
+                continue
+            return True
+        return False
+
+    short_circuit = re.search(
+        rf"(?:\b{escaped}\b|"
+        rf"typeof\s+{escaped}\s*===?\s*['\"]string['\"]|"
+        rf"Array\.isArray\s*\(\s*{escaped}\s*\))\s*&&\s*$",
+        before_use,
+        re.I,
+    )
+    if (
+        short_circuit
+        and source_dominating(short_circuit)
+        and not unsafe_reassignment_after(short_circuit.end())
+    ):
+        return True
+
+    patterns = (
+        rf"if\s*\(\s*!\s*{escaped}\s*\)\s*"
+        rf"(?:\{{\s*)?return\b[^;{{}}]*;?\s*(?:\}})?",
+        rf"if\s*\(\s*typeof\s+{escaped}\s*!==?\s*['\"]string['\"]\s*\)\s*"
+        rf"\{{[^{{}}]*\breturn\b[^{{}}]*\}}",
+        rf"if\s*\(\s*typeof\s+{escaped}\s*!==?\s*['\"]string['\"]\s*&&\s*"
+        rf"!\s*Array\.isArray\s*\(\s*{escaped}\s*\)\s*\)\s*"
+        rf"\{{[^{{}}]*\b{escaped}\s*=\s*\[\s*\][^{{}}]*\}}",
+        rf"\b{escaped}\s*=\s*String\s*\(\s*{escaped}\s*(?:\|\||\?\?)",
+        rf"\b{escaped}\s*=\s*{escaped}\s*(?:\|\||\?\?)\s*['\"]",
+        rf"\b{escaped}\s*=\s*Array\.isArray\s*\(\s*{escaped}\s*\)\s*"
+        rf"\?\s*{escaped}\s*:\s*\[\s*\]",
+    )
+    return any(
+        source_dominating(match) and not unsafe_reassignment_after(match.end())
+        for pattern in patterns
+        for match in re.finditer(pattern, before_use, re.I | re.S)
+    )
+
+
+def has_executable_consent_call(
+    code: str, *, template_code: bool, default_only: bool
+) -> bool:
+    """Require a real consent API call, not a name in prose or a declaration."""
+
+    if not code.strip():
+        return False
+    _scope_ids, code_positions = javascript_scope_map(code)
+    patterns = [
+        re.compile(
+            r"\bgtag\s*\(\s*['\"]consent['\"]"
+            + (r"\s*,\s*['\"]default['\"]" if default_only else ""),
+            re.I,
+        )
+    ]
+    if template_code:
+        api_names = (
+            ("setDefaultConsentState",)
+            if default_only
+            else CONSENT_TEMPLATE_API_NAMES
+        )
+        imported_names = {
+            api
+            for api in api_names
+            if re.search(
+                rf"\brequire\s*\(\s*['\"]{re.escape(api)}['\"]\s*\)",
+                code,
+            )
+        }
+        patterns.extend(
+            re.compile(rf"\b{re.escape(api)}\s*\(", re.I)
+            for api in imported_names
+        )
+    for pattern in patterns:
+        for match in pattern.finditer(code):
+            if not code_positions[match.start()]:
+                continue
+            prefix = code[max(0, match.start() - 40) : match.start()]
+            if re.search(r"\bfunction\s*$", prefix, re.I):
+                continue
+            return True
+    return False
 
 
 def compact_evidence_terms(values: list[Any], limit: int = 10) -> list[str]:
@@ -1664,6 +1860,53 @@ def required_configuration_obligations(
             and str(parameter.get("key") or "") in {"html", "javascript"}
         )
 
+    custom_templates = [
+        item
+        for item in as_list(cv.get("customTemplate"))
+        if isinstance(item, dict)
+    ]
+    template_type_index = custom_template_type_index(custom_templates)
+    templates_by_id = {
+        str(template.get("templateId") or ""): template
+        for template in custom_templates
+        if str(template.get("templateId") or "")
+    }
+
+    def resolved_custom_template_code(value: dict[str, Any]) -> str:
+        template_ids = custom_template_ids(value, template_type_index)
+        if len(template_ids) != 1:
+            return ""
+        template = templates_by_id.get(template_ids[0])
+        if not template:
+            return ""
+        return custom_template_executable_code(template.get("templateData"))
+
+    def consent_behavior(value: dict[str, Any]) -> tuple[bool, bool]:
+        behavior_text = behavior_bearing_vendor_text(value, layer)
+        tag_code = executable_code(value)
+        template_code = resolved_custom_template_code(value)
+        vendor = vendor_record(behavior_text)
+        manages = (
+            str(vendor.get("category") or "") == "cmp"
+            or has_executable_consent_call(
+                tag_code, template_code=False, default_only=False
+            )
+            or has_executable_consent_call(
+                template_code, template_code=True, default_only=False
+            )
+        )
+        command = str(configured_parameter(value, "command") or "").strip().lower()
+        sets_default = manages and (
+            command == "default"
+            or has_executable_consent_call(
+                tag_code, template_code=False, default_only=True
+            )
+            or has_executable_consent_call(
+                template_code, template_code=True, default_only=True
+            )
+        )
+        return manages, sets_default
+
     variable_records = {
         str(variable.get("name") or ""): (index, variable)
         for index, variable in enumerate(as_list(cv.get("variable")))
@@ -1796,16 +2039,7 @@ def required_configuration_obligations(
         and CONSENT_INITIALIZATION_TRIGGER_ID
         in {str(value) for value in as_list(obj.get("firingTriggerId"))}
     ):
-        behavior_text = behavior_bearing_vendor_text(obj, layer)
-        vendor = vendor_record(behavior_text)
-        configured_consent_command = str(
-            configured_parameter(obj, "command") or ""
-        ).strip().lower()
-        manages_consent = (
-            str(vendor.get("category") or "") == "cmp"
-            or bool(CONSENT_MANAGEMENT_BEHAVIOR_RE.search(behavior_text))
-            or configured_consent_command in {"default", "update"}
-        )
+        manages_consent, _sets_default = consent_behavior(obj)
         if not manages_consent:
             add(
                 "consent_initialization_non_consent_tag",
@@ -1821,11 +2055,7 @@ def required_configuration_obligations(
 
     if layer == "tag":
         firing_ids = [str(value) for value in as_list(obj.get("firingTriggerId"))]
-        behavior_text = behavior_bearing_vendor_text(obj, layer)
-        command = str(configured_parameter(obj, "command") or "").strip().lower()
-        sets_default_consent = command == "default" or bool(
-            CONSENT_DEFAULT_BEHAVIOR_RE.search(behavior_text)
-        )
+        _manages_consent, sets_default_consent = consent_behavior(obj)
         if sets_default_consent and CONSENT_INITIALIZATION_TRIGGER_ID not in firing_ids:
             add(
                 "consent_default_wrong_initialization_trigger",
@@ -1855,6 +2085,7 @@ def required_configuration_obligations(
 
     if layer in {"tag", "variable"}:
         code = executable_code(obj)
+        scope_ids, code_positions = javascript_scope_map(code)
         for reference in sorted(refs(code)):
             record = variable_records.get(reference)
             if not record:
@@ -1868,10 +2099,13 @@ def required_configuration_obligations(
             if set_default:
                 continue
             escaped_reference = re.escape(reference)
-            direct_use = re.search(
-                rf"\{{\{{\s*{escaped_reference}\s*\}}\}}\s*\.\s*includes\s*\(",
-                code,
-                re.I,
+            direct_use = any(
+                code_positions[match.start()]
+                for match in re.finditer(
+                    rf"\{{\{{\s*{escaped_reference}\s*\}}\}}\s*\.\s*includes\s*\(",
+                    code,
+                    re.I,
+                )
             )
             assigned_uses: list[tuple[str, re.Match[str]]] = []
             for assignment in re.finditer(
@@ -1880,50 +2114,42 @@ def required_configuration_obligations(
                 code,
                 re.I,
             ):
+                if not code_positions[assignment.start()]:
+                    continue
                 local_name = assignment.group(1)
-                if re.search(
-                    rf"\b{re.escape(local_name)}\s*\.\s*includes\s*\(",
-                    code[assignment.end() :],
-                    re.I,
-                ):
+                calls = [
+                    match
+                    for match in re.finditer(
+                        rf"\b{re.escape(local_name)}\s*\.\s*includes\s*\(",
+                        code[assignment.end() :],
+                        re.I,
+                    )
+                    if code_positions[assignment.end() + match.start()]
+                ]
+                if calls:
                     assigned_uses.append((local_name, assignment))
             unsafe_assigned = []
             for local_name, assignment in assigned_uses:
-                prefix = code[assignment.end() :]
-                includes_match = re.search(
-                    rf"\b{re.escape(local_name)}\s*\.\s*includes\s*\(",
-                    prefix,
-                    re.I,
-                )
-                before_use = prefix[: includes_match.start()] if includes_match else ""
-                guarded = bool(
-                    re.search(
-                        rf"(?:typeof\s+{re.escape(local_name)}\s*===?\s*['\"]string['\"]|"
-                        rf"\b{re.escape(local_name)}\s*&&|!\s*{re.escape(local_name)}\b|"
-                        rf"String\s*\(\s*{re.escape(local_name)}\s*\|\|)",
-                        before_use,
+                calls = [
+                    match
+                    for match in re.finditer(
+                        rf"\b{re.escape(local_name)}\s*\.\s*includes\s*\(",
+                        code[assignment.end() :],
                         re.I,
                     )
-                )
-                if not guarded:
-                    guarded = bool(
-                        re.search(
-                            rf"if\s*\(\s*typeof\s+{re.escape(local_name)}\s*!==?\s*"
-                            rf"['\"]string['\"]\s*\)\s*\{{[^}}]*\breturn\b",
-                            before_use,
-                            re.I | re.S,
-                        )
-                    ) or bool(
-                        re.search(
-                            rf"if\s*\(\s*typeof\s+{re.escape(local_name)}\s*!==?\s*"
-                            rf"['\"]string['\"]\s*&&\s*!Array\.isArray\s*\(\s*"
-                            rf"{re.escape(local_name)}\s*\)\s*\)\s*\{{[^}}]*\b"
-                            rf"{re.escape(local_name)}\s*=\s*\[\s*\]",
-                            before_use,
-                            re.I | re.S,
-                        )
+                    if code_positions[assignment.end() + match.start()]
+                ]
+                if any(
+                    not local_includes_is_guarded(
+                        code,
+                        assignment.end(),
+                        assignment.end() + call.start(),
+                        local_name,
+                        scope_ids,
+                        code_positions,
                     )
-                if not guarded:
+                    for call in calls
+                ):
                     unsafe_assigned.append(local_name)
             if direct_use or unsafe_assigned:
                 variable_prefix = f"{own_prefix.rsplit('.', 1)[0]}.variable[{variable_index}]"

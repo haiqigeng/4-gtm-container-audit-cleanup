@@ -3,19 +3,10 @@
 Compile source operations only from three validated reviews. Audit findings
 describe a problem; operations describe an exact proposed mutation. After those
 reviews are sealed, reconciliation may add a deterministic cleanup-closure
-operation only when their mutations remove or detach every locked source-graph
-consumer of a trigger, variable, built-in, folder, or template. This is not a
-fourth scan or a new semantic finding.
-
-The compiled packet uses schema version 4. It carries the source, context, and shared-fact hashes. It also carries
-a decision ledger covering every source obligation, execution phases,
-projected object counts by layer, and a target-state preservation entry for
-every source-confirmed measurement family.
-
-Compilation is fail-closed on source identity. The source must be a complete
-ContainerVersion shape with modeled entity layers, valid object records, and
-unique IDs. Missing or duplicate IDs, malformed entity lists, or an unmodeled
-top-level list block operations instead of being silently ignored.
+operation only when their simulated future graph has no surviving consumer of
+a trigger, variable, built-in, folder, or template that had a source consumer.
+Newly created consumers prevent deletion. This is not a fourth scan or a new
+semantic finding.
 
 ## Contents
 
@@ -25,6 +16,21 @@ top-level list block operations instead of being silently ignored.
 - Consolidation and challenge review
 - Merge/conflict rules and action completeness
 - Row-level approval contract
+
+The compiled packet uses schema version 5. It carries the source, context, and shared-fact hashes. It also carries
+a decision ledger covering every source obligation, execution phases,
+projected object counts by layer, and a target-state preservation entry for
+every source-confirmed measurement family.
+
+Every execution boundary revalidates packet kind, schema, source binding,
+unique operation IDs, and the immutable approval contract. Execute schema-5
+packets only with schema-5-aware v1.12.0+ tooling; v1.12.0 rejects schema-4
+packets rather than silently omitting their dependency contract.
+
+Compilation is fail-closed on source identity. The source must be a complete
+ContainerVersion shape with modeled entity layers, valid object records, and
+unique IDs. Missing or duplicate IDs, malformed entity lists, or an unmodeled
+top-level list block operations instead of being silently ignored.
 
 ## Dispositions
 

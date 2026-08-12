@@ -10,13 +10,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from gtm_approval_response import validate_response
+from gtm_approval_response import cleanup_packet_errors, validate_response
 from gtm_lib import (
     ID_KEYS,
     as_list,
     container_configuration_differences,
     container_configuration_sha256,
-    container_identity,
+    container_identity_binding,
     load_json,
     source_descriptor,
     source_integrity_findings,
@@ -60,13 +60,8 @@ def live_readback_binding(
     elif source_export_sha256 != expected_source_sha256:
         errors.append("locked source export hash differs from the approved operation packet")
 
-    source_identity = container_identity(source_export)
-    live_identity = container_identity(live_readback)
-    if source_identity and live_identity != source_identity:
-        errors.append(
-            "live readback container identity differs from the audited source: "
-            f"expected={source_identity}, actual={live_identity}"
-        )
+    identity_binding = container_identity_binding(source_export, live_readback)
+    errors.extend(identity_binding["errors"])
 
     source_configuration_sha256 = container_configuration_sha256(source_export)
     live_configuration_sha256 = container_configuration_sha256(live_readback)
@@ -80,8 +75,9 @@ def live_readback_binding(
     report = {
         "status": "pass" if not errors else "fail",
         "matches_audited_configuration": not difference_count and not errors,
-        "source_identity": source_identity,
-        "live_identity": live_identity,
+        "source_identity": identity_binding["expected_identity"],
+        "live_identity": identity_binding["actual_identity"],
+        "container_identity_binding": identity_binding,
         "source_configuration_sha256": source_configuration_sha256,
         "live_configuration_sha256": live_configuration_sha256,
         "configuration_differences": differences,
@@ -138,6 +134,7 @@ def execution_preflight(
     source_export_sha256: str = "",
 ) -> dict[str, Any]:
     errors: list[str] = list(approval_validation_errors or [])
+    errors.extend(cleanup_packet_errors(operations))
     warnings: list[str] = []
     readback_binding, binding_errors = live_readback_binding(
         source_export,

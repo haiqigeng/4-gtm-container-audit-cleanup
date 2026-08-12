@@ -204,8 +204,8 @@ python -B scripts/gtm_approval_response.py template reconciled_operations.json a
 python -B scripts/gtm_approval_response.py validate reconciled_operations.json approval_response.json --output approval_gate.json --pretty
 ```
 
-Immediately before any approved mutation or import generation, run the exact
-execution preflight:
+Immediately before any approved direct mutation or before applying an import
+artifact to GTM, run the exact execution preflight:
 
 ```powershell
 python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --pretty
@@ -216,6 +216,13 @@ fresh complete pre-mutation workspace snapshot. The guard compares their full
 modeled object graphs while ignoring transport-only workspace metadata, rejects
 drift, and enforces every operation prerequisite. This is static GTM
 configuration readback, not browser/runtime QA.
+
+An import artifact may be generated offline from the locked source export and
+the approved, passing simulation. Until a fresh target readback passes this
+preflight and the artifact is actually applied, label it planned/unapplied; it
+cannot support an executed change log. Re-read the target immediately before
+the real import because artifact generation is not proof that the workspace
+has remained unchanged.
 
 The validated response replaces direct `--approve` flags. Server, activation,
 and post-observation confirmations remain separate response fields and are

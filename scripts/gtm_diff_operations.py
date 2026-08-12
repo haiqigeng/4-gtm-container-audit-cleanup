@@ -10,14 +10,21 @@ import json
 from pathlib import Path
 from typing import Any
 
+from gtm_approval_response import (
+    CLEANUP_PACKET_SCHEMA_VERSION,
+    approval_packet_sha256,
+    cleanup_packet_errors,
+)
 from gtm_future_state_check import apply_operations
 from gtm_lib import (
     ID_KEYS,
+    READBACK_VOLATILE_FIELDS,
     apply_patch,
     as_list,
     comparable,
     container_configuration_differences,
     container_configuration_sha256,
+    container_identity_binding,
     load_container_version,
     object_id,
     sort_ids,
@@ -48,7 +55,7 @@ CSV_COLUMNS = [
     "Reason / QA / status",
 ]
 
-DIFF_IGNORED_FIELDS = {"path", "fingerprint", "accountId", "containerId"}
+DIFF_IGNORED_FIELDS = set(READBACK_VOLATILE_FIELDS)
 
 OPERATION_PHASE_FIELDS = (
     "creations",
@@ -436,6 +443,7 @@ def execution_verification(
     approved_operations: dict[str, Any],
     change_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    packet_errors = cleanup_packet_errors(approved_operations)
     expected, apply_errors = apply_operations(
         {"containerVersion": copy.deepcopy(before_cv)},
         approved_operations,
@@ -445,13 +453,19 @@ def execution_verification(
     configuration_differences = container_configuration_differences(
         expected_cv, after_cv
     )
+    identity_binding = container_identity_binding(before_cv, after_cv)
     unlinked_changes = [
         str(row.get("change_id") or "")
         for row in change_rows
         if not row.get("operation_id")
     ]
     errors = [
+        *[f"approved operation packet is invalid: {error}" for error in packet_errors],
         *[f"approved operation simulation failed: {error}" for error in apply_errors],
+        *[
+            f"final readback identity check failed: {error}"
+            for error in identity_binding["errors"]
+        ],
         *(
             [
                 "readback differs from the approved simulated future state at "
@@ -482,10 +496,24 @@ def execution_verification(
     return {
         "status": "pass" if not errors else "fail",
         "authoritative_result": "final_complete_gtm_readback",
-        "matches_approved_future_state": not state_differences and not apply_errors,
+        "matches_approved_future_state": (
+            not state_differences
+            and not apply_errors
+            and not packet_errors
+            and identity_binding["status"] == "pass"
+        ),
         "expected_configuration_sha256": container_configuration_sha256(expected_cv),
         "readback_configuration_sha256": container_configuration_sha256(after_cv),
         "configuration_differences": configuration_differences,
+        "container_identity_binding": identity_binding,
+        "operation_packet_binding": {
+            "status": "pass" if not packet_errors else "fail",
+            "kind": str(approved_operations.get("kind") or ""),
+            "schema_version": approved_operations.get("schema_version"),
+            "required_schema_version": CLEANUP_PACKET_SCHEMA_VERSION,
+            "packet_sha256": approval_packet_sha256(approved_operations),
+            "errors": packet_errors,
+        },
         "unlinked_change_ids": unlinked_changes,
         "unexpected_or_missing_field_count": len(state_differences),
         "errors": errors,
