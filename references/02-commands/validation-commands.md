@@ -208,8 +208,14 @@ Immediately before any approved mutation or import generation, run the exact
 execution preflight:
 
 ```powershell
-python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --approval-response approval_response.json --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --pretty
 ```
+
+The source export must be the exact audit input, and the live readback must be a
+fresh complete pre-mutation workspace snapshot. The guard compares their full
+modeled object graphs while ignoring transport-only workspace metadata, rejects
+drift, and enforces every operation prerequisite. This is static GTM
+configuration readback, not browser/runtime QA.
 
 The validated response replaces direct `--approve` flags. Server, activation,
 and post-observation confirmations remain separate response fields and are
@@ -296,7 +302,9 @@ python -B scripts/gtm_change_log_build.py field_changes.json change_log.xlsx
 Use `planned` execution mode for a planned preview. Never label it executed.
 In `executed` mode the command exits nonzero unless the complete readback
 matches the approved simulated future state and every observed field change
-links exactly to an approved operation.
+links exactly to an approved operation. The JSON becomes the authoritative final
+execution record, records its configuration fingerprint, and the workbook
+builder refuses any executed payload whose certification is not `pass`.
 
 ## Project Checks
 

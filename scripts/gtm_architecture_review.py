@@ -1723,7 +1723,11 @@ def validate_retention_distinctions(
                 f"{label}: {key} retention rationale uses an opaque signature instead "
                 "of a source-visible semantic distinction"
             )
-        if not terms or not any(term in text for term in terms):
+        # Some behaviorally distinct members have no individually unique
+        # normalized token after source extraction.  Their member assessment
+        # is still required to be tied to source facts above; do not require
+        # a nonexistent unique token as an additional impossible condition.
+        if terms and not any(term in text for term in terms):
             errors.append(
                 f"{label}: {key} retention rationale lacks a configuration term unique to that member"
             )

@@ -30,7 +30,11 @@ from gtm_context_model import build_context_model  # noqa: E402
 from gtm_custom_code_extract import extract_export  # noqa: E402
 from gtm_execution_guard import execution_preflight  # noqa: E402
 from gtm_future_state_check import configured_activation_risk  # noqa: E402
-from gtm_operation_compile import packetize_operations  # noqa: E402
+from gtm_operation_compile import (  # noqa: E402
+    cleanup_closure_operations,
+    dependency_order_operations,
+    packetize_operations,
+)
 from gtm_relationships import (  # noqa: E402
     near_event_name,
     relationship_candidates,
@@ -578,6 +582,15 @@ class UtilityEvolutionTests(unittest.TestCase):
                             {"key": "command", "type": "TEMPLATE", "value": "default"}
                         ],
                     },
+                    {
+                        "tagId": "3",
+                        "name": "Consent default with generic template type",
+                        "type": "html",
+                        "firingTriggerId": ["2147479593"],
+                        "parameter": [
+                            {"key": "command", "type": "TEMPLATE", "value": "default"}
+                        ],
+                    },
                 ],
                 "variable": [
                     {
@@ -623,6 +636,38 @@ class UtilityEvolutionTests(unittest.TestCase):
                             }
                         ],
                     },
+                    {
+                        "variableId": "13",
+                        "name": "Type-guarded consent mapping",
+                        "type": "jsm",
+                        "parameter": [
+                            {
+                                "key": "javascript",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "function(){var p={{Consent purposes}};"
+                                    "if(typeof p !== 'string'){return 'denied';}"
+                                    "return p.includes(',1,')?'granted':'denied';}"
+                                ),
+                            }
+                        ],
+                    },
+                    {
+                        "variableId": "14",
+                        "name": "Array-normalised consent mapping",
+                        "type": "jsm",
+                        "parameter": [
+                            {
+                                "key": "javascript",
+                                "type": "TEMPLATE",
+                                "value": (
+                                    "function(){var p={{Consent purposes}};"
+                                    "if(typeof p !== 'string'&&!Array.isArray(p)){p=[];}"
+                                    "return p.includes(',1,')?'granted':'denied';}"
+                                ),
+                            }
+                        ],
+                    },
                 ],
             }
         )
@@ -640,6 +685,9 @@ class UtilityEvolutionTests(unittest.TestCase):
         self.assertNotIn(
             "consent_default_wrong_initialization_trigger", obligations["tag:2"]
         )
+        self.assertNotIn(
+            "consent_initialization_non_consent_tag", obligations["tag:3"]
+        )
         self.assertTrue(
             any(
                 key.startswith("nullable_dlv_includes:")
@@ -650,6 +698,18 @@ class UtilityEvolutionTests(unittest.TestCase):
             any(
                 key.startswith("nullable_dlv_includes:")
                 for key in obligations["variable:12"]
+            )
+        )
+        self.assertFalse(
+            any(
+                key.startswith("nullable_dlv_includes:")
+                for key in obligations["variable:13"]
+            )
+        )
+        self.assertFalse(
+            any(
+                key.startswith("nullable_dlv_includes:")
+                for key in obligations["variable:14"]
             )
         )
 
@@ -992,6 +1052,17 @@ class UtilityEvolutionTests(unittest.TestCase):
                 "candidate_operation_ids": [packet["operation_id"]],
             },
         }
+        preflight_source = {
+            "containerVersion": {
+                "tag": [
+                    {
+                        "tagId": "1",
+                        "name": "Server conversion",
+                        "type": "html",
+                    }
+                ]
+            }
+        }
         blocked = execution_preflight(
             operations,
             {
@@ -1003,6 +1074,9 @@ class UtilityEvolutionTests(unittest.TestCase):
             {packet["operation_id"]},
             {packet["operation_id"]},
             {packet["operation_id"]},
+            source_export=preflight_source,
+            live_readback=copy.deepcopy(preflight_source),
+            source_export_sha256="source",
         )
         self.assertEqual("fail", blocked["status"])
         self.assertTrue(any("do_not_touch" in value for value in blocked["errors"]))
@@ -1018,6 +1092,9 @@ class UtilityEvolutionTests(unittest.TestCase):
             {packet["operation_id"]},
             {packet["operation_id"]},
             {packet["operation_id"]},
+            source_export=preflight_source,
+            live_readback=copy.deepcopy(preflight_source),
+            source_export_sha256="source",
         )
         self.assertEqual("fail", unresolved["status"])
         self.assertTrue(
@@ -1035,8 +1112,177 @@ class UtilityEvolutionTests(unittest.TestCase):
             {packet["operation_id"]},
             {packet["operation_id"]},
             {packet["operation_id"]},
+            source_export=preflight_source,
+            live_readback=copy.deepcopy(preflight_source),
+            source_export_sha256="source",
         )
         self.assertEqual("pass", allowed["status"])
+
+    def test_cleanup_closure_is_separate_approvable_and_dependency_ordered(self) -> None:
+        source_operation = {
+            "operation_key": "replace-trigger",
+            "deletions": [],
+            "creations": [],
+            "additions": [],
+            "changes": [
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.containerVersion.tag[0].firingTriggerId",
+                    "before": ["10"],
+                    "after": ["11"],
+                }
+            ],
+            "remaps": [],
+            "renames": [],
+        }
+        catalog = {
+            "tag:1": {"layer": "tag", "object_name": "Legacy tag"},
+            "trigger:10": {"layer": "trigger", "object_name": "Legacy event"},
+            "trigger:11": {"layer": "trigger", "object_name": "New event"},
+            "variable:20": {"layer": "variable", "object_name": "Legacy value"},
+        }
+        consumers = {
+            "tag:1": set(),
+            "trigger:10": {"tag:1"},
+            "trigger:11": set(),
+            "variable:20": {"trigger:10"},
+        }
+
+        closure, decisions = cleanup_closure_operations(
+            [source_operation], catalog, consumers
+        )
+
+        self.assertEqual(
+            ["trigger:10", "variable:20"],
+            [row["deletions"][0]["object_key"] for row in closure],
+        )
+        self.assertEqual(2, len(decisions))
+        ordered, errors = dependency_order_operations(
+            [*closure, source_operation], consumers
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(
+            [
+                "replace-trigger",
+                closure[0]["operation_key"],
+                closure[1]["operation_key"],
+            ],
+            [row["operation_key"] for row in ordered],
+        )
+        packets = packetize_operations(ordered, "Direct", catalog)
+        self.assertEqual([], packets[0]["depends_on_operation_ids"])
+        self.assertEqual(["OP-0001"], packets[1]["depends_on_operation_ids"])
+        self.assertEqual(["OP-0002"], packets[2]["depends_on_operation_ids"])
+
+    def test_inactive_consent_named_trigger_uses_structural_deletion_risk(self) -> None:
+        packet = packetize_operations(
+            [
+                {
+                    "operation_key": "delete-unused-consent-trigger",
+                    "area": "GTM hygiene",
+                    "problem_type": "Unused object",
+                    "problem": "Old Consent Trigger has no configured consumer.",
+                    "why_it_matters": "It is obsolete container clutter.",
+                    "priority": "Medium",
+                    "confidence": "High",
+                    "execution_readiness": "approval_required",
+                    "source_object_keys": ["trigger:9"],
+                    "affected_object_keys": ["trigger:9"],
+                    "creations": [],
+                    "additions": [],
+                    "changes": [],
+                    "remaps": [],
+                    "renames": [],
+                    "deletions": [{"object_key": "trigger:9"}],
+                }
+            ],
+            "Direct",
+            {
+                "trigger:9": {
+                    "layer": "trigger",
+                    "object_name": "Old Consent Trigger",
+                    "config_hash": "abc",
+                    "reachability": "inactive_or_unreferenced",
+                    "server_route_hosts": [],
+                }
+            },
+        )[0]
+
+        self.assertIn("consent_privacy", packet["priority_basis"]["impact_classes"])
+        self.assertEqual(
+            "bulk_eligible_exact_low_risk_bundle",
+            packet["execution_safety"]["approval"]["scope"],
+        )
+        self.assertFalse(packet["execution_safety"]["decommission"]["required"])
+
+    def test_execution_guard_requires_prerequisites_and_an_unchanged_live_readback(
+        self,
+    ) -> None:
+        source = {
+            "containerVersion": {
+                "tag": [{"tagId": "1", "name": "Legacy", "type": "html"}],
+                "trigger": [
+                    {"triggerId": "10", "name": "Legacy event", "type": "CUSTOM_EVENT"}
+                ],
+            }
+        }
+        operations = {
+            "source_sha256": "source",
+            "operations": [
+                {
+                    "operation_id": "OP-0001",
+                    "execution_order": 1,
+                    "depends_on_operation_ids": [],
+                },
+                {
+                    "operation_id": "OP-0002",
+                    "execution_order": 2,
+                    "depends_on_operation_ids": ["OP-0001"],
+                },
+            ],
+        }
+        context = {
+            "context": {"do_not_touch": []},
+            "context_evidence": {"do_not_touch": {"status": "provided"}},
+        }
+        missing_prerequisite = execution_preflight(
+            operations,
+            context,
+            {"status": "pass", "source_sha256": "source", "operation_count": 1},
+            {"OP-0002"},
+            set(),
+            set(),
+            set(),
+            source_export=source,
+            live_readback=copy.deepcopy(source),
+            source_export_sha256="source",
+        )
+        self.assertEqual("fail", missing_prerequisite["status"])
+        self.assertTrue(
+            any("prerequisite" in error for error in missing_prerequisite["errors"])
+        )
+
+        drifted = copy.deepcopy(source)
+        drifted["containerVersion"]["tag"][0]["name"] = "Changed after audit"
+        drift = execution_preflight(
+            operations,
+            context,
+            {"status": "pass", "source_sha256": "source", "operation_count": 2},
+            {"OP-0001", "OP-0002"},
+            set(),
+            set(),
+            set(),
+            source_export=source,
+            live_readback=drifted,
+            source_export_sha256="source",
+        )
+        self.assertEqual("fail", drift["status"])
+        self.assertIn(
+            "tag:1",
+            drift["live_readback_binding"]["configuration_differences"][
+                "changed_object_keys"
+            ],
+        )
 
     def test_future_state_reports_static_new_reachability_only(self) -> None:
         before = {

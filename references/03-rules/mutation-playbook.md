@@ -19,16 +19,19 @@ Never mutate or publish from an audit request alone.
 3. Generate the packet-bound response and record `Approve`, `Reject`, or `Amend`
    for every operation.
 4. Confirm rollback export and blockers.
-5. Validate the response, regenerate the selected future state, and run the
-   execution preflight.
+5. Re-read the complete workspace, validate the response, regenerate the
+   selected future state, and run the execution preflight against that fresh
+   readback.
 6. Execute only the approved operations that pass the preflight.
 
 Audit and recommendation depth are independent of this choice. Do not use
 aggressiveness modes; approval is operation-specific. Treat a subset as staged
 work, not as completion of the full cleanup plan.
 
-The preflight fails closed when an approved operation intersects an exact
-`do_not_touch` layer/ID, the future-state gate failed, or source hashes differ.
+The preflight fails closed when the fresh complete workspace readback differs
+from the audited object graph, an approved operation omits a prerequisite,
+an approved operation intersects an exact `do_not_touch` layer/ID, the
+future-state gate failed, or source hashes differ.
 Server-coupled and configured-activation-risk operations require explicit
 confirmation. A quarantined deletion also requires separate post-observation
 confirmation. These are risk-specific fences, not extra audit modes.
@@ -36,7 +39,7 @@ confirmation. These are risk-specific fences, not extra audit modes.
 ```powershell
 python -B scripts/gtm_approval_response.py template reconciled_operations.json approval_response.json --pretty
 python -B scripts/gtm_approval_response.py validate reconciled_operations.json approval_response.json --pretty
-python -B scripts/gtm_execution_guard.py reconciled_operations.json context.json future_state_gate.json --approval-response approval_response.json --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --pretty
 ```
 
 Set server-coupled, activation-risk, or post-observation confirmations only for
@@ -71,12 +74,13 @@ Recommended dependency order:
 7. delete obsolete objects;
 8. full readback and future-state validation.
 
-After final readback, regenerate sanitation, deterministic configuration
-obligations, and business-architecture candidates. Reconcile any unexpected
-result before requesting publication approval. Compare the complete readback
-with the approved simulated future state; execution is not certified if any
-expected field is missing, any unexpected field changed, or any difference
-lacks one exact approved operation link.
+After final readback, regenerate the field-level result and certification from
+that readback. It is the sole authoritative executed state; API success messages
+and intermediate batch records are provisional. Compare it with the approved
+simulated future state; execution is not certified if any expected field is
+missing, any unexpected field changed, or any difference lacks one exact
+approved operation link. The executed change-log workbook must refuse an
+uncertified payload.
 
 ## Import JSON
 

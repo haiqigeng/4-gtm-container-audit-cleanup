@@ -38,6 +38,15 @@ SEMANTIC_LAYERS = (
 )
 
 IGNORED_FIELDS = {"path", "fingerprint"}
+READBACK_VOLATILE_FIELDS = frozenset(
+    {
+        "accountId",
+        "containerId",
+        "fingerprint",
+        "path",
+        "workspaceId",
+    }
+)
 BEHAVIOR_NEUTRAL_FIELDS = frozenset(
     {
         "accountId",
@@ -446,6 +455,86 @@ def stable_payload(value: Any) -> str:
 
 def stable_hash(value: Any, length: int = 16) -> str:
     return hashlib.sha256(stable_payload(value).encode("utf-8")).hexdigest()[:length]
+
+
+def normalized_readback_value(value: Any) -> Any:
+    """Remove transport/workspace metadata while preserving configured behavior."""
+
+    if isinstance(value, dict):
+        return {
+            key: normalized_readback_value(item)
+            for key, item in sorted(value.items())
+            if key not in READBACK_VOLATILE_FIELDS
+        }
+    if isinstance(value, list):
+        return [normalized_readback_value(item) for item in value]
+    return value
+
+
+def container_configuration_state(data: dict[str, Any]) -> dict[str, Any]:
+    """Return an ID-stable, metadata-neutral snapshot of every modeled GTM object."""
+
+    cv = container_version(data)
+    state: dict[str, Any] = {}
+    for layer, id_key in ID_KEYS.items():
+        rows = []
+        for obj in as_list(cv.get(layer)):
+            object_id_value = str(obj.get(id_key) or obj.get("name") or "")
+            if object_id_value:
+                rows.append(
+                    {
+                        "object_key": f"{layer}:{object_id_value}",
+                        "configuration": normalized_readback_value(obj),
+                    }
+                )
+        state[layer] = sorted(rows, key=lambda row: row["object_key"])
+    return state
+
+
+def container_configuration_sha256(data: dict[str, Any]) -> str:
+    """Hash the complete modeled configuration independently of export metadata."""
+
+    return stable_hash(container_configuration_state(data), 64)
+
+
+def container_configuration_differences(
+    expected: dict[str, Any], actual: dict[str, Any]
+) -> dict[str, list[str]]:
+    """Summarize object-level drift between two complete GTM readbacks."""
+
+    def by_key(data: dict[str, Any]) -> dict[str, Any]:
+        return {
+            str(row["object_key"]): row["configuration"]
+            for rows in container_configuration_state(data).values()
+            for row in rows
+        }
+
+    expected_by_key = by_key(expected)
+    actual_by_key = by_key(actual)
+    expected_keys = set(expected_by_key)
+    actual_keys = set(actual_by_key)
+    return {
+        "missing_object_keys": sorted(expected_keys - actual_keys),
+        "unexpected_object_keys": sorted(actual_keys - expected_keys),
+        "changed_object_keys": sorted(
+            key
+            for key in expected_keys & actual_keys
+            if expected_by_key[key] != actual_by_key[key]
+        ),
+    }
+
+
+def container_identity(data: dict[str, Any]) -> dict[str, str]:
+    """Return the strongest container identity fields present in an export/readback."""
+
+    cv = container_version(data)
+    nested = cv.get("container") if isinstance(cv.get("container"), dict) else {}
+    values = {
+        "accountId": cv.get("accountId") or nested.get("accountId"),
+        "containerId": cv.get("containerId") or nested.get("containerId"),
+        "publicId": cv.get("publicId") or nested.get("publicId"),
+    }
+    return {key: str(value) for key, value in values.items() if str(value or "")}
 
 
 def code_identity_text(value: Any) -> str:

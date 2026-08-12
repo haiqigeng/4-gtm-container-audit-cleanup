@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from gtm_change_log_build import build_change_log  # noqa: E402
 from gtm_diff_operations import execution_verification  # noqa: E402
 from gtm_diff_operations import operations as diff_operations  # noqa: E402
 from gtm_future_state_check import apply_operations  # noqa: E402
@@ -76,6 +78,38 @@ def empty_actions(**values: object) -> dict:
 
 
 class MutationSafetyTests(unittest.TestCase):
+    def test_executed_workbook_rejects_uncertified_readback(self) -> None:
+        payload = {
+            "execution_mode": "executed",
+            "execution_verification": {"status": "fail"},
+            "changes": [],
+        }
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            self.assertRaisesRegex(ValueError, "final complete-readback"),
+        ):
+            build_change_log(payload, Path(directory) / "change-log.xlsx")
+
+    def test_executed_workbook_accepts_only_the_certified_final_readback(self) -> None:
+        fingerprint = "a" * 64
+        payload = {
+            "execution_mode": "executed",
+            "execution_verification": {
+                "status": "pass",
+                "authoritative_result": "final_complete_gtm_readback",
+                "matches_approved_future_state": True,
+                "unlinked_change_ids": [],
+                "expected_configuration_sha256": fingerprint,
+                "readback_configuration_sha256": fingerprint,
+            },
+            "final_readback": {"authoritative": True},
+            "changes": [],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "change-log.xlsx"
+            build_change_log(payload, output)
+            self.assertTrue(output.is_file())
+
     def test_future_state_applies_every_supported_remap_and_rename(self) -> None:
         operation = empty_actions(
             remaps=[
@@ -323,6 +357,21 @@ class MutationSafetyTests(unittest.TestCase):
         self.assertTrue(verification["matches_approved_future_state"])
         self.assertEqual([], verification["unlinked_change_ids"])
         self.assertEqual(0, verification["unexpected_or_missing_field_count"])
+        self.assertEqual(
+            "final_complete_gtm_readback", verification["authoritative_result"]
+        )
+        self.assertEqual(
+            verification["expected_configuration_sha256"],
+            verification["readback_configuration_sha256"],
+        )
+        self.assertEqual(
+            {
+                "missing_object_keys": [],
+                "unexpected_object_keys": [],
+                "changed_object_keys": [],
+            },
+            verification["configuration_differences"],
+        )
 
     def test_execution_verification_rejects_readback_drift(self) -> None:
         approved = {
@@ -360,6 +409,9 @@ class MutationSafetyTests(unittest.TestCase):
         self.assertFalse(verification["matches_approved_future_state"])
         self.assertGreater(verification["unexpected_or_missing_field_count"], 0)
         self.assertTrue(verification["unlinked_change_ids"])
+        self.assertIn(
+            "tag:3", verification["configuration_differences"]["changed_object_keys"]
+        )
 
 
 if __name__ == "__main__":

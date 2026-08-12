@@ -16,6 +16,8 @@ from gtm_lib import (
     apply_patch,
     as_list,
     comparable,
+    container_configuration_differences,
+    container_configuration_sha256,
     load_container_version,
     object_id,
     sort_ids,
@@ -64,7 +66,9 @@ def action_for(before: dict[str, Any] | None, after: dict[str, Any] | None) -> s
     if after is None:
         return "Removed"
     renamed = before.get("name") != after.get("name")
-    modified = comparable(before) != comparable(after)
+    modified = comparable(before, DIFF_IGNORED_FIELDS) != comparable(
+        after, DIFF_IGNORED_FIELDS
+    )
     if renamed and modified:
         return "Renamed + Modified"
     if renamed:
@@ -138,12 +142,33 @@ def state_field_diffs(
             before = before_by_id.get(oid)
             after = after_by_id.get(oid)
             if before is None:
-                rows.append((layer, oid, "Created", "$", None, comparable(after or {})))
+                rows.append(
+                    (
+                        layer,
+                        oid,
+                        "Created",
+                        "$",
+                        None,
+                        comparable(after or {}, DIFF_IGNORED_FIELDS),
+                    )
+                )
                 continue
             if after is None:
-                rows.append((layer, oid, "Deleted", "$", comparable(before), None))
+                rows.append(
+                    (
+                        layer,
+                        oid,
+                        "Deleted",
+                        "$",
+                        comparable(before, DIFF_IGNORED_FIELDS),
+                        None,
+                    )
+                )
                 continue
-            for change in field_diffs(comparable(before), comparable(after)):
+            for change in field_diffs(
+                comparable(before, DIFF_IGNORED_FIELDS),
+                comparable(after, DIFF_IGNORED_FIELDS),
+            ):
                 action = "Renamed" if change["field_path"].endswith(".name") else "Updated"
                 rows.append(
                     (
@@ -261,11 +286,22 @@ def object_field_changes(
         return [
             {
                 "field_path": "$",
-                "before": comparable(before) if before is not None else None,
-                "after": comparable(after) if after is not None else None,
+                "before": (
+                    comparable(before, DIFF_IGNORED_FIELDS)
+                    if before is not None
+                    else None
+                ),
+                "after": (
+                    comparable(after, DIFF_IGNORED_FIELDS)
+                    if after is not None
+                    else None
+                ),
             }
         ]
-    return field_diffs(comparable(before), comparable(after))
+    return field_diffs(
+        comparable(before, DIFF_IGNORED_FIELDS),
+        comparable(after, DIFF_IGNORED_FIELDS),
+    )
 
 
 def change_action(
@@ -325,7 +361,11 @@ def change_log_row(
         "status": change_status(execution_mode, approved),
         "blocker": str((approved or {}).get("blocker") or ""),
         "change_category": category_for_path(layer, field_path, action),
-        "qa_status": "Not started" if execution_mode == "planned" else "Requires verification",
+        "qa_status": (
+            "Not started"
+            if execution_mode == "planned"
+            else "Pending final readback certification"
+        ),
     }
 
 
@@ -402,6 +442,9 @@ def execution_verification(
     )
     expected_cv = load_container_version_from_payload(expected)
     state_differences = state_field_diffs(expected_cv, after_cv)
+    configuration_differences = container_configuration_differences(
+        expected_cv, after_cv
+    )
     unlinked_changes = [
         str(row.get("change_id") or "")
         for row in change_rows
@@ -438,7 +481,11 @@ def execution_verification(
     ]
     return {
         "status": "pass" if not errors else "fail",
+        "authoritative_result": "final_complete_gtm_readback",
         "matches_approved_future_state": not state_differences and not apply_errors,
+        "expected_configuration_sha256": container_configuration_sha256(expected_cv),
+        "readback_configuration_sha256": container_configuration_sha256(after_cv),
+        "configuration_differences": configuration_differences,
         "unlinked_change_ids": unlinked_changes,
         "unexpected_or_missing_field_count": len(state_differences),
         "errors": errors,
@@ -485,6 +532,10 @@ def main() -> int:
     approved = json.loads(args.operations.read_text(encoding="utf-8")) if args.operations else None
     if args.execution_mode == "executed" and not approved:
         raise SystemExit("--operations is required for an executed change log")
+    if args.execution_mode == "executed" and args.patch:
+        raise SystemExit(
+            "--patch cannot certify execution; supply a final complete GTM readback"
+        )
     source_hash_error = ""
     if (
         args.execution_mode == "executed"
@@ -503,7 +554,9 @@ def main() -> int:
     )
     payload = {
         "kind": "gtm_field_level_change_log",
+        "schema_version": 2,
         "execution_mode": args.execution_mode,
+        "source_sha256": before_descriptor["source_sha256"],
         "changeCount": len(rows),
         "changes": rows,
     }
@@ -513,6 +566,15 @@ def main() -> int:
             verification["status"] = "fail"
             verification["errors"].insert(0, source_hash_error)
         payload["execution_verification"] = verification
+        payload["final_readback"] = {
+            **source_descriptor(args.after),
+            "configuration_sha256": container_configuration_sha256(after_cv),
+            "authoritative": verification.get("status") == "pass",
+        }
+        if verification.get("status") == "pass":
+            for row in rows:
+                row["qa_status"] = "Verified by final complete GTM readback"
+                row["status"] = "Applied and verified"
 
     if args.csv:
         with args.csv.open("w", encoding="utf-8-sig", newline="") as handle:

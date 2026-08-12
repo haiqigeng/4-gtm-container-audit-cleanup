@@ -35,10 +35,13 @@ from gtm_operation_compile import (  # noqa: E402
     mutation_path_errors,
     normalized_operation,
     operation_has_configured_activation_risk,
+    runtime_neutral_operational_deletions,
     validate_mutation_conflicts,
 )
 from gtm_operational_review import finding_sets, matching_owner_exception  # noqa: E402
 from gtm_review_common import (  # noqa: E402
+    _reference_list_errors,
+    _validate_remaps,
     object_source_path_map,
     validate_challenge,
     validate_neutral_recheck_contexts,
@@ -471,6 +474,38 @@ class RegressionSafetyTests(unittest.TestCase):
             [], source_known_configuration_repair_errors(row, "consent default")
         )
 
+    def test_system_trigger_repair_does_not_require_global_detach(self) -> None:
+        allowed_keys = {"tag:7", "tag:8", "trigger:10"}
+        self.assertEqual(
+            [],
+            _reference_list_errors(
+                "$.containerVersion.tag[0].firingTriggerId",
+                ["2147479593"],
+                allowed_keys,
+                "consent default change",
+            ),
+        )
+        self.assertEqual(
+            [],
+            _validate_remaps(
+                {
+                    "changes": [
+                        {
+                            "object_key": "tag:7",
+                            "json_path": "$.containerVersion.tag[0].firingTriggerId",
+                            "before": ["10"],
+                            "after": ["2147479593"],
+                        }
+                    ],
+                    "remaps": [],
+                    "deletions": [],
+                },
+                allowed_keys,
+                "consent default change",
+                {"trigger:10": {"tag:7", "tag:8"}},
+            ),
+        )
+
     def test_code_rewrite_requires_noncosmetic_source_bound_proof(self) -> None:
         before = "<script>window.dataLayer.push({event:'legacy'});</script>"
         after = "<script>window.dataLayer.push({event:'canonical'});</script>"
@@ -689,6 +724,70 @@ class RegressionSafetyTests(unittest.TestCase):
         self.assertEqual([], right_errors)
         self.assertEqual(left, right)
         self.assertEqual(1, len(left))
+
+    def test_equal_deletions_merge_despite_display_metadata(self) -> None:
+        operational = normalized_operation(
+            {
+                "operation_key": "operational-delete",
+                "deletions": [
+                    {"object_key": "variable:42", "reason": "No active consumer."}
+                ],
+            },
+            "operational_sanitation",
+            "BASE-42",
+            ["variable:42"],
+        )
+        architecture = normalized_operation(
+            {
+                "operation_key": "architecture-delete",
+                "deletions": [
+                    {
+                        "object_key": "variable:42",
+                        "object_name": "Legacy variable",
+                        "source_json_path": "$.containerVersion.variable[0]",
+                        "reason": "Superseded canonical design.",
+                    }
+                ],
+            },
+            "business_architecture",
+            "REL-42:operation:1",
+            ["variable:42"],
+        )
+        errors: list[str] = []
+        merged = merge_compatible_operations([operational, architecture], errors)
+        self.assertEqual([], errors)
+        self.assertEqual(1, len(merged))
+        self.assertEqual(["variable:42"], merged[0]["source_object_keys"])
+
+    def test_ineffective_blocker_can_retire_only_its_orphaned_dependency_chain(self) -> None:
+        finding = {
+            "finding_id": "BASE-INEFFECTIVE",
+            "finding_type": "ineffective_blocking_trigger",
+            "deterministic_repair": {
+                "status": "unique_safe_repair",
+                "deletions": [{"object_key": "trigger:2"}],
+            },
+        }
+        operation = {
+            "source_references": ["BASE-INEFFECTIVE"],
+            "deletions": [
+                {"object_key": "trigger:2"},
+                {"object_key": "variable:3"},
+                {"object_key": "variable:4"},
+            ],
+        }
+        self.assertEqual(
+            {"trigger:2", "variable:3"},
+            runtime_neutral_operational_deletions(
+                operation,
+                {"BASE-INEFFECTIVE": finding},
+                {
+                    "trigger:2": {"tag:1"},
+                    "variable:3": {"trigger:2"},
+                    "variable:4": set(),
+                },
+            ),
+        )
 
     def test_remap_rewrite_conflicts_with_deleting_its_consumer(self) -> None:
         errors = validate_mutation_conflicts(

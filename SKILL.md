@@ -195,14 +195,17 @@ execution.
 Before mutation, read `references/03-rules/mutation-playbook.md` and:
 
 - require a passing execution preflight, rollback source, and exact approval;
+- execute the compiler's dependency order; separately approve any reconciliation
+  closure object made unused by earlier operations;
 - use a new workspace and modify existing objects where safe;
-- re-read the complete workspace immediately before mutation and stop on drift;
+- re-read the complete workspace immediately before mutation, bind that readback
+  through the execution guard, and stop on drift;
 - enforce exact `do_not_touch`, server-coupling, activation-risk, and decommission confirmations;
 - validate and read back every batch;
 - stop on drift, missing references, consent uncertainty, unexpected recreation, or any unapproved change;
 - never publish or create a version unless separately requested.
 
-Certify execution only when the complete readback equals the approved simulation and every observed field change links to one approved operation. Produce the separate field-level change log only after execution or generated cleanup artifact creation.
+Certify execution only when the final complete readback equals the approved simulation and every observed field change links to one approved operation. Treat that readback as the sole authoritative execution result; an executed change-log workbook must be regenerated from its passing certification. Produce the separate field-level change log only after execution or generated cleanup artifact creation.
 
 End every stage with one concrete next step.
 

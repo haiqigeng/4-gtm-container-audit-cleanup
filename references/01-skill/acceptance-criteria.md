@@ -413,6 +413,15 @@ A web analyst can call the result done only when:
 - Future-state simulation creates no new missing reference, duplicate ID,
   orphan, folder, trigger, or naming finding and resolves every operational
   finding selected for cleanup.
+- After the three independent reviews, reconciliation computes cleanup-created
+  orphan closure to a fixed point without feeding a verdict back into a scan.
+  Each derived deletion is separately visible, cites every source consumer,
+  requires the exact operations that make it unused, and excludes runtime-root
+  tags and pre-existing unreferenced objects.
+- Atomic operations are topologically ordered. Consumer removal/remap precedes
+  dependency deletion, object creation precedes use, ordering cycles fail, and
+  the execution guard rejects a selected dependent operation without all of its
+  selected earlier prerequisites.
 - The simulated future state regenerates configuration obligations and business-
   relationship candidates. A complete plan leaves no unaccounted deterministic
   configuration Issue; a genuine owner-selected replacement remains explicitly
@@ -432,6 +441,10 @@ A web analyst can call the result done only when:
 - The execution preflight blocks any exact do-not-touch intersection, source/
   future-state mismatch, unconfirmed server or activation risk, or quarantined
   deletion without post-observation confirmation.
+- The execution preflight also requires a fresh complete GTM workspace readback
+  whose container identity and metadata-neutral modeled object graph equal the
+  locked audited source. Drift requires a fresh audit/plan; it is not accepted
+  as an execution-time amendment.
 - The decision ledger contains every source obligation exactly once and links
   every cleanup disposition to a compiled operation. Reconciliation removes or
   narrows stale owner/keep rows when their objects are deleted, and fails if a
@@ -496,6 +509,10 @@ The derived `cleanup_plan.analyst.xlsx` is accepted only when:
   approval/preconditions, and static verification/rollback are independently
   readable; generic impact boilerplate, repeated problem/consequence text, and
   missing exact structured-mutation notes fail the gate;
+- Real-run readability fixtures reject machine phrases such as non-canonical
+  Unicode form, generic business-impact boilerplate, or action placeholders.
+  Unicode-reference rows identify the invisible character, explain GTM exact-
+  name matching, and state the literal retyping action.
 - A3 has exactly six visible columns and every `owner_decision_needed` source
   record exactly once under one decision topic, including affected measurement
   families and what the answer unlocks. The deterministic fallback works at any
@@ -574,6 +591,9 @@ plan without weakening either contract:
   field, action, before, and after values match.
 - Execution certification fails when the full readback differs from the
   approved simulated future state or any observed change is unlinked.
+- An executed change-log workbook is generated only from a passing final
+  complete-readback certification. Its final configuration fingerprint and
+  verified rows replace, rather than supplement, provisional mutation records.
 - Import/readback and change-log sources pass the same unique-ID/entity-layer
   integrity checks, including Zones and Google tag configurations, before a
   field-level diff is trusted.

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from gtm_human_rows import operation_action_text, operation_problem_text  # noqa: E402
 from gtm_workbook_readability import (  # noqa: E402
     HUMAN_SHEETS,
     ORIGINAL_SHEETS,
@@ -27,6 +28,9 @@ from gtm_workbook_readability import (  # noqa: E402
 from gtm_workbook_readability_gate import validate as validate_readability  # noqa: E402
 
 FIXTURE = ROOT / "tests" / "fixtures" / "readability_case.json"
+REAL_RUN_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "readability_real_run_cases.json"
+)
 
 
 class WorkbookReadabilityTests(unittest.TestCase):
@@ -93,6 +97,103 @@ class WorkbookReadabilityTests(unittest.TestCase):
         )
         self.assertIn("after other tags have already evaluated", consequence)
         self.assertNotIn("measurement families", consequence)
+
+    def test_real_run_wording_stays_literal_and_actionable(self) -> None:
+        cases = json.loads(REAL_RUN_FIXTURE.read_text(encoding="utf-8"))
+        for case in cases:
+            with self.subTest(case=case["case_id"]):
+                operation = case["operation"]
+                catalog = case["catalog"]
+                problem = operation_problem_text(operation, catalog)
+                consequence = visible_consequence(operation, problem)
+                action = operation_action_text(operation, catalog)
+                rendered = " ".join((problem, consequence, action))
+                for phrase in case["required_phrases"]:
+                    self.assertIn(phrase, rendered)
+                for phrase in case["forbidden_phrases"]:
+                    self.assertNotIn(phrase, rendered)
+
+    def test_reconciliation_closure_is_visible_without_becoming_a_fourth_scan(
+        self,
+    ) -> None:
+        payload = json.loads(self.operations.read_text(encoding="utf-8"))
+        payload["object_catalog"]["trigger:18"] = {
+            "object_name": "Legacy ecommerce trigger"
+        }
+        payload["decision_ledger"].append(
+            {
+                "decision_id": "REC-CLOSURE-0001",
+                "source_run": "cross_run_reconciliation",
+                "source_object_keys": ["trigger:18"],
+                "disposition": "cleanup_operation",
+                "area": "GTM hygiene",
+                "problem_type": "Unused object",
+                "affected_objects": "trigger:18 — Legacy ecommerce trigger",
+                "summary": (
+                    "The trigger becomes unused after its final tag consumer is removed."
+                ),
+                "compiled_operation_ids": ["OP-0003"],
+            }
+        )
+        payload["operations"].append(
+            {
+                "operation_id": "OP-0003",
+                "operation_key": "cleanup-closure-trigger-18",
+                "execution_order": 3,
+                "priority": "Low",
+                "problem_type": "Unused object",
+                "problem": (
+                    "trigger:18 becomes unused after the planned cleanup removes its "
+                    "last tag consumer."
+                ),
+                "why_it_matters": (
+                    "Leaving trigger:18 after its last consumer is removed preserves "
+                    "an obsolete dependency that can be selected by mistake."
+                ),
+                "affected_objects": "trigger:18 — Legacy ecommerce trigger",
+                "affected_object_keys": ["trigger:18"],
+                "source_object_keys": ["trigger:18"],
+                "source_references": ["REC-CLOSURE-0001"],
+                "depends_on_operation_ids": ["OP-0001"],
+                "creations": [],
+                "additions": [],
+                "changes": [],
+                "remaps": [],
+                "renames": [],
+                "deletions": [{"object_key": "trigger:18"}],
+                "execution_phases": ["delete"],
+                "priority_basis": {
+                    "active_reachability": "inactive_after_prerequisites"
+                },
+                "execution_safety": {
+                    "approval": {
+                        "scope": "bulk_eligible_exact_low_risk_bundle",
+                        "reasons": ["inactive after exact prerequisites"],
+                    },
+                    "decommission": {"required": False},
+                    "configured_activation_risk": {"flag": False},
+                },
+                "qa_steps": "Read back the complete final workspace.",
+                "rollback": "Restore trigger:18 from the locked export.",
+            }
+        )
+        self.operations.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        self._build()
+        result = self._validate()
+        self.assertEqual("pass", result["status"])
+        workbook = load_workbook(self.analyst)
+        try:
+            actions = workbook["A2 Actions"]
+            row = self._row_with(actions, 1, "OP-0003")
+            self.assertIn("Legacy ecommerce trigger", str(actions.cell(row, 3).value))
+            audit = workbook["A4 Audit Register"]
+            self._row_with(audit, 1, "REC-CLOSURE-0001")
+        finally:
+            workbook.close()
 
     def test_large_owner_register_has_no_arbitrary_grouping_gate(self) -> None:
         owners = [

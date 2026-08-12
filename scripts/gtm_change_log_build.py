@@ -20,23 +20,59 @@ def build_change_log(payload: dict[str, Any], output: Path) -> None:
     except ImportError as exc:
         raise RuntimeError("openpyxl is required to build XLSX output") from exc
 
+    execution_mode = str(payload.get("execution_mode") or "planned")
+    verification = payload.get("execution_verification") or {}
+    final_readback = payload.get("final_readback") or {}
+    certified = (
+        verification.get("status") == "pass"
+        and verification.get("authoritative_result")
+        == "final_complete_gtm_readback"
+        and verification.get("matches_approved_future_state") is True
+        and not as_list(verification.get("unlinked_change_ids"))
+        and bool(verification.get("readback_configuration_sha256"))
+        and verification.get("readback_configuration_sha256")
+        == verification.get("expected_configuration_sha256")
+        and final_readback.get("authoritative") is True
+    )
+    if execution_mode == "executed" and not certified:
+        raise ValueError(
+            "an executed change log requires a passing final complete-readback certification"
+        )
     changes = as_list(payload.get("changes"))
     actions = Counter(str(row.get("action") or "") for row in changes)
     statuses = Counter(str(row.get("status") or "") for row in changes)
     summary = [
-        {"Decision": "Log type", "Value": payload.get("execution_mode", "planned")},
+        {"Decision": "Log type", "Value": execution_mode},
         {"Decision": "Field-level changes", "Value": len(changes)},
         {"Decision": "Actions", "Value": json.dumps(actions, ensure_ascii=False, sort_keys=True)},
         {"Decision": "Statuses", "Value": json.dumps(statuses, ensure_ascii=False, sort_keys=True)},
         {
             "Decision": "Validation",
-            "Value": "Verify every applied row through GTM readback, export diff, and dependency validation.",
+            "Value": (
+                "Pass — the final complete GTM readback exactly matches the approved "
+                "simulated state and every field change links to an approved operation."
+                if execution_mode == "executed"
+                else "Pending — this is a planned preview, not an executed result."
+            ),
         },
         {
             "Decision": "Next step",
-            "Value": "Resolve unlinked or unverified rows before publish readiness.",
+            "Value": (
+                "Use this certified final readback as the sole execution result; run "
+                "runtime acceptance separately before publication."
+                if execution_mode == "executed"
+                else "Approve an exact operation set, execute it, and rebuild this log "
+                "from the final complete GTM readback."
+            ),
         },
     ]
+    if execution_mode == "executed":
+        summary.append(
+            {
+                "Decision": "Certified configuration SHA-256",
+                "Value": verification.get("readback_configuration_sha256", ""),
+            }
+        )
 
     workbook = Workbook()
     workbook.remove(workbook.active)

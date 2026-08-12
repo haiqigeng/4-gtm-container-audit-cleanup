@@ -38,13 +38,16 @@ hidden proof tabs as well as visible tabs.
 
 ## Status Integrity
 
-- `Applied` only when linked to an approved operation and observed in the
-  executed/generated after artifact;
+- `Applied and verified` only when linked to an approved operation and observed
+  in a final complete readback whose certification passes;
 - `Proposed` for planned previews;
 - `Blocked` when execution failed or lacks operation linkage;
 - `Requires verification` when readback has not been completed.
 
-The before/after diff is authoritative. Never invent a change log from the plan.
+The final complete before/readback diff is the sole authoritative executed
+result. API responses and intermediate batch records are provisional. Never
+invent a change log from the plan, and never build an executed workbook from a
+failed or absent certification.
 
 Before diffing, validate both before and after sources as complete
 ContainerVersion artifacts. Block the change log on malformed or unmodeled

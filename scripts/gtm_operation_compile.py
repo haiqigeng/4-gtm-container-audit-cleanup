@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 import difflib
+import heapq
 import json
 import re
 import sys
@@ -167,8 +168,13 @@ def structural_action_item(field: str, item: Any) -> Any:
     if not isinstance(item, dict):
         return copy.deepcopy(item)
     result = copy.deepcopy(item)
-    if field in {"creations", "deletions"}:
+    if field == "creations":
         result.pop("reason", None)
+    if field == "deletions":
+        # A deletion mutates only the targeted source object.  Names, source
+        # paths, and reasons are useful proof/display metadata but must not
+        # make two otherwise identical deletions look like competing actions.
+        return {"object_key": str(item.get("object_key") or "")}
     return result
 
 
@@ -982,7 +988,9 @@ RUNTIME_NEUTRAL_LIFECYCLE_FINDINGS = {
 
 
 def runtime_neutral_operational_deletions(
-    operation: dict[str, Any], operational_by_id: dict[str, dict[str, Any]]
+    operation: dict[str, Any],
+    operational_by_id: dict[str, dict[str, Any]],
+    expected_consumers: dict[str, set[str]] | None = None,
 ) -> set[str]:
     """Return deletions proven outside the active execution graph by Run 1.
 
@@ -1025,11 +1033,27 @@ def runtime_neutral_operational_deletions(
                 if str(item.get("object_key") or "")
             )
     if ineffective_repair_keys:
-        return {
+        deletion_keys = {
             str(item.get("object_key") or "")
             for item in as_list(operation.get("deletions"))
-            if str(item.get("object_key") or "") in ineffective_repair_keys
         }
+        runtime_neutral = deletion_keys & ineffective_repair_keys
+        # An exact ineffective-blocker repair can also retire an object that
+        # becomes unreachable solely because it was a dependency of the
+        # proven-orphaned deletion.  Allow only this closed dependency chain:
+        # each added object must have at least one source-graph consumer and
+        # every such consumer must already be in the neutral deletion set.
+        # This cannot exempt an unrelated unused object from Run 3 coverage.
+        if expected_consumers:
+            changed = True
+            while changed:
+                changed = False
+                for key in sorted(deletion_keys - runtime_neutral):
+                    consumers = set(expected_consumers.get(key, set()))
+                    if consumers and consumers <= runtime_neutral:
+                        runtime_neutral.add(key)
+                        changed = True
+        return runtime_neutral
 
     if any(
         as_list(operation.get(field))
@@ -1059,11 +1083,17 @@ def runtime_neutral_operational_deletions(
 
 
 def runtime_neutral_operational_behavior_keys(
-    operation: dict[str, Any], operational_by_id: dict[str, dict[str, Any]]
+    operation: dict[str, Any],
+    operational_by_id: dict[str, dict[str, Any]],
+    expected_consumers: dict[str, set[str]] | None = None,
 ) -> set[str]:
     """Return exact Run-1 repair keys proven not to change reachable behavior."""
 
-    keys = runtime_neutral_operational_deletions(operation, operational_by_id)
+    keys = runtime_neutral_operational_deletions(
+        operation,
+        operational_by_id,
+        expected_consumers,
+    )
     for reference in as_list(operation.get("source_references")):
         finding = operational_by_id.get(str(reference))
         repair = (finding or {}).get("deterministic_repair") or {}
@@ -1218,6 +1248,7 @@ def validate_cross_run_reconciliation(
     operational: dict[str, Any],
     architecture: dict[str, Any],
     operations: list[dict[str, Any]],
+    expected_consumers: dict[str, set[str]] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     operational_by_id = {
@@ -1233,10 +1264,14 @@ def validate_cross_run_reconciliation(
         destructive_keys = destructive_object_keys(operation)
         behavior_keys = behavior_impact_keys(operation)
         runtime_neutral_keys = runtime_neutral_operational_deletions(
-            operation, operational_by_id
+            operation,
+            operational_by_id,
+            expected_consumers,
         )
         runtime_neutral_behavior_keys = runtime_neutral_operational_behavior_keys(
-            operation, operational_by_id
+            operation,
+            operational_by_id,
+            expected_consumers,
         )
         if runtime_neutral_keys:
             operation["runtime_neutral_deletion_keys"] = sorted(
@@ -2073,6 +2108,354 @@ EXECUTION_PHASES = (
     ("delete", "deletions"),
 )
 
+CLEANUP_CLOSURE_LAYERS = {
+    "builtInVariable",
+    "customTemplate",
+    "folder",
+    "trigger",
+    "variable",
+}
+
+
+def operation_detachments(
+    operation: dict[str, Any],
+    catalog: dict[str, dict[str, Any]],
+) -> dict[str, set[str]]:
+    """Return exact dependency -> consumer edges removed by one operation."""
+
+    detached: dict[str, set[str]] = defaultdict(set)
+    keys_by_layer_name: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for key, item in catalog.items():
+        name = str(item.get("object_name") or "")
+        layer = str(item.get("layer") or key.partition(":")[0])
+        if name:
+            keys_by_layer_name[(layer, name)].append(key)
+
+    def unique_named_key(layer: str, name: str) -> str:
+        candidates = keys_by_layer_name.get((layer, name), [])
+        return candidates[0] if len(candidates) == 1 else ""
+
+    for remap in as_list(operation.get("remaps")):
+        source = str(remap.get("from_object_key") or "")
+        for consumer in as_list(remap.get("consumer_object_keys")):
+            if source and str(consumer):
+                detached[source].add(str(consumer))
+
+    for change in as_list(operation.get("changes")):
+        consumer = str(change.get("object_key") or "")
+        path = str(change.get("json_path") or "")
+        before = change.get("before")
+        after = change.get("after")
+        if not consumer:
+            continue
+        if path.endswith((".firingTriggerId", ".blockingTriggerId")):
+            for object_id in {str(value) for value in as_list(before)} - {
+                str(value) for value in as_list(after)
+            }:
+                detached[f"trigger:{object_id}"].add(consumer)
+            continue
+        if path.endswith((".setupTag", ".teardownTag")):
+            before_names = {
+                str(value.get("tagName") or "")
+                for value in as_list(before)
+                if isinstance(value, dict) and str(value.get("tagName") or "")
+            }
+            after_names = {
+                str(value.get("tagName") or "")
+                for value in as_list(after)
+                if isinstance(value, dict) and str(value.get("tagName") or "")
+            }
+            for name in before_names - after_names:
+                key = unique_named_key("tag", name)
+                if key:
+                    detached[key].add(consumer)
+            continue
+        if path.endswith(".parentFolderId") and str(before or "") != str(after or ""):
+            detached[f"folder:{before}"].add(consumer)
+            continue
+        before_text = json.dumps(before, ensure_ascii=False, sort_keys=True)
+        after_text = json.dumps(after, ensure_ascii=False, sort_keys=True)
+        for name in set(REF_RE.findall(before_text)) - set(REF_RE.findall(after_text)):
+            key = unique_named_key("variable", name)
+            if key:
+                detached[key].add(consumer)
+    return detached
+
+
+def cleanup_closure_operations(
+    operations: list[dict[str, Any]],
+    catalog: dict[str, dict[str, Any]],
+    expected_consumers: dict[str, set[str]] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Close cleanup-created orphan chains without inventing a fourth scan.
+
+    The three reviews decide the source mutations. This reconciler only adds a
+    separately approvable deletion when those mutations remove or detach every
+    exported consumer of a dependency. Objects that were already unreferenced,
+    runtime roots such as tags, and objects touched by a retained mutation are
+    deliberately excluded.
+    """
+
+    if not expected_consumers or not catalog:
+        return [], []
+
+    deleted_by_key: dict[str, set[str]] = defaultdict(set)
+    detached_by_key: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+    protected_keys: set[str] = set()
+    for index, operation in enumerate(operations, start=1):
+        operation_key = str(operation.get("operation_key") or f"operation-{index}")
+        for deletion in as_list(operation.get("deletions")):
+            key = str(deletion.get("object_key") or "")
+            if key:
+                deleted_by_key[key].add(operation_key)
+        for remap in as_list(operation.get("remaps")):
+            target = str(remap.get("to_object_key") or "")
+            if target:
+                protected_keys.add(target)
+        for source, consumers in operation_detachments(operation, catalog).items():
+            for consumer in consumers:
+                detached_by_key[source][consumer].add(operation_key)
+        protected_keys.update(creation_keys(operation))
+        protected_keys.update(
+            str(item.get("object_key") or "")
+            for field in ("additions", "changes", "renames")
+            for item in as_list(operation.get(field))
+            if isinstance(item, dict) and str(item.get("object_key") or "")
+        )
+        canonical = str(operation.get("canonical_object_key") or "")
+        if canonical:
+            protected_keys.add(canonical)
+
+    derived: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
+    planned_deleted = set(deleted_by_key)
+    remaining_candidates = {
+        key
+        for key, item in catalog.items()
+        if str(item.get("layer") or "") in CLEANUP_CLOSURE_LAYERS
+        and key not in planned_deleted
+        and key not in protected_keys
+        and bool(expected_consumers.get(key))
+    }
+
+    while True:
+        newly_orphaned: list[tuple[str, set[str], set[str]]] = []
+        for key in sorted(remaining_candidates):
+            source_consumers = set(expected_consumers.get(key, set()))
+            detached_consumers = set(detached_by_key.get(key, {}))
+            surviving_consumers = (
+                source_consumers - planned_deleted - detached_consumers
+            )
+            if surviving_consumers:
+                continue
+            prerequisite_keys = {
+                operation_key
+                for consumer in source_consumers
+                for operation_key in deleted_by_key.get(consumer, set())
+            }
+            prerequisite_keys.update(
+                operation_key
+                for consumer in source_consumers
+                for operation_key in detached_by_key.get(key, {}).get(consumer, set())
+            )
+            if prerequisite_keys:
+                newly_orphaned.append((key, source_consumers, prerequisite_keys))
+        if not newly_orphaned:
+            break
+
+        for key, source_consumers, prerequisite_keys in newly_orphaned:
+            remaining_candidates.remove(key)
+            planned_deleted.add(key)
+            label = str(catalog.get(key, {}).get("object_name") or key)
+            decision_id = f"REC-CLOSURE-{len(derived) + 1:04d}"
+            operation_key = f"cleanup-closure-{stable_hash(key, 12)}"
+            prerequisite_text = ", ".join(sorted(prerequisite_keys))
+            consumer_text = ", ".join(sorted(source_consumers))
+            operation = {
+                "operation_key": operation_key,
+                "source_operation_keys": [operation_key],
+                "title": f"Remove cleanup-created orphan {label}",
+                "area": "GTM hygiene",
+                "problem_type": "Unused object",
+                "problem": (
+                    f"{key} becomes unused after the planned cleanup removes or "
+                    f"detaches every exported consumer: {consumer_text}."
+                ),
+                "why_it_matters": (
+                    f"Leaving {key} after its last consumer is removed preserves an "
+                    "obsolete dependency that can be selected or edited by mistake."
+                ),
+                "expected_clean_state": (
+                    f"{key} is absent after all prerequisite consumer changes complete."
+                ),
+                "exact_proposed_action": (
+                    f"After {prerequisite_text}, delete {key}; no consumer remap remains."
+                ),
+                "preconditions": (
+                    "Approve and complete every listed prerequisite operation before "
+                    f"deleting {key}."
+                ),
+                "qa_steps": (
+                    f"Read back the workspace; confirm {key} is absent and no configured "
+                    "reference is missing."
+                ),
+                "rollback": "Restore the exact object from the locked source export.",
+                "priority": "Low",
+                "confidence": "High",
+                "execution_readiness": "approval_required",
+                "canonical_selection_rationale": "",
+                "creations": [],
+                "additions": [],
+                "changes": [],
+                "remaps": [],
+                "deletions": [
+                    {
+                        "object_key": key,
+                        "reason": "becomes unreferenced after approved prerequisite cleanup",
+                    }
+                ],
+                "renames": [],
+                "canonical_object_key": "",
+                "source_runs": ["cross_run_reconciliation"],
+                "source_references": [decision_id],
+                "source_object_keys": [key],
+                "affected_object_keys": [key],
+                "challenge_review": {},
+                "derived_cleanup_closure": True,
+                "prerequisite_operation_keys": sorted(prerequisite_keys),
+                "closure_evidence": {
+                    "source_consumer_object_keys": sorted(source_consumers),
+                    "result": "unreferenced_after_prerequisites",
+                },
+            }
+            derived.append(operation)
+            deleted_by_key[key].add(operation_key)
+            decisions.append(
+                {
+                    "decision_id": decision_id,
+                    "source_run": "cross_run_reconciliation",
+                    "source_object_keys": [key],
+                    "verdict": "cleanup_created_orphan",
+                    "disposition": "cleanup_operation",
+                    "finding_class": "deterministic_reconciliation_consequence",
+                    "title": operation["title"],
+                    "area": operation["area"],
+                    "problem_type": operation["problem_type"],
+                    "affected_objects": f"{key} — {label}",
+                    "summary": operation["problem"],
+                    "owner_question": "",
+                    "recommended_action": operation["exact_proposed_action"],
+                    "confidence": "High",
+                    "operation_keys": [operation_key],
+                    "reconciliation_basis": (
+                        "Derived after the three independent reviews from the locked "
+                        "source dependency graph and their exact proposed mutations."
+                    ),
+                }
+            )
+    return derived, decisions
+
+
+def dependency_order_operations(
+    operations: list[dict[str, Any]],
+    expected_consumers: dict[str, set[str]] | None,
+    catalog: dict[str, dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Topologically order atomic operations for dependency-safe execution."""
+
+    rows = copy.deepcopy(operations)
+    if not rows:
+        return rows, []
+    internal_keys = [
+        str(row.get("operation_key") or f"__operation_{index}")
+        for index, row in enumerate(rows)
+    ]
+    if len(set(internal_keys)) != len(internal_keys):
+        return rows, ["operation dependency ordering requires unique operation keys"]
+    index_by_key = {key: index for index, key in enumerate(internal_keys)}
+    dependencies: dict[str, set[str]] = {key: set() for key in internal_keys}
+    deletion_owners: dict[str, set[str]] = defaultdict(set)
+    creation_owners: dict[str, set[str]] = defaultdict(set)
+    remap_detachers: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+    action_keys_by_operation: dict[str, set[str]] = {}
+
+    for key, operation in zip(internal_keys, rows, strict=True):
+        dependencies[key].update(
+            str(value)
+            for value in as_list(operation.get("prerequisite_operation_keys"))
+            if str(value) in index_by_key and str(value) != key
+        )
+        for deletion_key in _deletion_targets(operation):
+            deletion_owners[deletion_key].add(key)
+        for creation_key in creation_keys(operation):
+            creation_owners[creation_key].add(key)
+        for source, consumers in operation_detachments(
+            operation, catalog or {}
+        ).items():
+            for consumer in consumers:
+                remap_detachers[source][consumer].add(key)
+        action_keys_by_operation[key] = action_object_keys(operation)
+
+    for dependency_key, owners in deletion_owners.items():
+        for owner in owners:
+            for consumer in (expected_consumers or {}).get(dependency_key, set()):
+                dependencies[owner].update(
+                    key for key in deletion_owners.get(consumer, set()) if key != owner
+                )
+                dependencies[owner].update(
+                    key
+                    for key in remap_detachers.get(dependency_key, {}).get(
+                        consumer, set()
+                    )
+                    if key != owner
+                )
+            dependencies[owner].update(
+                key
+                for key, action_keys in action_keys_by_operation.items()
+                if key != owner and dependency_key in action_keys
+            )
+
+    for created_key, owners in creation_owners.items():
+        for owner in owners:
+            for key, action_keys in action_keys_by_operation.items():
+                if key != owner and created_key in action_keys:
+                    dependencies[key].add(owner)
+
+    reverse_edges: dict[str, set[str]] = defaultdict(set)
+    indegree = {key: len(values) for key, values in dependencies.items()}
+    for key, prerequisites in dependencies.items():
+        for prerequisite in prerequisites:
+            reverse_edges[prerequisite].add(key)
+    ready = [
+        (index_by_key[key], key) for key, degree in indegree.items() if degree == 0
+    ]
+    heapq.heapify(ready)
+    ordered_keys: list[str] = []
+    while ready:
+        _index, key = heapq.heappop(ready)
+        ordered_keys.append(key)
+        for dependent in sorted(
+            reverse_edges.get(key, set()), key=lambda value: index_by_key[value]
+        ):
+            indegree[dependent] -= 1
+            if indegree[dependent] == 0:
+                heapq.heappush(ready, (index_by_key[dependent], dependent))
+    if len(ordered_keys) != len(rows):
+        cycle_keys = sorted(key for key, degree in indegree.items() if degree)
+        return rows, [
+            "operation dependency ordering contains a cycle: " + ", ".join(cycle_keys)
+        ]
+
+    by_key = dict(zip(internal_keys, rows, strict=True))
+    ordered = [by_key[key] for key in ordered_keys]
+    for key, operation in zip(ordered_keys, ordered, strict=True):
+        operation["dependency_operation_keys"] = sorted(dependencies[key])
+    return ordered, []
+
 
 def operation_priority_basis(
     operation: dict[str, Any],
@@ -2097,7 +2480,9 @@ def operation_priority_basis(
         for key in object_keys
         if key in catalog
     }
-    if known_layers and known_layers <= {"folder"}:
+    if operation.get("derived_cleanup_closure"):
+        reachability = "inactive_after_prerequisites"
+    elif known_layers and known_layers <= {"folder"}:
         reachability = "metadata_only"
     elif "active" in known_states:
         reachability = "active"
@@ -2205,6 +2590,40 @@ def operation_priority_basis(
             f"owner={owner_dependency}."
         ),
     }
+
+
+def proven_inactive_direct_deletion(operation: dict[str, Any]) -> bool:
+    """Whether structural evidence makes a deletion low-risk to execute directly."""
+
+    priority_basis = operation.get("priority_basis") or {}
+    reachability = str(priority_basis.get("active_reachability") or "unknown")
+    deletions = [
+        str(item.get("object_key") or "")
+        for item in as_list(operation.get("deletions"))
+        if isinstance(item, dict) and str(item.get("object_key") or "")
+    ]
+    safe_layers = {
+        "builtInVariable",
+        "customTemplate",
+        "folder",
+        "trigger",
+        "variable",
+    }
+    return (
+        bool(deletions)
+        and not any(
+            as_list(operation.get(field))
+            for field in ACTION_FIELDS
+            if field != "deletions"
+        )
+        and all(key.split(":", 1)[0] in safe_layers for key in deletions)
+        and reachability
+        in {
+            "inactive_after_prerequisites",
+            "inactive_or_unreferenced",
+            "metadata_only",
+        }
+    )
 
 
 SERVER_ROUTE_PATH_RE = re.compile(
@@ -2325,7 +2744,13 @@ def operation_safety_metadata(
     route_hosts = operation_server_route_hosts(operation, catalog)
     server_coupled = bool(route_hosts)
     activation_risk = operation_has_configured_activation_risk(operation)
-    sensitive = bool({"consent_privacy", "security"} & impact_classes)
+    structurally_inactive_deletion = proven_inactive_direct_deletion(operation)
+    # Names such as "Old Consent Trigger" are not evidence that an unreferenced
+    # trigger still controls consent. Structural reachability governs deletion
+    # safety; lexical impact remains visible for analyst context.
+    sensitive = bool({"consent_privacy", "security"} & impact_classes) and not (
+        structurally_inactive_deletion
+    )
     individual_reasons = [
         reason
         for condition, reason in (
@@ -2338,8 +2763,8 @@ def operation_safety_metadata(
         if condition
     ]
     bulk_eligible = (
-        priority == "Low"
-        and reachability in {"inactive_or_unreferenced", "metadata_only"}
+        structurally_inactive_deletion
+        and priority not in {"High", "Critical"}
         and str(priority_basis.get("alignment") or "")
         != "below_evidence_floor_review_recommended"
         and not individual_reasons
@@ -2362,7 +2787,10 @@ def operation_safety_metadata(
             if isinstance(item, dict)
         }
         quarantine = (
-            bool(deletion_states & {"active", "paused_only", "unknown"})
+            (
+                bool(deletion_states & {"active", "paused_only", "unknown"})
+                and not structurally_inactive_deletion
+            )
             or priority in {"High", "Critical"}
             or sensitive
             or server_coupled
@@ -2414,6 +2842,7 @@ def operation_safety_metadata(
             ),
             "reasons": individual_reasons
             or ["evidence-calibrated low-risk, non-active exact mutation"],
+            "structural_inactive_deletion": structurally_inactive_deletion,
         },
         "decommission": decommission,
     }
@@ -2454,6 +2883,30 @@ def packetize_operations(
         )
         packet["execution_safety"] = operation_safety_metadata(packet, catalog)
         packets.append(packet)
+    by_operation_key = {
+        str(packet.get("operation_key") or ""): str(packet.get("operation_id") or "")
+        for packet in packets
+        if str(packet.get("operation_key") or "")
+    }
+    for packet in packets:
+        dependency_keys = sorted(
+            {
+                str(value)
+                for value in [
+                    *as_list(packet.get("dependency_operation_keys")),
+                    *as_list(packet.get("prerequisite_operation_keys")),
+                ]
+                if str(value)
+            }
+        )
+        packet["dependency_operation_keys"] = dependency_keys
+        packet["depends_on_operation_ids"] = sorted(
+            {
+                by_operation_key[value]
+                for value in dependency_keys
+                if value in by_operation_key
+            }
+        )
     return packets
 
 
@@ -3235,8 +3688,23 @@ def compile_operations(
     collected = collect_operations(operational, configuration, architecture)
     merged = merge_compatible_operations(collected, errors)
     ledger = decision_ledger(operational, configuration, architecture)
+    errors.extend(
+        validate_cross_run_reconciliation(
+            operational,
+            architecture,
+            merged,
+            expected_consumers,
+        )
+    )
+    derived_closure, closure_decisions = cleanup_closure_operations(
+        merged,
+        catalog or {},
+        expected_consumers,
+    )
+    merged.extend(derived_closure)
+    ledger.extend(closure_decisions)
+    ledger.sort(key=lambda row: (str(row.get("source_run") or ""), str(row.get("decision_id") or "")))
     errors.extend(ledger_link_errors(ledger, merged))
-    errors.extend(validate_cross_run_reconciliation(operational, architecture, merged))
     errors.extend(
         validate_operation_set(
             merged,
@@ -3248,6 +3716,12 @@ def compile_operations(
     errors.extend(mutation_path_errors(merged, source_paths_by_key))
     errors.extend(validate_mutation_conflicts(merged))
     catalog = catalog or {}
+    merged, ordering_errors = dependency_order_operations(
+        merged,
+        expected_consumers,
+        catalog,
+    )
+    errors.extend(ordering_errors)
     packets = packetize_operations(
         merged,
         route,

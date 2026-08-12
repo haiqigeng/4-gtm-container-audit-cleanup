@@ -1702,9 +1702,9 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
             sorted(str(record.get("decision_id") or "") for record in records)
         )
         return safe_text(
-            f"Answering {source_ids} selects the exact keep, repair, replacement, remap, "
-            f"or removal target for {scope}. It unlocks this recommended next action: "
-            f"{topic['recommendation']}"
+            f"Why this answer is needed: GTM cannot safely change {scope} until the "
+            f"owner answers {source_ids}. Once answered, follow this concrete next "
+            f"step only for those objects: {topic['recommendation']}"
         )
 
     decision_rows = []

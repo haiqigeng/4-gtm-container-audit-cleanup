@@ -66,6 +66,7 @@ raw container evidence
   -> independent Run 3: business architecture
   -> three-run completion gate
   -> contradiction-aware operation reconciliation
+  -> fixed-point cleanup closure and dependency-safe operation order
   -> measurement-preservation and target-state projection
   -> future-state graph simulation
   -> canonical human cleanup plan and existing gates
@@ -263,6 +264,15 @@ cleanup rather than a change to the active measurement graph. It does not need
 a fabricated Run 3 relationship, but complete reference validation and the
 future-state gate remain mandatory.
 
+After the three sealed judgments reconcile, compute cleanup closure to a fixed
+point from the complete locked consumer graph. If approved source operations
+remove or detach the last consumer of a trigger, variable, built-in, folder, or
+template, add one visible, separately approvable reconciliation operation with
+the exact prerequisite operations. Do not feed this consequence back into any
+review, treat it as a fourth scan, add runtime roots, or infer that a business
+tag is obsolete. Topologically order the resulting operations so consumers are
+retired or remapped before their dependencies.
+
 An exact source-bound, non-destructive Run-1 or Run-2 repair may proceed with
 completed Run-3 family coverage rather than a duplicated architecture mutation.
 It cannot create, delete, or remap an object and remains subject to simulation,
@@ -393,10 +403,14 @@ After plan delivery, ask for:
 
 Do not ask for an aggressiveness mode. Recommend the best safe future state once.
 Low-risk, non-active exact operations may be presented as one bulk-eligible
-approval bundle. High/Critical, active, consent/security, server-coupled, and
-configured-activation-risk operations remain individually approved. Run the
-execution preflight against exact `do_not_touch` keys and the passing simulated
-future state before either mutation route.
+approval bundle. A sensitive word in the name of a structurally unreferenced
+deletion-only trigger/variable does not create a fictitious active consent or
+security control. High/Critical, active, genuinely consent/security,
+server-coupled, and configured-activation-risk operations remain individually
+approved. Run the execution preflight against exact `do_not_touch` keys, every
+dependency prerequisite, the passing simulated future state, and a fresh
+complete workspace readback that still equals the audited object graph before
+either mutation route.
 Approval controls which exact operations may be executed; rejected or amended
 operations stay visible in the analyst's decision record and require the future
 state to be regenerated before mutation. A subset is a staged, incomplete
@@ -438,8 +452,10 @@ passing canonical workbook.
 
 For executed work, `Complete` additionally requires a complete workspace/export
 readback that exactly equals the approved simulated future state and contains
-no unlinked field change. A successful API response or partial object check is
-not execution certification.
+no unlinked field change. Regenerate the final field-level result and change log
+from that readback; it is the sole authoritative execution result. A successful
+API response, intermediate mutation record, partial object check, or executed
+workbook built from a failing certification is not execution certification.
 
 Otherwise report `Incomplete / blocked` with the exact missing artifact or
 source-bound reason. Do not claim completion because the container is large or

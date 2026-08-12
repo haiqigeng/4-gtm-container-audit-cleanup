@@ -11,9 +11,85 @@ from pathlib import Path
 from typing import Any
 
 from gtm_approval_response import validate_response
-from gtm_lib import ID_KEYS, as_list, load_json
+from gtm_lib import (
+    ID_KEYS,
+    as_list,
+    container_configuration_differences,
+    container_configuration_sha256,
+    container_identity,
+    load_json,
+    source_descriptor,
+    source_integrity_findings,
+)
 
 EXACT_OBJECT_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*:[^:\s]+$")
+
+
+def live_readback_binding(
+    source_export: dict[str, Any] | None,
+    live_readback: dict[str, Any] | None,
+    source_export_sha256: str,
+    expected_source_sha256: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Bind execution to a fresh complete workspace readback of the audited state."""
+
+    errors: list[str] = []
+    if source_export is None:
+        errors.append("the locked source export is required for execution preflight")
+    if live_readback is None:
+        errors.append("a fresh complete GTM workspace readback is required before mutation")
+    if errors:
+        return {
+            "status": "fail",
+            "matches_audited_configuration": False,
+            "errors": list(errors),
+        }, errors
+
+    source_integrity = [
+        row for row in source_integrity_findings(source_export) if row.get("blocking")
+    ]
+    live_integrity = [
+        row for row in source_integrity_findings(live_readback) if row.get("blocking")
+    ]
+    if source_integrity:
+        errors.append("locked source export fails the complete-source integrity gate")
+    if live_integrity:
+        errors.append("live GTM readback fails the complete-source integrity gate")
+    if not source_export_sha256:
+        errors.append("locked source export SHA-256 is unavailable")
+    elif source_export_sha256 != expected_source_sha256:
+        errors.append("locked source export hash differs from the approved operation packet")
+
+    source_identity = container_identity(source_export)
+    live_identity = container_identity(live_readback)
+    if source_identity and live_identity != source_identity:
+        errors.append(
+            "live readback container identity differs from the audited source: "
+            f"expected={source_identity}, actual={live_identity}"
+        )
+
+    source_configuration_sha256 = container_configuration_sha256(source_export)
+    live_configuration_sha256 = container_configuration_sha256(live_readback)
+    differences = container_configuration_differences(source_export, live_readback)
+    difference_count = sum(len(values) for values in differences.values())
+    if difference_count:
+        errors.append(
+            "live workspace configuration drifted after the audit; regenerate the "
+            "audit/plan from this readback before mutation"
+        )
+    report = {
+        "status": "pass" if not errors else "fail",
+        "matches_audited_configuration": not difference_count and not errors,
+        "source_identity": source_identity,
+        "live_identity": live_identity,
+        "source_configuration_sha256": source_configuration_sha256,
+        "live_configuration_sha256": live_configuration_sha256,
+        "configuration_differences": differences,
+        "source_integrity_findings": source_integrity,
+        "live_integrity_findings": live_integrity,
+        "errors": list(errors),
+    }
+    return report, errors
 
 
 def operation_scope_keys(operation: dict[str, Any]) -> set[str]:
@@ -57,9 +133,19 @@ def execution_preflight(
     activation_confirmed_ids: set[str],
     observation_confirmed_ids: set[str],
     approval_validation_errors: list[str] | None = None,
+    source_export: dict[str, Any] | None = None,
+    live_readback: dict[str, Any] | None = None,
+    source_export_sha256: str = "",
 ) -> dict[str, Any]:
     errors: list[str] = list(approval_validation_errors or [])
     warnings: list[str] = []
+    readback_binding, binding_errors = live_readback_binding(
+        source_export,
+        live_readback,
+        source_export_sha256,
+        str(operations.get("source_sha256") or ""),
+    )
+    errors.extend(binding_errors)
     by_id = {
         str(operation.get("operation_id") or ""): operation
         for operation in as_list(operations.get("operations"))
@@ -103,6 +189,30 @@ def execution_preflight(
     selected = [by_id[value] for value in sorted(approved_ids & set(by_id))]
     for operation in selected:
         operation_id = str(operation.get("operation_id") or "")
+        required_ids = {
+            str(value)
+            for value in as_list(operation.get("depends_on_operation_ids"))
+            if str(value)
+        }
+        missing_dependencies = sorted(required_ids - approved_ids)
+        if missing_dependencies:
+            errors.append(
+                f"{operation_id} requires approved prerequisite operations: "
+                + ", ".join(missing_dependencies)
+            )
+        operation_order = int(operation.get("execution_order") or 0)
+        misordered_dependencies = sorted(
+            dependency_id
+            for dependency_id in required_ids
+            if dependency_id in by_id
+            and int(by_id[dependency_id].get("execution_order") or 0)
+            >= operation_order
+        )
+        if misordered_dependencies:
+            errors.append(
+                f"{operation_id} is not ordered after prerequisite operations: "
+                + ", ".join(misordered_dependencies)
+            )
         protected = sorted(operation_scope_keys(operation) & do_not_touch)
         if protected:
             errors.append(
@@ -173,6 +283,7 @@ def execution_preflight(
         "do_not_touch_object_keys": sorted(do_not_touch),
         "errors": errors,
         "warnings": warnings,
+        "live_readback_binding": readback_binding,
     }
 
 
@@ -181,6 +292,18 @@ def main() -> int:
     parser.add_argument("operations", type=Path)
     parser.add_argument("context", type=Path)
     parser.add_argument("future_state", type=Path)
+    parser.add_argument(
+        "--source-export",
+        type=Path,
+        required=True,
+        help="Exact source export used to build the approved operation packet",
+    )
+    parser.add_argument(
+        "--live-readback",
+        type=Path,
+        required=True,
+        help="Fresh complete pre-mutation GTM workspace readback",
+    )
     parser.add_argument("--approve", action="append", default=[])
     parser.add_argument(
         "--approval-response",
@@ -225,6 +348,9 @@ def main() -> int:
         activation_ids,
         observation_ids,
         approval_errors,
+        load_json(args.source_export),
+        load_json(args.live_readback),
+        source_descriptor(args.source_export)["source_sha256"],
     )
     rendered = json.dumps(
         report,

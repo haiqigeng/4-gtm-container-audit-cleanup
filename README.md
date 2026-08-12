@@ -24,6 +24,23 @@ verified resulting container when execution is approved—is the product.
 
 It is designed for Codex, Claude Code, Gemini, and other file-capable agents.
 
+## v1.11.1 Highlights
+
+- Closes cleanup-created orphan chains after the three independent scans,
+  exposes every derived deletion for separate approval, and orders consumer
+  changes before dependency deletion.
+- Requires a fresh complete workspace readback to match the audited object
+  graph and every selected operation prerequisite before mutation.
+- Certifies execution and executed change logs only from the final complete
+  readback that equals the approved simulation.
+- Fixes system-trigger validation, safe nullable-value guard recognition, and
+  reconciliation of equivalent deletions without weakening source-bound
+  reference or architecture checks.
+- Allows an exact ineffective-blocker repair to retire only a proven dependent
+  orphan chain, with complete source-graph validation and future-state gating.
+- Adds real-run wording regressions so analyst actions and owner decisions stay
+  literal, readable, and operational instead of falling back to machine prose.
+
 ## v1.11.0 Highlights
 
 - Adds source-bound detection for unbounded polling, unsafe `postMessage`,
@@ -248,6 +265,8 @@ similar name is an intended replacement.
 - Lossless hidden proof: long evidence continues onto another row instead of
   being silently truncated.
 - Exact reconciled operations with preconditions, QA, and rollback.
+- Fixed-point cleanup closure for dependencies made unused by planned actions,
+  with separate approval and topological consumer-before-dependency ordering.
 - A hash-locked row-level approval response in which every exact operation is
   approved, rejected, or amended before execution.
 - Evidence-based priority dimensions, server/activation safety, and risk-based
@@ -261,7 +280,9 @@ similar name is an intended replacement.
 - One visible nonblocking evidence-boundary summary, with each exact per-object
   limit preserved in the hidden reviews instead of presented as a cleanup task.
 - On request and after approval, direct GTM changes or a valid import JSON.
-- A separate field-level change log after changes or an import artifact exist.
+- A separate field-level change log after changes or an import artifact exist;
+  an executed workbook is accepted only when the final complete readback exactly
+  matches the approved simulation and every field change is linked.
 - On request, an objective delta between two independently completed full audits:
   added/removed/changed objects and new/resolved/recurring findings, operations,
   decisions, and families. Previous verdicts are never carried into the new run.
@@ -380,7 +401,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.11.0
+python -B scripts/check_release.py --tag v1.11.1
 git diff --check
 ```
 

@@ -1,7 +1,11 @@
 # Cleanup Operation Schema
 
-Compile operations only from three validated reviews. Audit findings describe a
-problem; operations describe an exact proposed mutation.
+Compile source operations only from three validated reviews. Audit findings
+describe a problem; operations describe an exact proposed mutation. After those
+reviews are sealed, reconciliation may add a deterministic cleanup-closure
+operation only when their mutations remove or detach every locked source-graph
+consumer of a trigger, variable, built-in, folder, or template. This is not a
+fourth scan or a new semantic finding.
 
 The compiled packet uses schema version 4. It carries the source, context, and shared-fact hashes. It also carries
 a decision ledger covering every source obligation, execution phases,
@@ -69,6 +73,8 @@ Each operation contains:
   approval gate;
 - source run(s), source review IDs, and evidence object keys;
 - affected mutation objects;
+- dependency operation keys/IDs when another approved operation must complete
+  first;
 - affected measurement-family IDs and the business behavior retained through
   the target state.
 
@@ -86,7 +92,13 @@ Each compiled operation also carries `execution_safety`:
 - risk-based decommission strategy. Active, paused, uncertain, sensitive,
   server-coupled, or activation-relevant deletions quarantine first and need
   separate post-observation deletion approval. Proven inactive low-risk
-  objects can be deleted directly after exact readback.
+objects can be deleted directly after exact readback.
+
+For a deletion-only trigger, variable, built-in, folder, or unused custom-template
+operation, structural reachability is authoritative. Words such as `consent` or `security` in an
+unreferenced object's name do not by themselves make it an active control. An
+object made unreferenced by approved prerequisite operations is low-risk only
+when those exact prerequisites are recorded, approved, and executed first.
 
 Path-based activation classification is only a candidate. The projected-container
 simulator compares active configured tag keys before and after the complete operation
@@ -262,12 +274,23 @@ Visible wording explains the concrete GTM behavior and exact change in analyst
 language. Machine paths, hashes, validator phrases, and generic business-impact
 boilerplate remain proof, not the primary explanation.
 
+Reconciliation computes cleanup closure to a fixed point. Each newly orphaned
+dependency is a separate `REC-CLOSURE-*` ledger row and atomic operation with
+the exact source consumers and prerequisite operation IDs. It may not add a tag
+or another runtime root, may not delete an object that was already unreferenced
+without a three-run finding, and may not infer business obsolescence.
+
 Apply approved operations in dependency-safe phases: create objects; add missing
 fields/list members; apply logic correction; remap consumers; flatten trigger
 groups and sequencing; rename; delete; then readback validation. The simulated
 packet records before/after/delta counts for tags, triggers, variables,
 templates, folders, clients, transformations, Zones, Google tag configurations,
 and built-ins where applicable.
+Within those phases, `execution_order` is a deterministic topological order:
+creation precedes use, consumer deletion/remap precedes dependency deletion,
+and a cleanup-closure deletion follows every recorded prerequisite. Cycles fail
+compilation. The execution preflight rejects an approved dependent operation
+whose prerequisite operation is not also approved or appears later.
 
 ## Consolidation
 

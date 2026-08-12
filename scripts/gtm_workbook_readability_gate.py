@@ -171,6 +171,14 @@ def independent_action_utility_errors(sheet: Any) -> list[str]:
         "reduces maintenance risk",
         "keeps the container clean",
     )
+    machine_problem_markers = (
+        "non-canonical unicode form",
+        "source-proven stale or broken configuration",
+    )
+    generic_action_markers = (
+        "apply the structured exact change below",
+        "apply the approved target state",
+    )
     for row_number in range(2, sheet.max_row + 1):
         operation_cell = cell_value(sheet.cell(row_number, 1))
         if "OP-" not in operation_cell:
@@ -197,6 +205,15 @@ def independent_action_utility_errors(sheet: Any) -> list[str]:
             errors.append(
                 f"A2 Actions!{row_number}: consequence uses generic impact boilerplate"
             )
+        if any(marker in problem.casefold() for marker in machine_problem_markers):
+            errors.append(
+                f"A2 Actions!{row_number}: problem exposes machine wording instead of "
+                "the literal GTM behavior"
+            )
+        if any(marker in exact_change.casefold() for marker in generic_action_markers):
+            errors.append(
+                f"A2 Actions!{row_number}: exact change uses an instruction placeholder"
+            )
         if "static readback:" not in verification.casefold():
             errors.append(
                 f"A2 Actions!{row_number}: static readback is not explicit"
@@ -204,6 +221,38 @@ def independent_action_utility_errors(sheet: Any) -> list[str]:
         if not sheet.cell(row_number, 6).comment:
             errors.append(
                 f"A2 Actions!{row_number}: exact structured mutation note is missing"
+            )
+    return errors
+
+
+def independent_decision_utility_errors(sheet: Any) -> list[str]:
+    """Reject owner rows that preserve IDs but do not explain the decision's use."""
+
+    errors: list[str] = []
+    obsolete_unlock = (
+        "selects the exact keep, repair, replacement, remap, or removal target"
+    )
+    for row_number in range(2, sheet.max_row + 1):
+        identifier = cell_value(sheet.cell(row_number, 1)).strip()
+        if not re.search(r"\bD-\d+\b", identifier):
+            continue
+        question = cell_value(sheet.cell(row_number, 2)).strip()
+        recommendation = cell_value(sheet.cell(row_number, 3)).strip()
+        objects = cell_value(sheet.cell(row_number, 4)).strip()
+        unlock = cell_value(sheet.cell(row_number, 6)).strip()
+        for label, value in (
+            ("owner question", question),
+            ("recommended next step", recommendation),
+            ("affected scope", objects),
+            ("why the answer is needed", unlock),
+        ):
+            if len(value.split()) < 4:
+                errors.append(
+                    f"A3 Decisions!{row_number}: {label} is not standalone and readable"
+                )
+        if obsolete_unlock in unlock.casefold():
+            errors.append(
+                f"A3 Decisions!{row_number}: decision consequence uses abstract action taxonomy"
             )
     return errors
 
@@ -303,6 +352,7 @@ def workbook_structure_errors(workbook: Any, model: dict[str, Any]) -> list[str]
             expected_decision_rows(model),
         )
     )
+    errors.extend(independent_decision_utility_errors(workbook["A3 Decisions"]))
     errors.extend(
         table_errors(
             workbook["A5 Custom HTML"],

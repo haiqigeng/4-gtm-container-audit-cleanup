@@ -1798,9 +1798,13 @@ def required_configuration_obligations(
     ):
         behavior_text = behavior_bearing_vendor_text(obj, layer)
         vendor = vendor_record(behavior_text)
+        configured_consent_command = str(
+            configured_parameter(obj, "command") or ""
+        ).strip().lower()
         manages_consent = (
             str(vendor.get("category") or "") == "cmp"
             or bool(CONSENT_MANAGEMENT_BEHAVIOR_RE.search(behavior_text))
+            or configured_consent_command in {"default", "update"}
         )
         if not manages_consent:
             add(
@@ -1901,6 +1905,24 @@ def required_configuration_obligations(
                         re.I,
                     )
                 )
+                if not guarded:
+                    guarded = bool(
+                        re.search(
+                            rf"if\s*\(\s*typeof\s+{re.escape(local_name)}\s*!==?\s*"
+                            rf"['\"]string['\"]\s*\)\s*\{{[^}}]*\breturn\b",
+                            before_use,
+                            re.I | re.S,
+                        )
+                    ) or bool(
+                        re.search(
+                            rf"if\s*\(\s*typeof\s+{re.escape(local_name)}\s*!==?\s*"
+                            rf"['\"]string['\"]\s*&&\s*!Array\.isArray\s*\(\s*"
+                            rf"{re.escape(local_name)}\s*\)\s*\)\s*\{{[^}}]*\b"
+                            rf"{re.escape(local_name)}\s*=\s*\[\s*\]",
+                            before_use,
+                            re.I | re.S,
+                        )
+                    )
                 if not guarded:
                     unsafe_assigned.append(local_name)
             if direct_use or unsafe_assigned:

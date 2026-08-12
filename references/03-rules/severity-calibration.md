@@ -20,7 +20,7 @@ inventing a fifth priority.
 Every reconciled operation carries an evidence-based `priority_basis`:
 
 - active reachability: active, paused-only, inactive/unreferenced,
-  metadata-only, or unknown;
+  inactive-after-approved-prerequisites, metadata-only, or unknown;
 - impact class: consent/privacy, security, measurement loss/corruption,
   duplicate delivery/attribution, routing/integration, or maintainability;
 - evidence confidence;
@@ -54,6 +54,7 @@ strong.
 | Duplicate page_view/PageView hits feed billing or optimization. | High; otherwise Medium | Active duplicate delivery: High or Medium |
 | A trigger group has one member and adds no behavior. | Medium | Active maintainability with reversible remap: Medium |
 | An unused trigger/variable has no reachable consumers. | Low or Medium | Inactive maintenance; raise only for proven release risk: Low or Medium |
+| A trigger/variable becomes unused only after exact approved consumer removals. | Low | Dependency-bound cleanup closure; approve and execute every prerequisite first |
 | Duplicate names obscure maintenance but behavior is correct. | Low | Metadata/maintenance and easy rollback: Low |
 | Folder organization is missing. | Low | Metadata-only: Low |
 | External behavior is unprovable from the export. | Info/boundary | Container-evidence boundary; priority follows any separate source-visible operation |
@@ -73,6 +74,8 @@ Escalate when:
 Downgrade when:
 
 - object is paused and has no consumers;
+- a deletion-only trigger/variable is structurally unreachable even when its
+  name contains a sensitive word such as `consent`;
 - stronger container or owner evidence proves no impact;
 - issue is naming-only with no behavior risk;
 - issue is inside a user-excluded scope.

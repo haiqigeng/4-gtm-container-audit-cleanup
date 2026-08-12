@@ -14,7 +14,14 @@ from typing import Any
 
 from gtm_configuration_facts import build_consumers, object_consumers
 from gtm_context_model import build_context_model
-from gtm_lib import ID_KEYS, as_list, container_root_path, container_version, stable_hash
+from gtm_lib import (
+    ID_KEYS,
+    as_list,
+    container_root_path,
+    container_version,
+    is_system_trigger_reference,
+    stable_hash,
+)
 from gtm_shared_facts import build_shared_facts
 
 VALID_PRIORITIES = {"Critical", "High", "Medium", "Low"}
@@ -541,6 +548,7 @@ def _reference_list_errors(
             str(item)
             for item in values
             if f"trigger:{item}" not in allowed_keys
+            and not is_system_trigger_reference(str(item))
         )
         if unknown:
             errors.append(
@@ -738,7 +746,12 @@ def _validate_remaps(
             )
         remapped_consumers[source].update(consumers)
     if expected_consumers is not None:
-        for source in set(remapped_consumers) | set(detached_consumers):
+        # A precise field change may intentionally detach only one consumer
+        # while retaining the referenced object for its other consumers.  Full
+        # consumer coverage is necessary for an explicit remap, or whenever
+        # the source object is deleted; treating every detached reference as a
+        # global replacement would force unrelated, false changes.
+        for source in set(remapped_consumers):
             expected_live = expected_consumers.get(source, set()) - deleted_keys
             covered_consumers = remapped_consumers.get(
                 source, set()
