@@ -19,7 +19,7 @@ from gtm_human_rows import (
     operation_problem_text,
     static_verification_text,
 )
-from gtm_lib import as_list, load_json
+from gtm_lib import as_list, load_json, stable_hash
 from gtm_privacy import redact_text, spreadsheet_safe_text
 
 ORIGINAL_SHEETS = [
@@ -40,7 +40,9 @@ HUMAN_SHEETS = [
     "A5 Custom HTML",
 ]
 MANIFEST_KIND = "gtm_workbook_readability_manifest"
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
+EDITORIAL_KIND = "gtm_analyst_workbook_editorial"
+EDITORIAL_SCHEMA_VERSION = 1
 
 HEADER_FILL = "17365D"
 HEADER_FONT = "FFFFFF"
@@ -555,6 +557,7 @@ def artifact_paths(
     future_state_path: Path | None,
     completion_gate_path: Path | None,
     decision_topics_path: Path | None,
+    editorial_path: Path | None = None,
 ) -> dict[str, Path]:
     paths = {
         "audit_package_manifest": package_dir / "audit_package_manifest.json",
@@ -571,6 +574,8 @@ def artifact_paths(
     }
     if decision_topics_path is not None:
         paths["decision_topics"] = decision_topics_path
+    if editorial_path is not None:
+        paths["analyst_editorial"] = editorial_path
     missing = [f"{role}: {path}" for role, path in paths.items() if not path.is_file()]
     if missing:
         raise FileNotFoundError("Missing readability input(s): " + "; ".join(missing))
@@ -965,6 +970,30 @@ def compact_objects(value: Any, limit: int = 360) -> tuple[str, str]:
     boundary = full.rfind(" ", 0, limit)
     boundary = boundary if boundary > limit // 2 else limit
     return full[:boundary].rstrip(" ;") + "… — full scope in note", full
+
+
+def readable_decision_scope(value: Any) -> tuple[str, str]:
+    """Render short owner scopes as standalone analyst-facing text.
+
+    Object identifiers and complete source text remain available in the cell
+    note. This connective wording is shared by the builder and its gate via the
+    authoritative model projection.
+    """
+
+    visible, note = compact_objects(value)
+    if len(visible.split()) >= 4:
+        return visible, note
+    normalized = normalize_space(visible)
+    if normalized.casefold() == "container-wide operational policy":
+        return "All container objects under the naming and ownership policy", note
+    match = re.fullmatch(
+        r"(customTemplate:\d+)\s*;\s*(tag:\d+)", normalized, flags=re.I
+    )
+    if match:
+        return f"{match.group(1)} and {match.group(2)} regional consent route", note
+    if normalized:
+        return f"{normalized} affected configuration scope", note
+    return "The affected configured object scope", note
 
 
 def normalize_topic_text(value: Any) -> str:
@@ -1713,7 +1742,9 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         source_records = [owner_by_id[source_id] for source_id in source_ids]
         if len(source_ids) == 1:
             source = source_records[0]
-            objects, objects_note = compact_objects(source.get("affected_objects"))
+            objects, objects_note = readable_decision_scope(
+                source.get("affected_objects")
+            )
             family_labels = decision_family_labels(source_records)
             decision_rows.append(
                 {
@@ -1756,7 +1787,9 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         )
         for source in source_records:
             source_id = str(source.get("decision_id"))
-            objects, objects_note = compact_objects(source.get("affected_objects"))
+            objects, objects_note = readable_decision_scope(
+                source.get("affected_objects")
+            )
             source_question = safe_text(source.get("owner_question"))
             source_recommendation = safe_text(source.get("recommended_action"))
             decision_rows.append(
@@ -1971,6 +2004,8 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
                 "configuration_id": str(configuration.get("review_id") or ""),
                 "related_topics": related_topics,
                 "conflicts": conflicts,
+                "technical_evidence": technical,
+                "configuration_evidence": configuration,
                 "values": [
                     safe_text(f"{tag_key} — {technical.get('object_name')}"),
                     custom_execution_context(technical, configuration, labels),
@@ -2125,6 +2160,320 @@ def build_model(inputs: dict[str, Any], language: str) -> dict[str, Any]:
         "projected_object_counts": operations_payload.get("projected_object_counts") or {},
         "first_actions": first_actions,
         "measurement_summary": measurement_summary,
+    }
+    return model
+
+
+EDITORIAL_MACHINE_MARKERS = (
+    "source review of",
+    "required contract topics",
+    "$.containerversion",
+    "recursive trace",
+    "source_known",
+    "source-known",
+    "non-canonical unicode form",
+)
+
+
+def editorial_row_specs(model: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build the exact, evidence-bound queue for analyst-language authoring."""
+
+    specs: list[dict[str, Any]] = []
+    for section in model["audit_sections"]:
+        for row in section["rows"]:
+            evidence = {
+                "decision_record": row["record"],
+                "operations": [
+                    model["operation_by_id"][operation_id]
+                    for operation_id in row["operation_ids"]
+                ],
+            }
+            specs.append(
+                {
+                    "row_id": f"A4:{row['id']}",
+                    "row_type": "audit",
+                    "target": row,
+                    "editable_fields": ("finding", "outcome_explanation"),
+                    "current_projection": {
+                        "finding": row["values"][3],
+                        "outcome_explanation": "",
+                    },
+                    "locked": {
+                        "decision_id": row["id"],
+                        "disposition": row["disposition"],
+                        "operation_ids": row["operation_ids"],
+                        "topic_id": row["topic_id"],
+                        "locked_outcome": row["values"][4],
+                        "source_object_keys": row["source_object_keys"],
+                    },
+                    "evidence": evidence,
+                }
+            )
+    for row in model["action_rows"]:
+        specs.append(
+            {
+                "row_id": f"A2:{row['id']}",
+                "row_type": "action",
+                "target": row,
+                "editable_fields": (
+                    "literal_problem",
+                    "consequence_if_unchanged",
+                    "exact_change",
+                    "preconditions_approval",
+                    "verification_rollback",
+                ),
+                "current_projection": {
+                    "literal_problem": row["values"][3],
+                    "consequence_if_unchanged": row["values"][4],
+                    "exact_change": row["values"][5],
+                    "preconditions_approval": row["values"][6],
+                    "verification_rollback": row["values"][7],
+                },
+                "locked": {
+                    "operation_id": row["id"],
+                    "source_ids": row["source_ids"],
+                },
+                "evidence": {"operation": row["operation"]},
+            }
+        )
+    for row in model["decision_rows"]:
+        row_key = ":".join(row["source_ids"]) or row["topic_id"]
+        specs.append(
+            {
+                "row_id": f"A3:{row['kind']}:{row['topic_id']}:{row_key}",
+                "row_type": "decision",
+                "target": row,
+                "editable_fields": (
+                    "question",
+                    "recommendation",
+                    "what_answer_unlocks",
+                ),
+                "current_projection": {
+                    "question": row["values"][1],
+                    "recommendation": row["values"][2],
+                    "what_answer_unlocks": row["values"][5],
+                },
+                "locked": {
+                    "kind": row["kind"],
+                    "topic_id": row["topic_id"],
+                    "source_ids": row["source_ids"],
+                    "source_object_keys": row.get("source_object_keys") or [],
+                },
+                "evidence": {
+                    "source_decisions": [
+                        model["ledger_by_id"][source_id]
+                        for source_id in row["source_ids"]
+                        if source_id in model["ledger_by_id"]
+                    ]
+                },
+            }
+        )
+    for row in model["custom_rows"]:
+        specs.append(
+            {
+                "row_id": f"A5:{row['id']}",
+                "row_type": "custom_html",
+                "target": row,
+                "editable_fields": (
+                    "functional_role",
+                    "technical_health",
+                    "replacement_candidate",
+                    "simplest_safe_target",
+                    "exact_action_decision",
+                ),
+                "current_projection": {
+                    "functional_role": row["values"][2],
+                    "technical_health": row["values"][3],
+                    "replacement_candidate": row["values"][4],
+                    "simplest_safe_target": row["values"][5],
+                    "exact_action_decision": row["values"][6],
+                },
+                "locked": {
+                    "tag_key": row["id"],
+                    "configuration_id": row["configuration_id"],
+                    "related_topics": row["related_topics"],
+                },
+                "evidence": {
+                    "technical_review": row["technical_evidence"],
+                    "configuration_review": row["configuration_evidence"],
+                    "cleanup_conflicts": row["conflicts"],
+                },
+            }
+        )
+    return specs
+
+
+def editorial_binding(spec: dict[str, Any]) -> str:
+    return stable_hash(
+        {
+            "row_id": spec["row_id"],
+            "row_type": spec["row_type"],
+            "editable_fields": list(spec["editable_fields"]),
+            "locked": spec["locked"],
+            "evidence": spec["evidence"],
+            "current_projection": spec["current_projection"],
+        },
+        64,
+    )
+
+
+def build_editorial_template(
+    inputs: dict[str, Any], model: dict[str, Any]
+) -> dict[str, Any]:
+    """Create the source-bound queue an AI reviewer rewrites into plain language."""
+
+    rows = []
+    for spec in editorial_row_specs(model):
+        rows.append(
+            {
+                "row_id": spec["row_id"],
+                "row_type": spec["row_type"],
+                "binding_sha256": editorial_binding(spec),
+                "locked": spec["locked"],
+                "evidence": spec["evidence"],
+                "current_projection": spec["current_projection"],
+                "editable": {field: "" for field in spec["editable_fields"]},
+            }
+        )
+    return {
+        "kind": EDITORIAL_KIND,
+        "schema_version": EDITORIAL_SCHEMA_VERSION,
+        "status": "pending",
+        "authoring_method": "",
+        "language": model["language"],
+        "source_sha256": inputs["source_sha256"],
+        "operation_packet_sha256": sha256_file(
+            inputs["paths"]["reconciled_operations"]
+        ),
+        "instructions": [
+            "Read the bound evidence for every row and explain the concrete GTM condition in analyst language.",
+            "Write what is wrong or retained, why it matters, and the exact next step without raw JSON paths or validator vocabulary.",
+            "Do not change IDs, objects, dispositions, operation direction, approval state, or evidence boundaries.",
+            "If the evidence cannot support a plain-language statement, return the row to reconciliation instead of inventing one.",
+        ],
+        "rows": rows,
+    }
+
+
+def editorial_text_errors(row_id: str, field: str, value: Any) -> list[str]:
+    text = normalize_space(value)
+    errors: list[str] = []
+    if len(text) < 20 or len(text.split()) < 4:
+        errors.append(f"{row_id}.{field} is too short to stand alone for an analyst")
+    lowered = text.casefold()
+    for marker in EDITORIAL_MACHINE_MARKERS:
+        if marker in lowered:
+            errors.append(
+                f"{row_id}.{field} exposes machine-oriented audit wording {marker!r}"
+            )
+    if re.search(r"(?i)(?:^|\W)D3(?:\W|$)", text):
+        errors.append(f"{row_id}.{field} exposes the internal D3 review label")
+    if PLACEHOLDER_RE.search(text):
+        errors.append(f"{row_id}.{field} contains placeholder text")
+    for claim in UNSUPPORTED_CLAIMS:
+        if claim.casefold() in lowered:
+            errors.append(f"{row_id}.{field} makes unsupported claim {claim!r}")
+    return errors
+
+
+def apply_editorial(
+    inputs: dict[str, Any], model: dict[str, Any]
+) -> dict[str, Any]:
+    """Validate and apply presentation-only AI wording to the existing five tabs."""
+
+    editorial = inputs.get("analyst_editorial")
+    if not isinstance(editorial, dict):
+        raise ValueError(
+            "An evidence-locked analyst editorial artifact is required before the analyst workbook"
+        )
+    errors: list[str] = []
+    if editorial.get("kind") != EDITORIAL_KIND:
+        errors.append("analyst editorial kind is invalid")
+    if editorial.get("schema_version") != EDITORIAL_SCHEMA_VERSION:
+        errors.append("analyst editorial schema version is invalid")
+    if editorial.get("status") != "complete":
+        errors.append("analyst editorial status is not complete")
+    if editorial.get("authoring_method") != "evidence_locked_ai_semantic_rewrite":
+        errors.append("analyst editorial authoring method is invalid")
+    if str(editorial.get("language") or "") != model["language"]:
+        errors.append("analyst editorial language does not match the workbook")
+    if str(editorial.get("source_sha256") or "") != inputs["source_sha256"]:
+        errors.append("analyst editorial does not match the locked source")
+    if str(editorial.get("operation_packet_sha256") or "") != sha256_file(
+        inputs["paths"]["reconciled_operations"]
+    ):
+        errors.append("analyst editorial does not match the operation packet")
+
+    supplied_rows = as_list(editorial.get("rows"))
+    supplied_by_id = {
+        str(row.get("row_id") or ""): row
+        for row in supplied_rows
+        if isinstance(row, dict)
+    }
+    if "" in supplied_by_id or len(supplied_by_id) != len(supplied_rows):
+        errors.append("analyst editorial row IDs must be nonblank and unique")
+    specs = editorial_row_specs(model)
+    expected_ids = {spec["row_id"] for spec in specs}
+    supplied_ids = set(supplied_by_id)
+    if supplied_ids != expected_ids:
+        errors.append(
+            "analyst editorial row coverage differs from the visible workbook queue; "
+            f"missing={sorted(expected_ids - supplied_ids)!r}; "
+            f"extra={sorted(supplied_ids - expected_ids)!r}"
+        )
+
+    for spec in specs:
+        supplied = supplied_by_id.get(spec["row_id"])
+        if not supplied:
+            continue
+        if supplied.get("row_type") != spec["row_type"]:
+            errors.append(f"{spec['row_id']} row type changed")
+        if supplied.get("binding_sha256") != editorial_binding(spec):
+            errors.append(f"{spec['row_id']} evidence binding changed")
+        if supplied.get("locked") != spec["locked"]:
+            errors.append(f"{spec['row_id']} locked direction or identity changed")
+        if supplied.get("evidence") != spec["evidence"]:
+            errors.append(f"{spec['row_id']} bound evidence changed")
+        if supplied.get("current_projection") != spec["current_projection"]:
+            errors.append(f"{spec['row_id']} deterministic projection changed")
+        editable = supplied.get("editable")
+        if not isinstance(editable, dict):
+            errors.append(f"{spec['row_id']} has no editable wording object")
+            continue
+        expected_fields = set(spec["editable_fields"])
+        if set(editable) != expected_fields:
+            errors.append(f"{spec['row_id']} editable field set changed")
+            continue
+        for field in spec["editable_fields"]:
+            errors.extend(editorial_text_errors(spec["row_id"], field, editable[field]))
+    if errors:
+        raise ValueError("Invalid analyst editorial: " + "; ".join(errors))
+
+    for spec in specs:
+        editable = supplied_by_id[spec["row_id"]]["editable"]
+        target = spec["target"]
+        if spec["row_type"] == "audit":
+            target["values"][3] = safe_text(editable["finding"])
+            target["values"][4] = safe_text(
+                f"{editable['outcome_explanation']} {spec['locked']['locked_outcome']}"
+            )
+        elif spec["row_type"] == "action":
+            target["values"][3:8] = [
+                safe_text(editable[field]) for field in spec["editable_fields"]
+            ]
+        elif spec["row_type"] == "decision":
+            target["values"][1] = safe_text(editable["question"])
+            target["values"][2] = safe_text(editable["recommendation"])
+            target["values"][5] = safe_text(editable["what_answer_unlocks"])
+        elif spec["row_type"] == "custom_html":
+            target["values"][2:7] = [
+                safe_text(editable[field]) for field in spec["editable_fields"]
+            ]
+    model["editorial"] = {
+        "status": "complete",
+        "authoring_method": editorial["authoring_method"],
+        "row_count": len(specs),
+        "sha256": sha256_file(inputs["paths"]["analyst_editorial"]),
     }
     return model
 
@@ -2818,6 +3167,7 @@ def transformation_manifest(
         },
         "inputs": input_hash_manifest(inputs["paths"]),
         "coverage": model["counts"],
+        "editorial": model["editorial"],
         "decision_topics": [
             {
                 "topic_id": topic["topic_id"],
@@ -2835,7 +3185,9 @@ def transformation_manifest(
         ),
         "fallback": {
             "name": inputs["paths"]["canonical_workbook"].name,
-            "deliver_when_readability_gate_fails": True,
+            "technical_recovery_record": True,
+            "deliver_when_readability_gate_fails": False,
+            "analyst_delivery_status_when_gate_fails": "incomplete",
         },
     }
 
@@ -2859,6 +3211,7 @@ def build(
     future_state_path: Path | None = None,
     completion_gate_path: Path | None = None,
     decision_topics_path: Path | None = None,
+    editorial_path: Path | None = None,
     manifest_path: Path | None = None,
     language: str = "en",
 ) -> tuple[Path, Path, dict[str, Any]]:
@@ -2869,6 +3222,7 @@ def build(
         future_state_path,
         completion_gate_path,
         decision_topics_path,
+        editorial_path,
     )
     manifest_path = manifest_path or default_manifest_path(output)
     validate_manifest_path(manifest_path, output, paths)
@@ -2876,10 +3230,47 @@ def build(
         raise FileExistsError(f"Manifest already exists: {manifest_path}")
     inputs = load_inputs(paths)
     model = build_model(inputs, language)
+    model = apply_editorial(inputs, model)
     row_index = build_readability_workbook(inputs, model, output)
     manifest = transformation_manifest(inputs, model, output, row_index)
     write_manifest(manifest_path, manifest)
     return output, manifest_path, manifest
+
+
+def write_editorial_template(
+    package_dir: Path,
+    operations_path: Path,
+    canonical_workbook: Path,
+    output: Path,
+    *,
+    future_state_path: Path | None = None,
+    completion_gate_path: Path | None = None,
+    decision_topics_path: Path | None = None,
+    language: str = "en",
+) -> dict[str, Any]:
+    """Write a pending semantic-editorial queue without building a workbook."""
+
+    if output.exists():
+        raise FileExistsError(f"Editorial artifact already exists: {output}")
+    paths = artifact_paths(
+        package_dir,
+        operations_path,
+        canonical_workbook,
+        future_state_path,
+        completion_gate_path,
+        decision_topics_path,
+    )
+    if output.resolve() in {path.resolve() for path in paths.values()}:
+        raise ValueError("Editorial output cannot overwrite an audit input")
+    inputs = load_inputs(paths)
+    model = build_model(inputs, language)
+    payload = build_editorial_template(inputs, model)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return payload
 
 
 def main() -> int:
@@ -2891,10 +3282,60 @@ def main() -> int:
     parser.add_argument("--future-state", type=Path)
     parser.add_argument("--completion-gate", type=Path)
     parser.add_argument("--decision-topics", type=Path)
+    parser.add_argument("--editorial", type=Path)
+    parser.add_argument(
+        "--editorial-template",
+        action="store_true",
+        help="Write a pending evidence-locked editorial queue to OUTPUT",
+    )
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--language", choices=sorted(LOCALES), default="en")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
+    if args.editorial_template:
+        if args.editorial is not None or args.manifest is not None:
+            print(
+                "ERROR: --editorial-template cannot be combined with --editorial or --manifest",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            payload = write_editorial_template(
+                args.package_dir,
+                args.operations,
+                args.canonical_workbook,
+                args.output,
+                future_state_path=args.future_state,
+                completion_gate_path=args.completion_gate,
+                decision_topics_path=args.decision_topics,
+                language=args.language,
+            )
+        except (FileNotFoundError, FileExistsError, RuntimeError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(
+            json.dumps(
+                {
+                    "status": payload["status"],
+                    "output": str(args.output),
+                    "rows": len(payload["rows"]),
+                    "next_step": (
+                        "Author every editable field from its bound evidence, set status "
+                        "to complete and authoring_method to "
+                        "evidence_locked_ai_semantic_rewrite, then build the workbook."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2 if args.pretty else None,
+            )
+        )
+        return 0
+    if args.editorial is None:
+        print(
+            "ERROR: --editorial is required when building the analyst workbook",
+            file=sys.stderr,
+        )
+        return 1
     try:
         output, manifest_path, manifest = build(
             args.package_dir,
@@ -2904,6 +3345,7 @@ def main() -> int:
             future_state_path=args.future_state,
             completion_gate_path=args.completion_gate,
             decision_topics_path=args.decision_topics,
+            editorial_path=args.editorial,
             manifest_path=args.manifest,
             language=args.language,
         )

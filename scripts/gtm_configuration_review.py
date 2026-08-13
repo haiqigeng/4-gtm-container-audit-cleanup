@@ -373,6 +373,27 @@ JS_OBJECT_FIELD_RE = re.compile(
     re.S,
 )
 CONSENT_INITIALIZATION_TRIGGER_ID = "2147479593"
+
+
+def consent_initialization_trigger_ids(cv: dict[str, Any]) -> set[str]:
+    """Return system and exported filtered Consent Initialization routes.
+
+    A container may intentionally use a regional/language-scoped
+    ``CONSENT_INIT`` trigger instead of the global system route.  Trigger type,
+    not one hard-coded identifier, is the evidence that establishes timing.
+    """
+
+    trigger_ids = {CONSENT_INITIALIZATION_TRIGGER_ID}
+    for trigger in as_list(cv.get("trigger")):
+        trigger_type = re.sub(
+            r"[^A-Z0-9]+", "_", str(trigger.get("type") or "").upper()
+        ).strip("_")
+        if trigger_type not in {"CONSENT_INIT", "CONSENT_INITIALIZATION"}:
+            continue
+        trigger_id = str(trigger.get("triggerId") or "").strip()
+        if trigger_id:
+            trigger_ids.add(trigger_id)
+    return trigger_ids
 CONSENT_TEMPLATE_API_NAMES = (
     "setDefaultConsentState",
     "updateConsentState",
@@ -2034,21 +2055,22 @@ def required_configuration_obligations(
                     "after": "false",
                 }
 
-    if (
-        layer == "tag"
-        and CONSENT_INITIALIZATION_TRIGGER_ID
-        in {str(value) for value in as_list(obj.get("firingTriggerId"))}
-    ):
+    consent_initialization_ids = consent_initialization_trigger_ids(cv)
+    firing_trigger_ids = {
+        str(value) for value in as_list(obj.get("firingTriggerId"))
+    }
+    consent_initialization_routes = firing_trigger_ids & consent_initialization_ids
+    if layer == "tag" and consent_initialization_routes:
         manages_consent, _sets_default = consent_behavior(obj)
         if not manages_consent:
             add(
                 "consent_initialization_non_consent_tag",
                 "Issue",
                 (
-                    "Tag uses the Consent Initialization system trigger without "
+                    "Tag uses a Consent Initialization execution route without "
                     "container-visible behavior that sets or updates consent state."
                 ),
-                anchors_for("firingTriggerId", CONSENT_INITIALIZATION_TRIGGER_ID),
+                anchors_for("firingTriggerId", *sorted(consent_initialization_routes)),
                 ("execution_scope_alignment", "consent_sequence_alignment"),
                 ("consent_and_timing",),
             )
@@ -2056,13 +2078,16 @@ def required_configuration_obligations(
     if layer == "tag":
         firing_ids = [str(value) for value in as_list(obj.get("firingTriggerId"))]
         _manages_consent, sets_default_consent = consent_behavior(obj)
-        if sets_default_consent and CONSENT_INITIALIZATION_TRIGGER_ID not in firing_ids:
+        if sets_default_consent and not (
+            set(firing_ids) & consent_initialization_ids
+        ):
             add(
                 "consent_default_wrong_initialization_trigger",
                 "Issue",
                 (
                     "Tag exports a default consent command but does not fire on the "
-                    "Consent Initialization system trigger, so later tags can evaluate "
+                    "system or an exported filtered Consent Initialization route, so "
+                    "later tags can evaluate "
                     "before the default state is established."
                 ),
                 [
@@ -2072,16 +2097,6 @@ def required_configuration_obligations(
                 ("execution_scope_alignment", "consent_sequence_alignment"),
                 ("consent_and_timing",),
             )
-            if "consent_default_wrong_initialization_trigger" in obligations:
-                obligations["consent_default_wrong_initialization_trigger"][
-                    "source_known_repair"
-                ] = {
-                    "mode": "change",
-                    "object_key": str(shared.get("object_key") or ""),
-                    "json_path": f"{own_prefix}.firingTriggerId",
-                    "before": firing_ids,
-                    "after": [CONSENT_INITIALIZATION_TRIGGER_ID],
-                }
 
     if layer in {"tag", "variable"}:
         code = executable_code(obj)

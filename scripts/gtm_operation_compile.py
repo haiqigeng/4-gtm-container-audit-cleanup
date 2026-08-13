@@ -959,6 +959,14 @@ def architecture_family_support(
     for family in families:
         if family.get("review_status") != "complete":
             continue
+        if family.get("disposition") in {
+            "owner_decision_needed",
+            "container_evidence_limit",
+        }:
+            # A completed unresolved row proves that the object was reviewed;
+            # it does not authorize a mutation. Treating it as positive support
+            # allowed exact configuration fixes to bypass the analyst decision.
+            continue
         family_id = str(family.get("family_id") or "")
         if not family_id:
             continue
@@ -1189,21 +1197,29 @@ def comparison_reconciliation_errors(
         }
         destructive = sorted(candidate_keys & destructive_keys)
         behavior = sorted(candidate_keys & behavior_keys)
+        disposition = comparison.get("disposition")
+        verdict = comparison.get("relationship_verdict")
+        comparison_id = comparison.get("comparison_id")
+        if disposition in {"owner_decision_needed", "container_evidence_limit"} and (
+            destructive or behavior
+        ):
+            errors.append(
+                f"{operation_key!r} changes {sorted(set(destructive + behavior))!r} "
+                f"while architecture comparison {comparison_id} is unresolved"
+            )
+            continue
         # Non-destructive corrections (consent, regex, references, blockers)
         # can preserve a cross-object relationship. Only removal/remap of a
-        # candidate contradicts a decision that retains or leaves that exact
-        # candidate relationship unresolved.
+        # retained candidate contradicts that retention decision. An explicit
+        # owner block above is different: it vetoes every behavior mutation.
         if not destructive:
             continue
         # This exact mutation is itself a validated Run 3 cleanup decision.
-        # It resolves lower-strength candidate rows involving the member;
+        # It resolves lower-strength non-owner candidate rows involving the member;
         # requiring the same deletion/remap to be copied into every such row
         # creates contradictory duplicate operations without extra safety.
         if architecture_cleanup:
             continue
-        disposition = comparison.get("disposition")
-        verdict = comparison.get("relationship_verdict")
-        comparison_id = comparison.get("comparison_id")
         if destructive and disposition == "keep" and verdict in {
             "Intentional variant",
             "Complementary",
@@ -1212,11 +1228,6 @@ def comparison_reconciliation_errors(
             errors.append(
                 f"{operation_key!r} removes or remaps {destructive!r}, but architecture "
                 f"comparison {comparison_id} says to keep them"
-            )
-        if disposition in {"owner_decision_needed", "container_evidence_limit"}:
-            errors.append(
-                f"{operation_key!r} changes {behavior!r} while architecture "
-                f"comparison {comparison_id} is unresolved"
             )
     return errors
 
@@ -1234,22 +1245,33 @@ def family_reconciliation_errors(
         # should not force every consuming business family to become a fake
         # conflict. A family contradiction exists when a root member that the
         # family retains is itself removed or remapped.
-        family_keys = {str(value) for value in as_list(family.get("member_object_keys"))}
-        destructive = sorted(destructive_keys & family_keys)
-        behavior = sorted(behavior_keys & family_keys)
+        member_keys = {
+            str(value) for value in as_list(family.get("member_object_keys"))
+        }
+        chain_keys = {
+            str(value) for value in as_list(family.get("chain_object_keys"))
+        }
+        family_keys = member_keys | chain_keys
+        destructive = sorted(destructive_keys & member_keys)
+        blocked_destructive = sorted(destructive_keys & family_keys)
+        blocked_behavior = sorted(behavior_keys & family_keys)
+        disposition = family.get("disposition")
+        verdict = family.get("relationship_verdict")
+        family_id = family.get("family_id")
+        if disposition in {"owner_decision_needed", "container_evidence_limit"} and (
+            blocked_destructive or blocked_behavior
+        ):
+            errors.append(
+                f"{operation_key!r} changes "
+                f"{sorted(set(blocked_destructive + blocked_behavior))!r} while "
+                f"architecture family {family_id} remains unresolved"
+            )
+            continue
         if not destructive:
             continue
         if architecture_cleanup:
             continue
-        disposition = family.get("disposition")
-        verdict = family.get("relationship_verdict")
-        family_id = family.get("family_id")
-        if disposition in {"owner_decision_needed", "container_evidence_limit"}:
-            errors.append(
-                f"{operation_key!r} changes {behavior!r} while architecture "
-                f"family {family_id} remains unresolved"
-            )
-        elif destructive and disposition == "keep" and verdict in {
+        if destructive and disposition == "keep" and verdict in {
             "Intentional variant",
             "Complementary",
             "Unrelated",

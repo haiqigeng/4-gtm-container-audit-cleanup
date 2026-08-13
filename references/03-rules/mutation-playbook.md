@@ -21,7 +21,8 @@ Never mutate or publish from an audit request alone.
 4. Confirm rollback export and blockers.
 5. For direct mutation or actual import application, re-read the complete
    workspace, validate the response, regenerate the selected future state, and
-   run the execution preflight against that fresh readback.
+   run the execution preflight against that fresh readback. Save the passing
+   report as `execution_preflight.json`.
 6. Execute or apply only the approved operations that pass the preflight. An
    offline import artifact may be generated earlier from the locked source and
    approved simulation, but remains planned/unapplied until this step.
@@ -41,8 +42,13 @@ confirmation. These are risk-specific fences, not extra audit modes.
 ```powershell
 python -B scripts/gtm_approval_response.py template reconciled_operations.json approval_response.json --pretty
 python -B scripts/gtm_approval_response.py validate reconciled_operations.json approval_response.json --pretty
-python -B scripts/gtm_execution_guard.py reconciled_operations.json context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --output execution_preflight.json --pretty
 ```
+
+No GTM/API/MCP mutation call is allowed unless that saved report says `pass` and
+its selected operations, source identity, and live-readback binding still match.
+Record the operation ID before each call and follow compiler dependency order;
+tool authentication or a successful API response never substitutes for this gate.
 
 Set server-coupled, activation-risk, or post-observation confirmations only for
 the exact rows whose corresponding evidence has been reviewed. These remain
@@ -82,7 +88,8 @@ and intermediate batch records are provisional. Compare it with the approved
 simulated future state; execution is not certified if any expected field is
 missing, any unexpected field changed, or any difference lacks one exact
 approved operation link. The executed change-log workbook must refuse an
-uncertified payload.
+uncertified payload. Save the passing final certification artifact before
+reporting completion.
 
 ## Import JSON
 

@@ -9,6 +9,13 @@
 
 ## Required Evidence
 
+Start every new task with one compact analyst exchange. The analyst must identify
+or confirm the exact complete JSON/equivalent source and requested result before
+the agent selects a file or begins the audit. Ask once even when a likely source
+is discoverable; after the answer, infer safe missing context and continue unless
+a true source-integrity blocker remains. If the confirmed source is unavailable,
+request that export or exact path rather than substituting another container.
+
 - a complete GTM container JSON export or equivalent complete read-only GTM
   API/UI configuration evidence;
 - container type: web or server;
@@ -63,19 +70,19 @@ Every full run produces:
 
 - a complete audit summary;
 - an exact canonical cleanup plan as `cleanup_plan.xlsx`;
-- a derived `cleanup_plan.analyst.xlsx` as the preferred analyst deliverable
-  when its separate readability gate passes;
+- a derived, evidence-edited `cleanup_plan.analyst.xlsx` as the required analyst
+  deliverable when its separate readability gate passes;
 - a simulated future-state quality result across sanitation, configuration, and
   business architecture.
 
 The canonical workbook is generated and validated first and remains the
-unchanged technical record and fallback. The derived workbook copies it, adds
+unchanged technical recovery record. The derived workbook copies it, adds
 five lean human-readable tabs, and retains every original technical tab content-identical
-but hidden by default. If the
-derived build or gate fails, deliver the canonical workbook and report only the
-readability-step failure; do not rerun or alter any audit scan. There is one
-client-facing choice per run: the gated analyst workbook when valid, otherwise
-the canonical fallback.
+but hidden by default. Before building it, a hash-bound AI editorial pass rewrites
+each visible row from its exact evidence into plain analyst language while IDs,
+objects, dispositions, operations, and direction stay locked. If that editorial,
+build, or gate fails, preserve the canonical record, mark analyst delivery
+incomplete, and repair only the presentation step; do not rerun or alter any scan.
 
 When requested and authorised, it may additionally produce:
 

@@ -35,13 +35,14 @@ feeds output back into a review, validator, compiler, simulator, or gate.
 
 Use distinct roles:
 
-- `cleanup_plan.xlsx`: unchanged canonical workbook and fallback;
-- `cleanup_plan.analyst.xlsx`: preferred analyst deliverable only after the
+- `cleanup_plan.xlsx`: unchanged canonical technical recovery record;
+- `cleanup_plan.analyst.xlsx`: analyst deliverable only after the
   readability gate passes.
 
 Deliver only the analyst workbook when its gate passes. If building or gating
-it fails, reject that derived file and deliver the unchanged canonical
-workbook. Do not rerun or alter the audit.
+it fails, reject that derived file, retain the unchanged canonical workbook,
+mark analyst delivery incomplete, and repair only this presentation step. Do
+not rerun or alter the audit.
 
 ## Required Inputs
 
@@ -57,7 +58,25 @@ Read:
 - `technical_code_findings.json`;
 - reconciled operations and their complete decision ledger;
 - passing future-state gate; and
-- passing three-run completion gate.
+- passing three-run completion gate; and
+- a complete `gtm_analyst_workbook_editorial` artifact generated from those
+  inputs and authored from its row-bound evidence.
+
+The editorial step is deliberately semantic, not a deterministic text formatter.
+Generate the queue with `gtm_workbook_readability.py --editorial-template`. In a reasoning context, read
+each row's bound decision/operation/configuration/code evidence and write ordinary
+web-analyst language for only the declared `editable` fields. Set `status` to
+`complete` and `authoring_method` to
+`evidence_locked_ai_semantic_rewrite`. The builder rejects missing/extra rows,
+changed bindings, stale source/operation hashes, machine-oriented wording,
+placeholders, or edits to locked identity/direction fields.
+
+The rewrite answers, as applicable: what the object currently does; what is
+wrong, redundant, retained, or unknown; why that matters; what exactly should
+happen next; and what remains blocked. It must not expose raw JSON paths,
+contract-topic lists, recursive-trace/D3 labels, hashes, or validator prose.
+When evidence does not support a clear statement, return the row to
+reconciliation rather than inventing an explanation.
 
 A decision-topic JSON may group owner decisions. It is optional at every record
 count and is presentation input only. It cannot change a source disposition,
@@ -211,7 +230,7 @@ with full paths and values, remaps, renames, and deletions. Visible long values
 may be shortened only when they explicitly point to that complete note. Creation
 text names the new object as well as its layer/key. If the complete structured
 mutation cannot fit losslessly in the bounded note, fail the derived build and
-use the canonical fallback instead of publishing a partial action.
+retain the canonical technical recovery record instead of publishing a partial action.
 
 ## A3 Decisions
 
@@ -262,6 +281,13 @@ outcome cell points to an A2 operation, A3 decision topic, or A5 Custom HTML row
 when applicable. Use a compact semantic set: action plus operation ID; decision
 plus topic ID; retained; documented exception; evidence limitation; or not
 applicable.
+
+This is the primary analyst register. Every Finding must be understandable when
+the row is pasted by itself: state the current configured behavior, the concrete
+problem or justified retention, and its practical consequence in plain language.
+Every Outcome explains the next step, then appends the builder-owned locked
+action/topic/status text. The semantic rewrite may improve those two cells but
+cannot change Area, Objects, Priority, disposition, operation ID, or owner topic.
 
 Group rows by outcome for navigation. Keep action and owner-decision records
 expanded. Retained, documented-exception, evidence-limit, and not-applicable
@@ -341,9 +367,10 @@ it never repurposes an arbitrary JSON file. The manifest records:
 - derived workbook hash, human-sheet order, and exact column contract;
 - audit, operation, owner-source/topic, priority, and Custom HTML counts;
 - decision-topic source mappings and Custom HTML cleanup conflicts;
+- evidence-locked editorial hash, authoring method, and exact visible-row count;
 - visible-sheet hyperlink map;
 - gate statuses and errors;
-- the unchanged canonical fallback.
+- the unchanged canonical technical recovery record and incomplete analyst-delivery state.
 
 The gate updates only this transformation manifest. It never writes to an audit
 artifact or either workbook.
@@ -359,6 +386,9 @@ After saving, the readability gate must:
   direction, and complete structured-action notes;
 - verify exact A3 owner-source coverage and one-topic mapping;
 - verify exact A4 decision-ledger coverage;
+- independently reject A4 rows that need hidden proof to understand, expose raw
+  paths or internal audit vocabulary, omit a concrete next step, or lose their
+  locked action/topic/status;
 - verify exact A5 Custom HTML coverage and valid conflict references;
 - reject links to hidden or unknown sheets;
 - reject formulas, placeholders, and unsupported absolute claims in human
@@ -367,5 +397,6 @@ After saving, the readability gate must:
 - scan values and human-sheet notes for privacy findings; and
 - record pass/fail checks in the transformation manifest.
 
-Gate failure leaves the canonical workbook untouched and available. It never
+Gate failure leaves the canonical workbook untouched and available as a
+technical recovery record, but analyst delivery remains incomplete. It never
 changes or reruns the three audit scans.

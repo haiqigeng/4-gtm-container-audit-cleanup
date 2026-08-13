@@ -585,7 +585,21 @@ class UtilityEvolutionTests(unittest.TestCase):
         data["containerVersion"].update(
             {
                 "trigger": [
-                    {"triggerId": "10", "name": "CMP ready", "type": "CUSTOM_EVENT"}
+                    {"triggerId": "10", "name": "CMP ready", "type": "CUSTOM_EVENT"},
+                    {
+                        "triggerId": "11",
+                        "name": "Consent init - regional host",
+                        "type": "CONSENT_INIT",
+                        "filter": [
+                            {
+                                "type": "CONTAINS",
+                                "parameter": [
+                                    {"key": "arg0", "value": "{{Page Hostname}}"},
+                                    {"key": "arg1", "value": "example.be"},
+                                ],
+                            }
+                        ],
+                    },
                 ],
                 "tag": [
                     {
@@ -640,6 +654,15 @@ class UtilityEvolutionTests(unittest.TestCase):
                         "name": "Consent API imported but not invoked",
                         "type": "cvt_1_100",
                         "firingTriggerId": ["2147479593"],
+                    },
+                    {
+                        "tagId": "6",
+                        "name": "Consent default on filtered regional initialization",
+                        "type": "cvt_1_99",
+                        "firingTriggerId": ["11"],
+                        "parameter": [
+                            {"key": "command", "type": "TEMPLATE", "value": "default"}
+                        ],
                     },
                 ],
                 "customTemplate": [
@@ -823,6 +846,17 @@ class UtilityEvolutionTests(unittest.TestCase):
         self.assertNotIn(
             "consent_default_wrong_initialization_trigger", obligations["tag:2"]
         )
+        self.assertNotIn(
+            "consent_default_wrong_initialization_trigger", obligations["tag:6"]
+        )
+        late_row = next(row for row in review["rows"] if row["object_key"] == "tag:1")
+        late_obligation = next(
+            item
+            for item in late_row["required_configuration_obligations"]
+            if item["obligation_key"]
+            == "consent_default_wrong_initialization_trigger"
+        )
+        self.assertNotIn("source_known_repair", late_obligation)
         self.assertIn(
             "consent_initialization_non_consent_tag", obligations["tag:3"]
         )

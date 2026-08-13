@@ -51,13 +51,24 @@ These references are authoritative. Do not replace their exact obligations with 
 
 ## Intake And Evidence Lock
 
-Collect or infer the complete source, container type, website/domain, business model, material measurement context, CMP and routing context, SPA status, canonical IDs, staging hosts, exact `do_not_touch` object keys, naming policy, and requested execution route when known. Do not ask for values already present in the export.
+Every new task starts with one compact intake exchange before file discovery,
+identity checks, or semantic work. Ask the analyst to identify or confirm the
+exact complete container JSON/equivalent source and the requested outcome, then
+wait for the answer. Even when a likely file is visible or mentioned in prior
+conversation, do not silently select it. If the request already names both,
+acknowledge them and ask only one missing material constraint or for explicit
+confirmation that the named source is the one to audit. After that first answer,
+infer safe missing context and continue autonomously; do not turn the intake into
+a questionnaire. If the confirmed source cannot be found, ask for the export or
+exact path instead of selecting another file.
+
+Collect or infer the container type, website/domain, business model, material measurement context, CMP and routing context, SPA status, canonical IDs, staging hosts, exact `do_not_touch` object keys, naming policy, and requested execution route when known. Do not re-ask for values already present in the confirmed export.
 
 Persist supplied, inferred, confirmed-empty, and unresolved values in `context.json` with their evidence basis. Context may guide interpretation but cannot replace container evidence or turn an assumption into a finding.
 
 Before semantic review:
 
-1. run `scripts/gtm_skill_identity.py check`; stop before intake unless a matching release manifest or exact clean Git checkout proves the runnable tree;
+1. after the mandatory intake answer, run `scripts/gtm_skill_identity.py check`; stop before package creation unless a matching release manifest or exact clean Git checkout proves the runnable tree;
 2. compare development and installed trees with `scripts/gtm_skill_identity.py verify` when both exist;
 3. run `scripts/gtm_context_model.py` and present supplied, high-confidence inferred, and unresolved fields separately;
 4. record material generated questions as nonblocking owner decisions and continue the
@@ -166,14 +177,19 @@ confidence, or score.
 ## Build The Human Cleanup Plan
 
 Build and gate the canonical workbook exactly as `workbook-architecture.md` defines.
-After its privacy scan passes, build and independently gate the derived analyst copy
-under `workbook-output-contract.md`. The analyst tabs must expose every atomic action,
+After its privacy scan passes, generate the evidence-locked editorial queue, use a
+semantic AI pass to rewrite every visible analyst row from its bound facts into
+plain web-analyst language, then build and independently gate the derived analyst copy
+under `workbook-output-contract.md`. This is a presentation-only pass: it may change
+wording but never IDs, objects, dispositions, priorities, operations, approval state,
+or evidence boundaries. The analyst tabs must expose every atomic action,
 genuine owner topic, retained business family, and Custom HTML technical/replacement
 decision in literal analyst language; keep exhaustive proof in the canonical/JSON
 record. Group only answer-equivalent owner records without losing children. Never use
 the derived workbook as audit input, weaken actions for brevity, or loosen an audit
-gate to improve presentation. If only the derived file fails, deliver the validated
-canonical workbook and report that presentation failure separately.
+gate to improve presentation. If only the derived file fails, keep the validated
+canonical workbook as the technical recovery artifact, report analyst delivery as
+incomplete, and repair only the editorial/build/gate step without rerunning a scan.
 
 ## Approval And Optional Execution
 
@@ -194,14 +210,16 @@ execution.
 
 Before mutation, read `references/03-rules/mutation-playbook.md` and:
 
-- require a passing execution preflight, rollback source, and exact approval;
+- require a passing execution preflight saved as `execution_preflight.json`,
+  rollback source, and exact approval; never make a GTM/API/MCP mutation call
+  unless that saved artifact is bound to the current readback and selected packet;
 - execute the compiler's dependency order; separately approve any reconciliation
   closure object made unused by earlier operations;
 - use a new workspace and modify existing objects where safe;
 - re-read the complete workspace immediately before mutation, bind that readback
   through the execution guard, and stop on drift;
 - enforce exact `do_not_touch`, server-coupling, activation-risk, and decommission confirmations;
-- validate and read back every batch;
+- validate and read back every batch, recording each operation ID before its call;
 - stop on drift, missing references, consent uncertainty, unexpected recreation, or any unapproved change;
 - never publish or create a version unless separately requested.
 
@@ -211,7 +229,7 @@ planned/unapplied; a fresh identity-bound readback is mandatory immediately
 before applying it, and only the final post-import readback can certify an
 executed change log.
 
-Certify execution only when the final complete readback equals the approved simulation and every observed field change links to one approved operation. Treat that readback as the sole authoritative execution result; an executed change-log workbook must be regenerated from its passing certification. Produce the separate field-level change log only after execution or generated cleanup artifact creation.
+Certify execution only when the final complete readback equals the approved simulation and every observed field change links to one approved operation. Save the passing final certification artifact; API/MCP success responses or visible workspace changes are never completion evidence. Treat that readback as the sole authoritative execution result; an executed change-log workbook must be regenerated from its passing certification. Produce the separate field-level change log only after execution or generated cleanup artifact creation.
 
 End every stage with one concrete next step.
 

@@ -1995,6 +1995,26 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(["built_in"], trace["terminal_states"])
 
+    def test_internal_event_alias_keeps_exported_event_builtin_reachable(self) -> None:
+        export = sample_export()
+        export["containerVersion"]["builtInVariable"] = [
+            {"name": "Event", "type": "EVENT"},
+            {"name": "Debug Mode", "type": "DEBUG_MODE"},
+        ]
+        path = self.write_review("event-alias.json", export)
+        findings = [
+            row
+            for row in audit_export(path)["findings"]
+            if row.get("finding_type") == "unused_built_in_variable"
+        ]
+        unused = {
+            object_id
+            for row in findings
+            for object_id in row.get("object_ids", [])
+        }
+        self.assertNotIn("Event", unused)
+        self.assertIn("Debug Mode", unused)
+
     def test_canonical_remap_does_not_turn_consumers_into_architecture_conflicts(self) -> None:
         from gtm_architecture_review import operation_behavior_keys
         from gtm_operation_compile import behavior_impact_keys
@@ -2112,6 +2132,48 @@ class PipelineTests(unittest.TestCase):
             family_reconciliation_errors(
                 "consolidate-trigger", {"trigger:10"}, {"trigger:10"}, families
             ),
+        )
+
+    def test_owner_block_vetoes_behavior_edits_and_dependency_closure(self) -> None:
+        from gtm_operation_compile import (
+            architecture_family_support,
+            comparison_reconciliation_errors,
+            family_reconciliation_errors,
+        )
+
+        comparisons = [
+            {
+                "comparison_id": "REL-OWNER",
+                "candidate_object_keys": ["tag:1", "tag:2"],
+                "relationship_verdict": "Unclear",
+                "disposition": "owner_decision_needed",
+            }
+        ]
+        families = [
+            {
+                "family_id": "FAM-OWNER",
+                "review_status": "complete",
+                "member_object_keys": ["tag:1"],
+                "chain_object_keys": ["tag:1", "trigger:10"],
+                "relationship_verdict": "Unclear",
+                "disposition": "owner_decision_needed",
+            }
+        ]
+        self.assertEqual(set(), architecture_family_support({"tag:1"}, families))
+        self.assertTrue(
+            comparison_reconciliation_errors(
+                "change-regional-consent", set(), {"tag:1"}, comparisons
+            )
+        )
+        self.assertTrue(
+            family_reconciliation_errors(
+                "change-regional-consent", set(), {"tag:1"}, families
+            )
+        )
+        self.assertTrue(
+            family_reconciliation_errors(
+                "delete-dependent-trigger", {"trigger:10"}, {"trigger:10"}, families
+            )
         )
 
     def test_distinguishing_terms_do_not_expose_opaque_behavior_signatures(self) -> None:
@@ -2388,6 +2450,19 @@ scenarios:
             ROOT / "references" / "02-commands" / ("runtime-qa-" + "templates.md")
         )
         self.assertFalse(removed_runtime_reference.exists())
+
+    def test_new_task_contract_requires_one_intake_then_autonomous_execution(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8").casefold()
+        execution = (
+            ROOT / "references" / "03-rules" / "execution-contract.md"
+        ).read_text(encoding="utf-8").casefold()
+        for content in (skill, execution):
+            self.assertIn("every new task", content)
+            self.assertIn("one compact intake exchange", content)
+            self.assertIn("exact complete", content)
+            self.assertIn("requested outcome", content)
+        self.assertIn("continue autonomously", skill)
+        self.assertIn("do not silently select", skill)
 
     def test_operational_scan_catches_basic_cleanup_failures(self) -> None:
         findings = [
@@ -4441,6 +4516,21 @@ scenarios:
             },
             set(manifest["review_bundles"]),
         )
+        for run_name, validator in (
+            ("operational_sanitation", "gtm_operational_review.py"),
+            ("configuration_correctness", "gtm_configuration_review.py"),
+            ("business_architecture", "gtm_architecture_review.py"),
+        ):
+            instructions = (
+                package_dir
+                / "review-bundles"
+                / run_name
+                / "RUN_INSTRUCTIONS.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Exact local validation commands", instructions)
+            self.assertIn("gtm_review_shards.py", instructions)
+            self.assertIn(validator, instructions)
+            self.assertIn("without asking the root orchestrator for syntax", instructions)
         bundled_configuration = json.loads(
             (
                 package_dir
@@ -8829,7 +8919,10 @@ contracts = [
             check=False,
         )
         self.assertEqual(2, stale_result.returncode)
-        self.assertIn("runtime identity preflight failed before intake", stale_result.stdout)
+        self.assertIn(
+            "runtime identity preflight failed after intake and before package creation",
+            stale_result.stdout,
+        )
 
 
 if __name__ == "__main__":

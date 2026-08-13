@@ -17,6 +17,7 @@ from gtm_workbook_readability import (
     MANIFEST_SCHEMA_VERSION,
     PLACEHOLDER_RE,
     UNSUPPORTED_CLAIMS,
+    apply_editorial,
     artifact_paths,
     build_model,
     default_manifest_path,
@@ -595,6 +596,7 @@ def validate(
     future_state_path: Path | None = None,
     completion_gate_path: Path | None = None,
     decision_topics_path: Path | None = None,
+    editorial_path: Path | None = None,
     manifest_path: Path | None = None,
 ) -> dict[str, Any]:
     try:
@@ -612,6 +614,7 @@ def validate(
         future_state_path,
         completion_gate_path,
         decision_topics_path,
+        editorial_path,
     )
     validate_manifest_path(manifest_path, analyst_workbook, paths)
     if not manifest_path.is_file():
@@ -627,6 +630,11 @@ def validate(
         )
     inputs = load_inputs(paths)
     model = build_model(inputs, str(manifest.get("language") or "en"))
+    editorial_errors: list[str] = []
+    try:
+        model = apply_editorial(inputs, model)
+    except ValueError as exc:
+        editorial_errors.append(str(exc))
     inputs["model"] = model
 
     errors: dict[str, list[str]] = {
@@ -641,6 +649,7 @@ def validate(
         "readability": [],
         "privacy": [],
     }
+    errors["input_binding"].extend(editorial_errors)
 
     try:
         errors["original_preservation"].extend(
@@ -732,6 +741,7 @@ def main() -> int:
     parser.add_argument("--future-state", type=Path)
     parser.add_argument("--completion-gate", type=Path)
     parser.add_argument("--decision-topics", type=Path)
+    parser.add_argument("--editorial", type=Path, required=True)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -744,6 +754,7 @@ def main() -> int:
             future_state_path=args.future_state,
             completion_gate_path=args.completion_gate,
             decision_topics_path=args.decision_topics,
+            editorial_path=args.editorial,
             manifest_path=args.manifest,
         )
     except (FileNotFoundError, RuntimeError, ValueError, json.JSONDecodeError) as exc:

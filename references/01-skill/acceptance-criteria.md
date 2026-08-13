@@ -39,10 +39,15 @@ A web analyst can call the result done only when:
 
 ## Source And Scope
 
+- A new task has one recorded compact intake exchange before file selection or
+  semantic work. The analyst identifies or confirms the exact complete source
+  and requested outcome; missing safe context may then be inferred without a
+  second questionnaire. A discoverable file or conversation history is not a
+  substitute for this confirmation.
 - The source export hash is locked and every in-scope source object is inventoried.
 - The audit package records the exact runnable skill version and deterministic
   runtime-tree hash. A copied, stale, or locally divergent installation is
-  identified before intake. An installed/bundled tree requires a matching
+  identified after intake and before package creation. An installed/bundled tree requires a matching
   declared runtime manifest; a clean Git checkout may use its exact tracked
   commit and runtime file set instead.
 - The source is a valid ContainerVersion (wrapped or direct), every recognized
@@ -80,7 +85,9 @@ A web analyst can call the result done only when:
   replacement fails.
 - High/Critical challenge rechecks use another fresh context and a neutral packet of
   exact source coordinates/facts/question with no expected outcome or foreign rationale.
-- Built-in/system references are distinguished from missing references.
+- Built-in/system references are distinguished from missing references, including
+  GTM serialization aliases such as the exported `Event` built-in consumed as
+  `{{_event}}`; an alias-referenced built-in cannot be classified unused.
 - Web, server, consent, ecommerce, and business scope are stated without
   claiming evidence from an unseen container or live website.
 - Business/journey inference uses reachable behavior; orphan logic remains
@@ -296,8 +303,12 @@ A web analyst can call the result done only when:
   Consent-looking names/events and arbitrary blockers remain candidates, not
   proof. Forwarding requires an exported server route plus payload/settings
   evidence, and mixed code retains every detected vendor.
-- A default consent writer uses the Consent Initialization system trigger. A
-  later custom-event route is an Issue with an exact trigger-field repair.
+- A default consent writer uses either the global Consent Initialization system
+  trigger or an exported trigger whose type is `CONSENT_INIT`, including a
+  deliberately hostname-filtered regional/language route. A later custom-event
+  or page route is an Issue, but replacement with the global system trigger is
+  exact only when the source proves equivalent scope; otherwise preserve the
+  route and request the precise target instead of erasing its filter.
   A generic `command=default` or `command=update` parameter is not consent
   behavior proof unless an identified CMP or the resolved tag/template code
   visibly invokes a consent API. An API name in a string/comment, an import
@@ -396,8 +407,9 @@ A web analyst can call the result done only when:
   Run-3 family coverage rather than a duplicate architecture mutation. It has
   no creation, deletion, or remap and still passes future-state simulation,
   except for deletion of a trigger made orphan by the same exact impossible-
-  blocker repair. An architecture cleanup may resolve weaker candidates only
-  when its complete structured mutation exactly matches the compiled operation.
+  blocker repair. An architecture cleanup may resolve weaker non-owner candidates
+  only when its complete structured mutation exactly matches the compiled
+  operation; unresolved owner/evidence-limit rows remain vetoes.
 - Operations with identical complete structured mutations may reconcile despite
   independent wording or keys; explanatory deletion reasons and displayed
   canonical labels do not alter mutation identity, while actual endpoints do.
@@ -523,6 +535,9 @@ The derived `cleanup_plan.analyst.xlsx` is accepted only when:
 
 - it is built from a canonical workbook that already passed
   `gtm_audit_gate_check.py` and the all-sheet privacy scan;
+- a complete AI-authored editorial artifact binds every visible row to the
+  locked source and operation packet, retains all immutable IDs/directions, and
+  rewrites only approved presentation fields from the row's evidence;
 - `A1 Overview`, `A2 Actions`, `A3 Decisions`, `A4 Audit Register`, and
   `A5 Custom HTML` precede all eight content-identical canonical tabs, which are
   hidden by default in the analyst copy;
@@ -541,7 +556,11 @@ The derived `cleanup_plan.analyst.xlsx` is accepted only when:
   record count and groups only the same answer class with compatible object/route
   scope and target consequence, while retaining every source row as a child;
 - A4 has exactly six visible columns and every decision-ledger record exactly
-  once;
+  once. Each Finding states the concrete configured behavior/problem and why it
+  matters in ordinary analyst language; each Outcome explains the next step and
+  appends the locked operation/topic/status. A pasted row must stand alone
+  without raw JSON paths, contract-topic lists, trace terminology, or validator
+  labels;
 - A1 names the highest-priority first cleanup actions and summarizes the
   retained/changed/owner-blocked measurement target state, reconciliation arithmetic,
   approval scope, operation impact, and remaining records, not only counts and
@@ -563,8 +582,9 @@ The derived `cleanup_plan.analyst.xlsx` is accepted only when:
   readability, reopen, and all-sheet privacy checks.
 
 A failed derived build or gate never changes completion of the underlying
-audit. Reject that derived file, retain and deliver the already validated
-canonical workbook, and report the readability failure separately. Genuine
+technical audit. Reject that derived file, retain the already validated
+canonical workbook as the recovery record, mark analyst delivery incomplete,
+and repair only editorial/presentation without rerunning a scan. Genuine
 owner decisions remain complete audit outcomes and do not block either
 workbook from being generated.
 

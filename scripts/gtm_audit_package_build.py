@@ -105,7 +105,7 @@ def build_package(
     identity_report, identity_errors = declared_identity_errors(skill_root)
     if identity_errors:
         raise RuntimeError(
-            "runtime identity preflight failed before intake: "
+            "runtime identity preflight failed after intake and before package creation: "
             + "; ".join(identity_errors)
         )
     if out_dir.exists():

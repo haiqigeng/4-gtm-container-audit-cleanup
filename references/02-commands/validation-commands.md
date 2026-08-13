@@ -25,7 +25,7 @@ python -B scripts/gtm_skill_identity.py identity --root . --pretty
 python -B scripts/gtm_skill_identity.py verify C:\path\to\development-source C:\path\to\installed-skill --pretty
 ```
 
-`check` is mandatory and fail-closed before intake. Regenerate the declared
+After the mandatory compact intake exchange, `check` is fail-closed before package creation. Regenerate the declared
 manifest only as part of a deliberate validated skill build; never overwrite it
 to hide an unexplained runtime difference.
 A clean Git checkout may satisfy the same check from its exact tracked commit
@@ -208,7 +208,7 @@ Immediately before any approved direct mutation or before applying an import
 artifact to GTM, run the exact execution preflight:
 
 ```powershell
-python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --output execution_preflight.json --pretty
 ```
 
 The source export must be the exact audit input, and the live readback must be a
@@ -245,9 +245,18 @@ Only after those canonical checks pass, build and gate the derived analyst
 workbook:
 
 ```powershell
-python -B scripts/gtm_workbook_readability.py audit-package reconciled_operations.json cleanup_plan.xlsx cleanup_plan.analyst.xlsx --future-state future_state_gate.json --completion-gate completion_gate.json --manifest cleanup_plan.analyst.manifest.json --pretty
-python -B scripts/gtm_workbook_readability_gate.py audit-package reconciled_operations.json cleanup_plan.xlsx cleanup_plan.analyst.xlsx --future-state future_state_gate.json --completion-gate completion_gate.json --manifest cleanup_plan.analyst.manifest.json --pretty
+python -B scripts/gtm_workbook_readability.py audit-package reconciled_operations.json cleanup_plan.xlsx analyst_editorial.json --future-state future_state_gate.json --completion-gate completion_gate.json --editorial-template --pretty
+python -B scripts/gtm_workbook_readability.py audit-package reconciled_operations.json cleanup_plan.xlsx cleanup_plan.analyst.xlsx --future-state future_state_gate.json --completion-gate completion_gate.json --editorial analyst_editorial.json --manifest cleanup_plan.analyst.manifest.json --pretty
+python -B scripts/gtm_workbook_readability_gate.py audit-package reconciled_operations.json cleanup_plan.xlsx cleanup_plan.analyst.xlsx --future-state future_state_gate.json --completion-gate completion_gate.json --editorial analyst_editorial.json --manifest cleanup_plan.analyst.manifest.json --pretty
 ```
+
+The first command creates a pending, evidence-bound queue. Before the next
+command, use a semantic AI review to author every `editable` field in ordinary
+web-analyst language, set `status` to `complete`, and set `authoring_method` to
+`evidence_locked_ai_semantic_rewrite`. Do not copy the deterministic projection
+when it contains paths, contract lists, trace labels, or validator prose. The
+builder verifies that the source/operation hashes, row bindings, IDs, objects,
+and directions remain unchanged.
 
 Use `--language fr-FR` when French builder-owned labels are explicitly wanted.
 An analyst-authored decision-topic map may be supplied to both commands with
@@ -262,8 +271,9 @@ only when it creates genuinely useful shared-answer topics.
 Do not run `gtm_audit_gate_check.py` against the derived workbook: its eight-tab
 contract applies only to `cleanup_plan.xlsx`. Deliver
 `cleanup_plan.analyst.xlsx` only when its own gate returns `pass`. Otherwise
-discard the derived file, deliver the unchanged `cleanup_plan.xlsx`, and report
-the readability-step failure without rerunning any audit stage.
+discard the derived file, retain the unchanged `cleanup_plan.xlsx` as the
+technical recovery record, mark analyst delivery incomplete, and repair the
+editorial/presentation step without rerunning any audit stage.
 
 The cleanup workbook is not a change log.
 

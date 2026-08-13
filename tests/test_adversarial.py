@@ -943,7 +943,7 @@ class AdversarialAuditTests(unittest.TestCase):
             ),
         )
 
-    def test_exact_architecture_cleanup_resolves_weaker_candidate_rows(self) -> None:
+    def test_exact_architecture_cleanup_cannot_erase_an_owner_block(self) -> None:
         operation = {
             "operation_key": "remove-duplicate-trigger",
             "source_references": ["REL-EXACT:operation:1"],
@@ -973,8 +973,11 @@ class AdversarialAuditTests(unittest.TestCase):
             ],
             "families": [],
         }
-        self.assertEqual(
-            [], validate_cross_run_reconciliation({"findings": []}, architecture, [operation])
+        errors = validate_cross_run_reconciliation(
+            {"findings": []}, architecture, [operation]
+        )
+        self.assertTrue(
+            any("REL-WEAKER is unresolved" in error for error in errors), errors
         )
 
     def test_reconciliation_ignores_deletion_explanations_not_mutations(self) -> None:

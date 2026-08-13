@@ -22,6 +22,7 @@ SEAL_HISTORY_DIRECTORY = "history"
 RUN_SPECS: dict[str, dict[str, Any]] = {
     "operational_sanitation": {
         "review_file": "operational_review.json",
+        "validator_script": "gtm_operational_review.py",
         "rule_files": ["operational-sanitation.md"],
         "package_roles": {
             "audit_context": "context.json",
@@ -33,6 +34,7 @@ RUN_SPECS: dict[str, dict[str, Any]] = {
     },
     "configuration_correctness": {
         "review_file": "configuration_review.json",
+        "validator_script": "gtm_configuration_review.py",
         "rule_files": ["configuration-correctness.md", "domain-contracts.md"],
         "package_roles": {
             "audit_context": "context.json",
@@ -44,6 +46,7 @@ RUN_SPECS: dict[str, dict[str, Any]] = {
     },
     "business_architecture": {
         "review_file": "architecture_review.json",
+        "validator_script": "gtm_architecture_review.py",
         "rule_files": ["business-architecture.md"],
         "package_roles": {
             "audit_context": "context.json",
@@ -149,6 +152,10 @@ def prepare_review_bundles(
                     records,
                 )
         instruction_path = bundle_dir / "RUN_INSTRUCTIONS.md"
+        review_path = bundle_dir / str(spec["review_file"])
+        shard_path = bundle_dir / str(spec["shard_directory"])
+        shard_tool = skill_root / "scripts" / "gtm_review_shards.py"
+        validator_tool = skill_root / "scripts" / str(spec["validator_script"])
         instruction_path.write_text(
             "# Isolated review run\n\n"
             f"Complete only `{spec['review_file']}` for `{run_name}`. Read only files "
@@ -163,7 +170,19 @@ def prepare_review_bundles(
             "into that base review before sealing. Put all notes, temporary extracts, and "
             f"drafts in `{scratch_dir.as_posix()}` outside this sealed bundle. Approved-"
             "requirement evidence, when "
-            "present, is separately labelled context and is never container proof.\n",
+            "present, is separately labelled context and is never container proof.\n"
+            "\n## Exact local validation commands\n\n"
+            "These deterministic work commands are not intake questions. Run them, "
+            "repair only named reviewer-owned fields when they fail, and continue "
+            "without asking the root orchestrator for syntax. For each declared shard:\n\n"
+            f"`python -B \"{shard_tool}\" check \"{review_path}\" "
+            f"\"{shard_path}\" \"<declared-shard-filename>\"`\n\n"
+            "After every declared shard passes (skip for a single-file run):\n\n"
+            f"`python -B \"{shard_tool}\" merge \"{review_path}\" "
+            f"\"{shard_path}\" \"{review_path}\"`\n\n"
+            "Then run the complete authoritative validator:\n\n"
+            f"`python -B \"{validator_tool}\" validate "
+            f"\"{bundle_dir / 'source_export.json'}\" \"{review_path}\"`\n",
             encoding="utf-8",
         )
         records.append(

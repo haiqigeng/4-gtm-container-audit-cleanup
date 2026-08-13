@@ -25,6 +25,7 @@ from gtm_lib import (
     SEMANTIC_LAYERS,
     as_list,
     behavior_projection,
+    builtin_reference_names,
     code_identity_text,
     comparable,
     container_root_path,
@@ -1188,11 +1189,16 @@ def build_execution_reachability(cv: dict[str, Any]) -> dict[str, Any]:
         for obj in items:
             key = f"{layer}:{object_id(obj, layer)}"
             if layer in {"variable", "builtInVariable"}:
-                name = object_name(obj)
-                variable_keys[name].append(key)
-                normalized_name = normalized_reference_name(name)
-                if normalized_name and normalized_name != name:
-                    variable_keys[normalized_name].append(key)
+                names = (
+                    builtin_reference_names(obj)
+                    if layer == "builtInVariable"
+                    else {object_name(obj)}
+                )
+                for name in names:
+                    variable_keys[name].append(key)
+                    normalized_name = normalized_reference_name(name)
+                    if normalized_name and normalized_name != name:
+                        variable_keys[normalized_name].append(key)
             elif layer == "trigger":
                 trigger_keys[object_id(obj, layer)].append(key)
             elif layer == "tag":

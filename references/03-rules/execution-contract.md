@@ -21,11 +21,18 @@ canonical deterministic fact artifact. Every generated review must carry the
 source, context, and shared-fact hashes. A changed export or material context
 change starts a new review package.
 
+Before selecting that source, every new task requires one compact intake exchange
+with the analyst. Ask them to identify or confirm the exact complete JSON/equivalent
+source and requested outcome, then wait. Do this even when a likely file is visible
+or prior session context suggests one. After the answer, infer safe missing context
+and continue; ask again only for a true source-integrity blocker. If the confirmed
+file is absent, request it instead of choosing another export.
+
 Record the runnable skill's project version and deterministic runtime-tree hash
 in the package manifest. When an installed copy and a development checkout are
 both present, compare their runtime identities before choosing one. A git branch
 name or matching version string alone does not prove equal skill content.
-Before intake, require `.skill-build-manifest.json` to match the actual runtime
+After the intake answer and before package creation, require `.skill-build-manifest.json` to match the actual runtime
 tree exactly for an installed/bundled copy. A clean Git checkout may establish
 the same exact identity from its tracked commit and runtime file set; a dirty
 checkout or an unverifiable tree blocks package creation.
@@ -70,6 +77,7 @@ raw container evidence
   -> measurement-preservation and target-state projection
   -> future-state graph simulation
   -> canonical human cleanup plan and existing gates
+  -> evidence-locked AI semantic rewrite of the existing analyst rows
   -> post-gate analyst readability transformation
   -> hash-locked row-level operation approval and route selection
   -> optional execution or import JSON
@@ -277,13 +285,13 @@ Topologically order the resulting operations so consumers are retired or
 remapped before their dependencies.
 
 An exact source-bound, non-destructive Run-1 or Run-2 repair may proceed with
-completed Run-3 family coverage rather than a duplicated architecture mutation.
+completed affirmative Run-3 family coverage rather than a duplicated architecture mutation.
 It cannot create, delete, or remap an object and remains subject to simulation,
 except that an exact impossible-blocker repair may delete the trigger it makes
 orphan when the complete consumer graph proves no other use.
-An explicit Run-3 cleanup decision resolves weaker candidate rows only for that
-same complete structured mutation; overlapping object IDs alone are never
-enough.
+An explicit Run-3 cleanup decision resolves weaker non-owner candidate rows only
+for that same complete structured mutation; overlapping object IDs alone are
+never enough, and an owner/evidence-limit row remains a veto until resolved.
 
 - A configuration issue may produce a fix even when the object is structurally valid.
 - An exact operational duplicate may be deleted only when architecture confirms
@@ -292,7 +300,10 @@ enough.
   than a redundant owner choice between identical copies.
 - A correctly configured object may still be unnecessary at family level.
 - An architecture operation may redesign several individually correct objects.
-- An unresolved owner or container-evidence decision blocks conflicting mutation.
+- An unresolved owner or container-evidence decision blocks every behavior-changing
+  mutation that touches its members or dependency chain, including field changes,
+  additions, remaps, deletions, and cleanup-created closure. Review completion is
+  not affirmative architecture support.
 
 Operations with identical structured mutations may reconcile even when the
 three lenses use different human wording or operation keys. Preserve every lens
@@ -448,13 +459,16 @@ changed-only audit or carries an earlier verdict, confidence, or score forward.
 - action completeness `pass`;
 - future-state gate `pass`;
 - canonical cleanup workbook and privacy gate `pass`;
+- evidence-locked analyst editorial coverage and analyst-workbook readability gate
+  `pass` for analyst delivery;
 - no formula cell or unscanned hidden proof tab in a delivered workbook;
 - a separate completed change log, when requested, links only exact
   field-level mutations to approved operation IDs.
 
-A passing derived analyst workbook is the preferred deliverable but is not a
-precondition for audit completion: its documented fallback is the already
-passing canonical workbook.
+A canonical workbook may prove the technical audit complete, but analyst delivery
+is not complete until the evidence-locked editorial and derived workbook gate pass.
+Keep the canonical workbook as the technical recovery artifact and repair only the
+presentation stage; never restart the three scans for an editorial failure.
 
 For executed work, `Complete` additionally requires a complete workspace/export
 readback that exactly equals the approved simulated future state and contains

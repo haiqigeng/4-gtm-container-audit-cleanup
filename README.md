@@ -24,6 +24,22 @@ verified resulting container when execution is approved—is the product.
 
 It is designed for Codex, Claude Code, Gemini, and other file-capable agents.
 
+## v1.13.0 Highlights
+
+- Requires one compact intake exchange on every new task before the agent selects
+  a container source, then resumes autonomous full-scope execution.
+- Recognizes exported filtered `CONSENT_INIT` routes without replacing regional
+  hostname scope with the global Consent Initialization trigger.
+- Resolves GTM serialization aliases such as `{{_event}}` to the exported Event
+  built-in so dependency cleanup cannot delete a still-used object.
+- Makes unresolved business-architecture rows a hard veto for behavior changes
+  across their members and dependency chain, including cleanup closure.
+- Keeps the existing A1-A5 workbook structure while adding a source/operation-
+  bound AI semantic editorial step and paste-alone readability gate for every
+  visible row.
+- Requires a saved identity-bound execution preflight before any mutation and a
+  passing final complete-readback certification before executed status.
+
 ## v1.12.0 Highlights
 
 - Binds pre-mutation and final-readback certification to a strong GTM
@@ -261,8 +277,8 @@ similar name is an intended replacement.
 ## Outputs
 
 - An audit summary and a validated canonical `cleanup_plan.xlsx`.
-- A preferred `cleanup_plan.analyst.xlsx` when its separate post-gate
-  transformation passes, with five lean human tabs followed by every canonical
+- A required analyst-facing `cleanup_plan.analyst.xlsx` when its separate
+  evidence-locked AI editorial and post-gate transformation pass, with five lean human tabs followed by every canonical
   technical tab content-identical and hidden by default.
 - A stakeholder Overview, exact atomic Actions first, grouped-but-lossless owner
   Decisions second, the complete Audit Register, and a full Custom HTML inventory
@@ -307,7 +323,8 @@ similar name is an intended replacement.
 
 The cleanup plan says what should change. The change log says what did change.
 If the analyst-workbook transformation fails, the validated canonical workbook
-remains the deliverable; no audit scan is rerun or weakened.
+remains the technical recovery record while analyst delivery is incomplete;
+repair only the presentation step, with no audit scan rerun or weakening.
 
 ## What It Does Not Do
 
@@ -330,7 +347,9 @@ python -m pip install -e ".[analysis,dev]"
 
 Use `gtm_skill_identity.py verify` when both a development source and installed
 copy exist; version strings alone do not prove that the runnable trees match.
-Run `gtm_skill_identity.py check` before intake. Installed/bundled copies need a
+Every new task begins with one compact intake exchange that confirms the exact
+container JSON/equivalent source and requested result. Then run
+`gtm_skill_identity.py check`. Installed/bundled copies need a
 matching declared release manifest; a clean Git checkout may prove the same
 exact runtime identity from its tracked commit and file set.
 
@@ -339,6 +358,11 @@ container evidence. If either is unavailable, report the audit as blocked and
 request the missing prerequisite; there is no reduced audit mode.
 
 ## Start An Audit
+
+First ask the analyst once to identify or confirm the exact complete source and
+requested outcome; wait for the response. Infer safe remaining context after
+that answer instead of silently selecting a download or starting a long
+questionnaire.
 
 ```powershell
 python -B scripts/gtm_skill_identity.py check --root . --pretty
@@ -384,7 +408,7 @@ Create and validate the exact row-level approval surface before mutation:
 ```powershell
 python -B scripts/gtm_approval_response.py template reconciled_operations.json approval_response.json --pretty
 python -B scripts/gtm_approval_response.py validate reconciled_operations.json approval_response.json --pretty
-python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --pretty
+python -B scripts/gtm_execution_guard.py reconciled_operations.json audit-package/context.json future_state_gate.json --source-export container.json --live-readback fresh-workspace-readback.json --approval-response approval_response.json --output execution_preflight.json --pretty
 ```
 
 Compare two independently completed full audits without reusing old conclusions:
@@ -419,7 +443,7 @@ python -m ruff check --no-cache .
 python -B -m unittest discover -s tests -v
 python -B scripts/gtm_self_test.py
 python -B scripts/gtm_vendor_registry.py
-python -B scripts/check_release.py --tag v1.12.0
+python -B scripts/check_release.py --tag v1.13.0
 git diff --check
 ```
 

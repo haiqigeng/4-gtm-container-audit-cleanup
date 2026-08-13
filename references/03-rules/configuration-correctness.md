@@ -217,9 +217,13 @@ replace an intentional server-enforcement design. A missing, partial, swapped,
 stale, or route-specific consent signal is a concrete configuration issue;
 absence of the unseen server export alone is not.
 
-A tag that writes the default consent state must execute on GTM's Consent
-Initialization system trigger. A later custom-event route is a source-visible
-ordering defect, not a runtime question. For consent-mapping code, resolve every
+A tag that writes the default consent state must execute on a Consent
+Initialization route: either GTM's global system trigger or an exported trigger
+whose type is `CONSENT_INIT`. A filtered regional/language Consent Initialization
+trigger is valid timing evidence and its hostname scope must not be erased by a
+mechanical replacement with the global trigger. A later custom-event/page route
+is a source-visible ordering defect, but the exact target remains owner-blocked
+unless equivalent scope is proven. For consent-mapping code, resolve every
 referenced DLV's exported default/null contract: string methods such as
 `.includes()` require a source-proven string default or a local type/null guard.
 

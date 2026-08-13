@@ -18,9 +18,11 @@ from gtm_workbook_readability import (  # noqa: E402
     HUMAN_SHEETS,
     ORIGINAL_SHEETS,
     decision_topics,
+    editorial_text_errors,
     sha256_file,
     visible_consequence,
     workbook_sheet_hashes,
+    write_editorial_template,
 )
 from gtm_workbook_readability import (  # noqa: E402
     build as build_readability,
@@ -68,6 +70,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
         self.canonical = self.temp_dir / "cleanup_plan.xlsx"
         self.analyst = self.temp_dir / "cleanup_plan.analyst.xlsx"
         self.manifest = self.temp_dir / "cleanup_plan.analyst.manifest.json"
+        self.editorial = self.temp_dir / "cleanup_plan.analyst.editorial.json"
         self._write_canonical_workbook()
 
     def tearDown(self) -> None:
@@ -112,6 +115,21 @@ class WorkbookReadabilityTests(unittest.TestCase):
                     self.assertIn(phrase, rendered)
                 for phrase in case["forbidden_phrases"]:
                     self.assertNotIn(phrase, rendered)
+
+    def test_editorial_gate_accepts_human_explanation_and_rejects_machine_prose(
+        self,
+    ) -> None:
+        human = (
+            "This tag sends contact_form_sent when telephone or email links are "
+            "clicked; its event name suggests a submitted form, so the intended "
+            "meaning must be confirmed before it is retained."
+        )
+        machine = (
+            "Source review of tag:68 checked $.containerVersion.tag[1] and required "
+            "contract topics consent_and_timing and event_name."
+        )
+        self.assertEqual([], editorial_text_errors("A4:CFG-2", "finding", human))
+        self.assertTrue(editorial_text_errors("A4:CFG-2", "finding", machine))
 
     def test_reconciliation_closure_is_visible_without_becoming_a_fourth_scan(
         self,
@@ -331,12 +349,56 @@ class WorkbookReadabilityTests(unittest.TestCase):
         decision_topics: Path | None = None,
         language: str = "en",
     ) -> dict:
+        self.editorial.unlink(missing_ok=True)
+        editorial = write_editorial_template(
+            self.package_dir,
+            self.operations,
+            self.canonical,
+            self.editorial,
+            decision_topics_path=decision_topics,
+            language=language,
+        )
+        editorial["status"] = "complete"
+        editorial["authoring_method"] = "evidence_locked_ai_semantic_rewrite"
+        for row in editorial["rows"]:
+            for field in row["editable"]:
+                projected = str(row["current_projection"].get(field) or "").strip()
+                lowered = projected.casefold()
+                if not projected or any(
+                    marker in lowered
+                    for marker in (
+                        "source review of",
+                        "required contract topics",
+                        "$.containerversion",
+                        "recursive trace",
+                        "source_known",
+                        "source-known",
+                        "non-canonical unicode form",
+                    )
+                ):
+                    projected = (
+                        f"This {field.replace('_', ' ')} explains the concrete GTM "
+                        f"condition and next step for {row['row_id']}."
+                    )
+                if len(projected.split()) < 4 or len(projected) < 20:
+                    projected += " This applies only to this exact GTM row."
+                row["editable"][field] = projected
+            if row["row_type"] == "audit":
+                row["editable"]["outcome_explanation"] = (
+                    "This is the source-backed disposition for this exact GTM record; "
+                    "follow only the linked action or decision."
+                )
+        self.editorial.write_text(
+            json.dumps(editorial, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         _output, _manifest_path, manifest = build_readability(
             self.package_dir,
             self.operations,
             self.canonical,
             self.analyst,
             decision_topics_path=decision_topics,
+            editorial_path=self.editorial,
             manifest_path=self.manifest,
             language=language,
         )
@@ -349,6 +411,7 @@ class WorkbookReadabilityTests(unittest.TestCase):
             self.canonical,
             self.analyst,
             decision_topics_path=decision_topics,
+            editorial_path=self.editorial,
             manifest_path=self.manifest,
         )
 
@@ -494,13 +557,83 @@ class WorkbookReadabilityTests(unittest.TestCase):
         finally:
             workbook.close()
 
+    def test_builder_requires_evidence_locked_semantic_editorial(self) -> None:
+        with self.assertRaisesRegex(ValueError, "analyst editorial artifact is required"):
+            build_readability(
+                self.package_dir,
+                self.operations,
+                self.canonical,
+                self.analyst,
+                manifest_path=self.manifest,
+            )
+
+    def test_audit_register_uses_editorial_text_and_keeps_locked_direction(self) -> None:
+        manifest = self._build()
+        self.assertEqual("complete", manifest["editorial"]["status"])
+        self.assertGreater(manifest["editorial"]["row_count"], 0)
+        result = self._validate()
+        self.assertEqual("pass", result["status"])
+        workbook = load_workbook(self.analyst, data_only=False)
+        try:
+            sheet = workbook["A4 Audit Register"]
+            data_rows = [
+                row
+                for row in range(2, sheet.max_row + 1)
+                if str(sheet.cell(row, 1).value or "")
+                and str(sheet.cell(row, 5).value or "")
+            ]
+            self.assertTrue(data_rows)
+            finding = str(sheet.cell(data_rows[0], 4).value or "")
+            outcome = str(sheet.cell(data_rows[0], 5).value or "")
+            self.assertNotIn("Source review of", finding)
+            self.assertNotIn("$.containerVersion", finding)
+            self.assertIn("source-backed disposition", outcome)
+            self.assertTrue(
+                any(
+                    marker in outcome
+                    for marker in (
+                        "Action ",
+                        "Decision ",
+                        "Retained",
+                        "Documented exception",
+                        "Evidence limitation",
+                        "Not applicable",
+                    )
+                )
+            )
+        finally:
+            workbook.close()
+
+    def test_builder_rejects_tampered_editorial_evidence(self) -> None:
+        self._build()
+        editorial = json.loads(self.editorial.read_text(encoding="utf-8"))
+        editorial["rows"][0]["evidence"]["tampered"] = True
+        self.editorial.write_text(
+            json.dumps(editorial, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "bound evidence changed"):
+            build_readability(
+                self.package_dir,
+                self.operations,
+                self.canonical,
+                self.temp_dir / "tampered.analyst.xlsx",
+                editorial_path=self.editorial,
+                manifest_path=self.temp_dir / "tampered.analyst.manifest.json",
+            )
+
     def test_owner_decisions_do_not_block_delivery(self) -> None:
         manifest = self._build()
         result = self._validate()
         self.assertEqual(manifest["coverage"]["owner_source_records"], 2)
         self.assertEqual(result["status"], "pass")
         self.assertTrue(self.canonical.is_file())
-        self.assertTrue(manifest["fallback"]["deliver_when_readability_gate_fails"])
+        self.assertFalse(manifest["fallback"]["deliver_when_readability_gate_fails"])
+        self.assertTrue(manifest["fallback"]["technical_recovery_record"])
+        self.assertEqual(
+            "incomplete",
+            manifest["fallback"]["analyst_delivery_status_when_gate_fails"],
+        )
 
     def test_french_localizes_only_builder_owned_labels(self) -> None:
         manifest = self._build(language="fr-FR")

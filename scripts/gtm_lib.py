@@ -77,6 +77,14 @@ SYSTEM_VARIABLE_REFERENCES = {
     "_event": "GTM internal current event name used by Custom Event trigger filters",
 }
 
+# GTM serializes a small number of built-in variables with a user-facing name
+# while referring to them through an internal token elsewhere in the export.
+# Keep those aliases in one registry so dependency and deletion checks resolve
+# the same object instead of treating the display name and token as unrelated.
+BUILTIN_REFERENCE_ALIASES_BY_TYPE = {
+    "EVENT": frozenset({"_event"}),
+}
+
 KNOWN_SYSTEM_TRIGGER_REFERENCES = {
     "2147479553": "GTM system trigger reference, commonly exported for all-pages/pageview routes",
     "2147479573": "GTM system trigger reference, commonly exported for initialization or Google tag routes",
@@ -882,6 +890,17 @@ def trigger_group_members(trigger: dict[str, Any]) -> list[str]:
 
 def is_system_variable_reference(name: str) -> bool:
     return name in SYSTEM_VARIABLE_REFERENCES
+
+
+def builtin_reference_names(obj: dict[str, Any]) -> set[str]:
+    """Return every exported reference token that can identify a built-in variable."""
+
+    name = str(obj.get("name") or "").strip()
+    variable_type = str(obj.get("type") or "").strip().upper()
+    values = set(BUILTIN_REFERENCE_ALIASES_BY_TYPE.get(variable_type, ()))
+    if name:
+        values.add(name)
+    return values
 
 
 def is_system_trigger_reference(trigger_id: str) -> bool:
