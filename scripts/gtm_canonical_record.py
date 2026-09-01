@@ -17,7 +17,14 @@ from gtm_audit_contract import (
     semantic_contract_errors,
 )
 from gtm_fixed_point import fixed_point_seal_errors
-from gtm_lib import as_list, file_sha256, require_safe_package_root, stable_hash, write_json
+from gtm_lib import (
+    as_list,
+    contained_relative_path,
+    file_sha256,
+    require_safe_package_root,
+    stable_hash,
+    write_json,
+)
 from gtm_operation_model import operation_action_identity, operation_packet_sha256
 from gtm_reconciliation import reconciliation_seal_errors
 
@@ -441,7 +448,15 @@ def canonical_record_seal_errors(package_dir: Path) -> list[str]:
     ):
         errors.append("canonical manifest input inventory is not the exact closed set")
     for item in input_rows:
-        path = package_dir / str(item.get("path") or "")
+        try:
+            path = contained_relative_path(
+                package_dir,
+                item.get("path"),
+                "canonical manifest input path",
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
         if not path.is_file() or file_sha256(path) != item.get("sha256"):
             errors.append(f"canonical record input changed: {item.get('path')}")
     if seal.get("validator_status") != "pass":

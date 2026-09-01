@@ -768,6 +768,9 @@ class V2WorkflowTests(unittest.TestCase):
                 lambda: build_canonical_record(guarded_package),
                 lambda: create_delivery_map(guarded_package),
                 lambda: scaffold_delivery_reviews(guarded_package),
+                lambda: merge_work_units(
+                    guarded_package / "audit-bundles" / "audit-a"
+                ),
             ):
                 with self.assertRaisesRegex(ValueError, "package root"):
                     guarded_call()
@@ -1865,6 +1868,93 @@ class V2WorkflowTests(unittest.TestCase):
         current = json.loads(
             (self.package / "delivery" / "current-build.json").read_text(encoding="utf-8")
         )
+        current_path = self.package / "delivery" / "current-build.json"
+        current_before = current_path.read_bytes()
+        outside_build = self.root / "outside-workbook-build"
+        outside_build.mkdir()
+        outside_sentinel = outside_build / "sentinel.bin"
+        outside_sentinel.write_bytes(b"outside-build-must-not-be-read-or-written")
+        outside_before = outside_sentinel.read_bytes()
+        escaped_current = copy.deepcopy(current)
+        escaped_current["build_path"] = "../../outside-workbook-build"
+        escaped_current["current_build_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in escaped_current.items()
+                if key != "current_build_sha256"
+            },
+            64,
+        )
+        current_path.write_text(
+            json.dumps(escaped_current, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "remain inside"):
+            scaffold_delivery_reviews(self.package)
+        escaped_result = subprocess.run(
+            [node, str(SCRIPTS / "gtm_workbook_verify.mjs"), str(self.package)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(0, escaped_result.returncode)
+        self.assertIn("remain inside", escaped_result.stdout + escaped_result.stderr)
+        self.assertEqual(outside_before, outside_sentinel.read_bytes())
+        current_path.write_bytes(current_before)
+
+        build_dir = self.package / "delivery" / current["build_path"]
+        build_manifest_path = build_dir / "workbook-build-manifest.json"
+        build_manifest_before = build_manifest_path.read_bytes()
+        build_manifest = json.loads(build_manifest_before)
+        outside_workbook = self.root / "outside-workbook.xlsx"
+        outside_workbook.write_bytes(b"outside-workbook-must-not-be-read")
+        outside_workbook_before = outside_workbook.read_bytes()
+        escaped_manifest = copy.deepcopy(build_manifest)
+        escaped_manifest["workbook_path"] = "../outside-workbook.xlsx"
+        escaped_manifest["workbook_build_manifest_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in escaped_manifest.items()
+                if key != "workbook_build_manifest_sha256"
+            },
+            64,
+        )
+        build_manifest_path.write_text(
+            json.dumps(escaped_manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        rebound_current = copy.deepcopy(current)
+        rebound_current["workbook_build_manifest_sha256"] = escaped_manifest[
+            "workbook_build_manifest_sha256"
+        ]
+        rebound_current["current_build_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in rebound_current.items()
+                if key != "current_build_sha256"
+            },
+            64,
+        )
+        current_path.write_text(
+            json.dumps(rebound_current, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "remain inside"):
+            scaffold_delivery_reviews(self.package)
+        escaped_result = subprocess.run(
+            [node, str(SCRIPTS / "gtm_workbook_verify.mjs"), str(self.package)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(0, escaped_result.returncode)
+        self.assertIn("remain inside", escaped_result.stdout + escaped_result.stderr)
+        self.assertEqual(outside_workbook_before, outside_workbook.read_bytes())
+        build_manifest_path.write_bytes(build_manifest_before)
+        current_path.write_bytes(current_before)
+
         verification = json.loads(
             (
                 self.package / "delivery" / current["build_path"] / "technical-verification.json"
@@ -1873,6 +1963,33 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(verification["comment_checks"])
         self.assertTrue(all(row["status"] == "pass" for row in verification["comment_checks"]))
         scaffold_delivery_reviews(self.package)
+        fidelity_manifest_path = (
+            build_dir / "reviews" / "fidelity" / "bundle-manifest.json"
+        )
+        fidelity_manifest_before = fidelity_manifest_path.read_bytes()
+        fidelity_manifest = json.loads(fidelity_manifest_before)
+        fidelity_manifest["locked_files"][0]["path"] = (
+            "../../../../../outside-workbook.xlsx"
+        )
+        fidelity_manifest["locked_files"][0]["sha256"] = file_sha256(
+            outside_workbook
+        )
+        fidelity_manifest["bundle_manifest_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in fidelity_manifest.items()
+                if key != "bundle_manifest_sha256"
+            },
+            64,
+        )
+        fidelity_manifest_path.write_text(
+            json.dumps(fidelity_manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "remain inside"):
+            seal_delivery(self.package)
+        self.assertEqual(outside_workbook_before, outside_workbook.read_bytes())
+        fidelity_manifest_path.write_bytes(fidelity_manifest_before)
         complete_delivery_reviews(self.package)
         reader_path = (
             self.package

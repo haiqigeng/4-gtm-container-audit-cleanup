@@ -21,6 +21,7 @@ from gtm_canonical_scan import (  # noqa: E402
     build_canonical_scan,
     neutral_fact_judgment_leaks,
 )
+from gtm_context_model import build_context_model  # noqa: E402
 from gtm_obligation_ledger import build_obligation_ledger  # noqa: E402
 from gtm_optimization_facts import _consent_metadata  # noqa: E402
 from gtm_scan_assurance import assure_scan  # noqa: E402
@@ -529,6 +530,138 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         names = {row["parameter_name"] for row in shared_candidates}
         self.assertIn("currency", names)
         self.assertNotIn("content_group", names)
+
+    def test_behavior_scope_keeps_cross_level_areas_applicable_and_assured(self) -> None:
+        export = rich_export()
+        cv = export["containerVersion"]
+        cv["variable"] = []
+        cv["gtagConfig"] = []
+        cv["customTemplate"] = []
+        cv["transformation"] = []
+        cv["zone"] = []
+        export_path = self.root / "behavior-only-cross-level.json"
+        export_path.write_text(json.dumps(export), encoding="utf-8")
+        scan = build_canonical_scan(export_path)["canonical_scan"]
+        coverage = {
+            row["area_id"]: row
+            for row in scan["coverage_ledger"]
+            if row["area_id"] in {"AREA-20", "AREA-23"}
+        }
+        self.assertEqual({"AREA-20", "AREA-23"}, set(coverage))
+        self.assertTrue(all(row["applicability"] == "applicable" for row in coverage.values()))
+        self.assertTrue(all(row["source_count"] > 0 for row in coverage.values()))
+        assurance = assure_scan(
+            export_path,
+            scan,
+            vendor_registry_path=self.registry,
+        )
+        self.assertEqual("pass", assurance["status"])
+
+        tampered = copy.deepcopy(scan)
+        for row in tampered["coverage_ledger"]:
+            if row["area_id"] in {"AREA-20", "AREA-23"}:
+                row["source_count"] = 0
+                row["applicability"] = "source_counted_zero"
+        assurance = assure_scan(
+            export_path,
+            tampered,
+            vendor_registry_path=self.registry,
+        )
+        check = next(
+            row
+            for row in assurance["checks"]
+            if row["check_id"] == "raw_scope_area_applicability"
+        )
+        self.assertEqual("mismatch", check["status"])
+
+    def test_duplicate_settings_names_remain_ambiguous_without_losing_candidates(self) -> None:
+        export = rich_export()
+        export["containerVersion"]["variable"].append(
+            {
+                "variableId": "199",
+                "name": "Google - Configuration Settings",
+                "type": "gtcs",
+                "parameter": [
+                    table_parameter(
+                        "configSettingsTable",
+                        [("transport_url", "https://second.example.test")],
+                    )
+                ],
+            }
+        )
+        export_path = self.root / "duplicate-settings-name.json"
+        export_path.write_text(json.dumps(export), encoding="utf-8")
+        scan = build_canonical_scan(export_path)["canonical_scan"]
+        surface = next(
+            row
+            for row in scan["optimization_facts"]["effective_google_settings"]
+            if row["object_key"] == "tag:301"
+            and row["settings_scope"] == "configuration"
+        )
+        self.assertEqual([], surface["resolved_settings_variable_keys"])
+        ambiguity = surface["ambiguous_settings_variable_references"]
+        self.assertEqual(1, len(ambiguity))
+        self.assertEqual(
+            ["variable:101", "variable:199"],
+            ambiguity[0]["candidate_object_keys"],
+        )
+        self.assertEqual(
+            {"variable:101", "variable:199"},
+            {
+                row["candidate_object_key"]
+                for row in surface["candidate_inherited_settings"]
+            },
+        )
+        topology = next(
+            row
+            for row in scan["optimization_facts"]["tag_control_topology"]
+            if row["object_key"] == "tag:301"
+        )
+        self.assertEqual(
+            ["collect.example.test", "second.example.test"],
+            topology["server_route_hosts"],
+        )
+        assurance = assure_scan(
+            export_path,
+            scan,
+            vendor_registry_path=self.registry,
+        )
+        self.assertEqual("pass", assurance["status"])
+
+        tampered = copy.deepcopy(scan)
+        tampered_surface = next(
+            row
+            for row in tampered["optimization_facts"]["effective_google_settings"]
+            if row["object_key"] == "tag:301"
+            and row["settings_scope"] == "configuration"
+        )
+        tampered_surface["candidate_inherited_settings"] = [
+            row
+            for row in tampered_surface["candidate_inherited_settings"]
+            if row["candidate_object_key"] != "variable:199"
+        ]
+        assurance = assure_scan(
+            export_path,
+            tampered,
+            vendor_registry_path=self.registry,
+        )
+        check = next(
+            row
+            for row in assurance["checks"]
+            if row["check_id"] == "effective_google_settings"
+        )
+        self.assertEqual("mismatch", check["status"])
+
+    def test_context_contract_has_no_legacy_unresolved_question_channel(self) -> None:
+        model = build_context_model(self.export)
+        self.assertIn("intake_questions", model)
+        self.assertIn("intake_status", model)
+        self.assertNotIn("unresolved_questions", model)
+        with self.assertRaisesRegex(ValueError, "unsupported fields"):
+            build_context_model(
+                self.export,
+                provided_context={"unresolved_questions": ["legacy question"]},
+            )
 
     def test_server_consent_owner_is_unconfirmed_until_exact_host_is_approved(self) -> None:
         default_tag = next(

@@ -16,7 +16,14 @@ from gtm_delivery_mapper import (
     delivery_map_from_record,
     editorial_seal_errors,
 )
-from gtm_lib import as_list, file_sha256, require_safe_package_root, stable_hash, write_json
+from gtm_lib import (
+    as_list,
+    contained_relative_path,
+    file_sha256,
+    require_safe_package_root,
+    stable_hash,
+    write_json,
+)
 from gtm_reasoning_identity import (
     collect_reasoning_identity_registry,
     reasoning_identity_reuse_errors,
@@ -94,11 +101,31 @@ def _review_bundle_errors(root: Path) -> tuple[dict[str, Any], list[str]]:
     errors = []
     if manifest.get("bundle_manifest_sha256") != _hash_without(manifest, "bundle_manifest_sha256"):
         errors.append(f"{root.name} review bundle manifest hash is invalid")
-    allowed = {REVIEW_BUNDLE_MANIFEST_FILE, str(manifest.get("mutable_output") or "")}
+    mutable_output = manifest.get("mutable_output")
+    allowed = {REVIEW_BUNDLE_MANIFEST_FILE}
+    try:
+        mutable_path = contained_relative_path(
+            root,
+            mutable_output,
+            f"{root.name} mutable review output path",
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+    else:
+        allowed.add(mutable_path.relative_to(root.absolute()).as_posix())
     for record in as_list(manifest.get("locked_files")):
-        relative = str((record or {}).get("path") or "")
+        relative = (record or {}).get("path")
+        try:
+            target = contained_relative_path(
+                root,
+                relative,
+                f"{root.name} locked review input path",
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        relative = target.relative_to(root.absolute()).as_posix()
         allowed.add(relative)
-        target = root / relative
         if not target.is_file():
             errors.append(f"{root.name} locked review input is missing: {relative}")
         elif file_sha256(target) != (record or {}).get("sha256"):
@@ -137,7 +164,14 @@ def _current_build(package_dir: Path) -> tuple[Path, dict[str, Any], list[str]]:
     errors = []
     if current.get("current_build_sha256") != _hash_without(current, "current_build_sha256"):
         errors.append("current workbook build pointer hash is invalid")
-    build_dir = delivery / str(current.get("build_path") or "")
+    try:
+        build_dir = contained_relative_path(
+            delivery,
+            current.get("build_path"),
+            "current workbook build path",
+        )
+    except ValueError as exc:
+        return delivery, {}, [*errors, str(exc)]
     manifest_path = build_dir / "workbook-build-manifest.json"
     if not manifest_path.is_file():
         return build_dir, {}, [*errors, "workbook build manifest is missing"]
@@ -150,7 +184,15 @@ def _current_build(package_dir: Path) -> tuple[Path, dict[str, Any], list[str]]:
         "workbook_build_manifest_sha256"
     ):
         errors.append("current pointer is bound to another build manifest")
-    workbook = package_dir / str(manifest.get("workbook_path") or "")
+    try:
+        workbook = contained_relative_path(
+            package_dir,
+            manifest.get("workbook_path"),
+            "workbook manifest path",
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+        return build_dir, manifest, errors
     if not workbook.is_file() or file_sha256(workbook) != manifest.get("workbook_file_sha256"):
         errors.append("workbook file is missing or changed")
     technical_path = build_dir / "technical-verification.json"
@@ -194,7 +236,11 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
         for sheet in as_list((manifest.get("normalized_model") or {}).get("sheets"))
         for row in as_list((sheet or {}).get("rows"))
     }
-    workbook_path = package_dir / str(manifest.get("workbook_path") or "")
+    workbook_path = contained_relative_path(
+        package_dir,
+        manifest.get("workbook_path"),
+        "workbook manifest path",
+    )
 
     fidelity = reviews / FIDELITY_BUNDLE
     fidelity.mkdir()
@@ -547,7 +593,13 @@ def seal_delivery(package_dir: Path) -> dict[str, Any]:
     write_json(build_dir / DELIVERY_SEAL_FILE, seal)
     return {
         "status": "pass",
-        "workbook": str(package_dir / str(manifest.get("workbook_path") or "")),
+        "workbook": str(
+            contained_relative_path(
+                package_dir,
+                manifest.get("workbook_path"),
+                "workbook manifest path",
+            )
+        ),
         "delivery_seal_sha256": seal["delivery_seal_sha256"],
     }
 

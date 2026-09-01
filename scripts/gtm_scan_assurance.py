@@ -1553,11 +1553,11 @@ def _vendor_and_unknown_ownership(
     vendors = _vendor_patterns(registry_path)
     matched = []
     unmatched_hosts: dict[str, list[str]] = defaultdict(list)
-    variables_by_name = {
-        str(row.get("object_name") or ""): row["object"]
-        for row in objects
-        if row.get("layer") == "variable" and str(row.get("object_name") or "")
-    }
+    variables_by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in objects:
+        name = str(row.get("object_name") or "")
+        if row.get("layer") == "variable" and name:
+            variables_by_name[name].append(row["object"])
     for row in objects:
         serialized = json.dumps(row["object"], ensure_ascii=False)
         route_hosts = _independent_effective_object_route_hosts(

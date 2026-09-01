@@ -32,6 +32,7 @@ from gtm_audit_work_units import (
 )
 from gtm_lib import (
     as_list,
+    contained_relative_path,
     file_sha256,
     package_tree_errors,
     path_is_link_or_reparse,
@@ -562,7 +563,15 @@ def _bundle_manifest_errors(bundle: Path) -> tuple[dict[str, Any], list[str]]:
     for record in as_list(manifest.get("allowed_files")):
         if record.get("mutable"):
             continue
-        path = bundle / str(record.get("path") or "")
+        try:
+            path = contained_relative_path(
+                bundle,
+                record.get("path"),
+                "locked audit bundle input path",
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
         if not path.is_file():
             errors.append(f"locked bundle input is missing: {path.name}")
         elif file_sha256(path) != record.get("sha256"):
@@ -1153,7 +1162,15 @@ def validate_audit(
     ):
         errors.append("coverage release manifest is bound to another checkpoint")
     for record in as_list(release.get("released_files")):
-        path = bundle / str(record.get("path") or "")
+        try:
+            path = contained_relative_path(
+                bundle,
+                record.get("path"),
+                "released audit input path",
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
         if not path.is_file() or file_sha256(path) != record.get("sha256"):
             errors.append(f"released immutable input changed: {path.name}")
     work_unit_record = release.get("work_units") or {}
@@ -1168,9 +1185,15 @@ def validate_audit(
         errors.extend(snapshot_errors)
         work_unit_manifest_path = work_unit_directory / WORK_UNIT_MANIFEST
     else:
-        work_unit_manifest_path = bundle / str(
-            work_unit_record.get("manifest") or ""
-        )
+        try:
+            work_unit_manifest_path = contained_relative_path(
+                bundle,
+                work_unit_record.get("manifest"),
+                "released work-unit manifest path",
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            work_unit_manifest_path = bundle / "__invalid-work-unit-manifest__"
     if not work_unit_manifest_path.is_file():
         errors.append("work-unit manifest is missing")
     else:
@@ -2079,7 +2102,15 @@ def _sealed_audit_record_errors(package_dir: Path, audit_id: str) -> list[str]:
     if release.get("source_checkpoint_seal_sha256") != current_checkpoint_seal:
         errors.append(f"{audit_id}: coverage release is bound to another checkpoint")
     for record in as_list(release.get("released_files")):
-        released_path = bundle / str((record or {}).get("path") or "")
+        try:
+            released_path = contained_relative_path(
+                bundle,
+                (record or {}).get("path"),
+                "released audit input path",
+            )
+        except ValueError as exc:
+            errors.append(f"{audit_id}: {exc}")
+            continue
         if not released_path.is_file() or file_sha256(released_path) != (
             record or {}
         ).get("sha256"):

@@ -17,6 +17,7 @@ from gtm_audit_contract import (
 from gtm_cleanroom_audit import ISOLATION_MECHANISMS, operation_proposal_errors
 from gtm_lib import (
     as_list,
+    contained_relative_path,
     file_sha256,
     require_safe_package_root,
     stable_hash,
@@ -206,9 +207,20 @@ def _manifest_errors(bundle: Path) -> list[str]:
         errors.append("projection review bundle manifest hash is invalid")
     allowed = {REVIEW_FILE, REVIEW_MANIFEST_FILE}
     for record in as_list(manifest.get("locked_files")):
-        name = str(record.get("path") or "")
+        name = record.get("path")
+        if not isinstance(name, str):
+            errors.append("locked projection input path is invalid")
+            continue
         allowed.add(name)
-        target = bundle / name
+        try:
+            target = contained_relative_path(
+                bundle,
+                name,
+                "locked projection input path",
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
         if not target.is_file():
             errors.append(f"locked projection input is missing: {name}")
         elif file_sha256(target) != record.get("sha256"):

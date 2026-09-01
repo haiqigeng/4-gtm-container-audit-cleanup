@@ -11,7 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from gtm_audit_contract import CANONICAL_DECISION_FIELDS, OPERATION_ACTION_FIELDS
-from gtm_lib import as_list, require_safe_package_root, stable_hash, write_json
+from gtm_lib import (
+    as_list,
+    contained_relative_path,
+    require_safe_package_root,
+    stable_hash,
+    write_json,
+)
 
 WORK_UNIT_DIRECTORY = "work-units"
 WORK_UNIT_MANIFEST = "work-unit-manifest.json"
@@ -655,7 +661,11 @@ def merge_work_units(bundle: Path) -> dict[str, Any]:
     discoveries = []
     completed_units = []
     for record in as_list(manifest.get("work_units")):
-        path = directory / str(record.get("filename") or "")
+        path = contained_relative_path(
+            directory,
+            record.get("filename"),
+            "work-unit manifest filename",
+        )
         if not path.is_file():
             raise ValueError(f"work unit is missing: {path.name}")
         unit = json.loads(path.read_text(encoding="utf-8"))
@@ -793,7 +803,15 @@ def work_unit_completion_errors(
     reconstructed_discoveries: list[Any] = []
     reconstructed_completed_units: list[dict[str, str]] = []
     for work_unit_id, record in expected_units.items():
-        unit_path = directory / str(record.get("filename") or "")
+        try:
+            unit_path = contained_relative_path(
+                directory,
+                record.get("filename"),
+                "work-unit manifest filename",
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
         if not unit_path.is_file():
             errors.append(f"completed work unit is missing: {work_unit_id}")
             continue

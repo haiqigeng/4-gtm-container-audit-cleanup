@@ -155,6 +155,31 @@ def require_safe_package_root(package_dir: Path) -> None:
         raise ValueError("; ".join(errors))
 
 
+def contained_relative_path(root: Path, value: Any, label: str) -> Path:
+    """Return one canonical package-owned path without normalizing traversal.
+
+    Workflow manifests are integrity-protected, but an attacker can rehash a
+    modified manifest.  Every path carried by such a manifest therefore needs
+    an independent lexical containment check before any read or write.
+    """
+
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"{label} must be a non-blank canonical relative path")
+    if "\\" in value or "\x00" in value:
+        raise ValueError(f"{label} must use canonical forward-slash path syntax")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} or ":" in part for part in parts):
+        raise ValueError(f"{label} must remain inside its owning package directory")
+    relative = Path(*parts)
+    if relative.is_absolute() or relative.anchor:
+        raise ValueError(f"{label} must remain inside its owning package directory")
+    absolute_root = root.absolute()
+    target = absolute_root.joinpath(relative)
+    if not target.is_relative_to(absolute_root):
+        raise ValueError(f"{label} must remain inside its owning package directory")
+    return target
+
+
 def param_value(obj: dict[str, Any], key: str) -> Any:
     for param in as_list(obj.get("parameter")):
         if not isinstance(param, dict):

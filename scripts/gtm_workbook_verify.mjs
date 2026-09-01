@@ -65,6 +65,26 @@ async function assertSafePackageRoot(packageDir) {
   }
 }
 
+function containedRelativePath(root, value, label) {
+  if (typeof value !== "string" || !value || value !== value.trim()) {
+    throw new Error(`${label} must be a non-blank canonical relative path`);
+  }
+  if (value.includes("\\") || value.includes("\0")) {
+    throw new Error(`${label} must use canonical forward-slash path syntax`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === ".." || part.includes(":"))) {
+    throw new Error(`${label} must remain inside its owning package directory`);
+  }
+  const absoluteRoot = path.resolve(root);
+  const target = path.resolve(absoluteRoot, ...parts);
+  const relative = path.relative(absoluteRoot, target);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`${label} must remain inside its owning package directory`);
+  }
+  return target;
+}
+
 function equal(actual, expected) {
   return JSON.stringify(actual) === JSON.stringify(expected);
 }
@@ -122,7 +142,11 @@ async function main() {
   if (stableHash(unsignedCurrent) !== current.current_build_sha256) {
     errors.push("current workbook build pointer hash is invalid");
   }
-  const buildDir = path.join(deliveryDir, current.build_path);
+  const buildDir = containedRelativePath(
+    deliveryDir,
+    current.build_path,
+    "current workbook build path",
+  );
   const manifestPath = path.join(buildDir, "workbook-build-manifest.json");
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
   const unsignedManifest = { ...manifest };
@@ -139,7 +163,11 @@ async function main() {
   if (manifest.normalized_workbook_sha256 !== manifest.recovery_normalized_workbook_sha256) {
     errors.push("recovery rebuild did not reproduce normalized workbook content");
   }
-  const workbookPath = path.join(packageDir, manifest.workbook_path);
+  const workbookPath = containedRelativePath(
+    packageDir,
+    manifest.workbook_path,
+    "workbook manifest path",
+  );
   if ((await fileHash(workbookPath)) !== manifest.workbook_file_sha256) {
     errors.push("workbook file changed after build");
   }

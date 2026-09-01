@@ -293,6 +293,58 @@ class V2OperationSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cycle"):
             dependency_order([cycle_a, cycle_b])
 
+    def test_pause_and_rename_writes_are_conflict_checked_and_cannot_be_no_ops(self) -> None:
+        source = operation_fixture()
+        pause = operation(
+            "OP-PAUSE",
+            pauses=[{"object_key": "tag:1", "before": False, "after": True}],
+        )
+        contradictory_pause = operation(
+            "OP-KEEP-ACTIVE",
+            pauses=[{"object_key": "tag:1", "before": False, "after": False}],
+        )
+        self.assertTrue(operation_write_conflicts([pause, contradictory_pause]))
+        self.assertTrue(
+            any(
+                "conflicting writes" in error
+                for error in validate_operations(source, [pause, contradictory_pause])
+            )
+        )
+        self.assertTrue(
+            any(
+                "pause is a no-op" in error
+                for error in validate_operations(source, [contradictory_pause])
+            )
+        )
+
+        rename_a = operation(
+            "OP-RENAME-A",
+            renames=[
+                {
+                    "object_key": "variable:20",
+                    "before": "Old Variable",
+                    "after": "Canonical Variable A",
+                }
+            ],
+        )
+        rename_b = operation(
+            "OP-RENAME-B",
+            renames=[
+                {
+                    "object_key": "variable:20",
+                    "before": "Old Variable",
+                    "after": "Canonical Variable B",
+                }
+            ],
+        )
+        self.assertTrue(operation_write_conflicts([rename_a, rename_b]))
+        self.assertTrue(
+            any(
+                "conflicting writes" in error
+                for error in validate_operations(source, [rename_a, rename_b])
+            )
+        )
+
     def test_do_not_touch_blocks_implicit_rename_consumer_changes(self) -> None:
         source = operation_fixture()
         rename = operation(

@@ -11,7 +11,14 @@ from typing import Any
 
 from gtm_audit_contract import HUMAN_DECISION_LABELS, HUMAN_DECISION_MEANINGS
 from gtm_canonical_record import canonical_record_seal_errors
-from gtm_lib import as_list, file_sha256, require_safe_package_root, stable_hash, write_json
+from gtm_lib import (
+    as_list,
+    contained_relative_path,
+    file_sha256,
+    require_safe_package_root,
+    stable_hash,
+    write_json,
+)
 from gtm_privacy import privacy_findings, redact_delivery_value
 from gtm_reasoning_identity import (
     collect_reasoning_identity_registry,
@@ -883,8 +890,16 @@ def editorial_seal_errors(package_dir: Path) -> list[str]:
     if not editorial_path.is_file() or not seal_path.is_file():
         return ["editorial artifact or seal is missing"]
     seal = _load(seal_path)
-    version_path = root / str(seal.get("editorial_version_path") or "")
     errors = validate_editorial(package_dir)
+    try:
+        version_path = contained_relative_path(
+            root,
+            seal.get("editorial_version_path"),
+            "editorial version path",
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+        version_path = root / "__invalid-editorial-version__"
     if seal.get("editorial_seal_sha256") != _hash_without(
         seal, "editorial_seal_sha256"
     ):

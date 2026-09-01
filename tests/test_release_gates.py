@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import sys
 import tempfile
@@ -77,12 +78,16 @@ class RuntimeIdentityGateTests(unittest.TestCase):
             actual = root / "actual"
             write_identity_fixture(expected)
             write_identity_fixture(actual)
-            declared = skill_identity.write_manifest(actual)
-            declared["source_git_dirty"] = False
-            (actual / skill_identity.MANIFEST_NAME).write_text(
-                json.dumps(declared, indent=2) + "\n", encoding="utf-8"
-            )
-            report, errors = skill_identity.verify_identity(expected, actual)
+            commit = "a" * 40
+            with (
+                mock.patch.object(skill_identity, "git_commit", return_value=commit),
+                mock.patch.object(skill_identity, "git_dirty", return_value=False),
+                mock.patch.object(
+                    skill_identity, "clean_git_identity_errors", return_value=[]
+                ),
+            ):
+                skill_identity.write_manifest(actual, source_root=expected)
+                report, errors = skill_identity.verify_identity(expected, actual)
             self.assertEqual([], errors)
             self.assertEqual("pass", report["status"])
 
@@ -91,7 +96,14 @@ class RuntimeIdentityGateTests(unittest.TestCase):
                 "VALUE = 2\n", encoding="utf-8"
             )
             (actual / "references" / "rule.md").unlink()
-            report, errors = skill_identity.verify_identity(expected, actual)
+            with (
+                mock.patch.object(skill_identity, "git_commit", return_value=commit),
+                mock.patch.object(skill_identity, "git_dirty", return_value=False),
+                mock.patch.object(
+                    skill_identity, "clean_git_identity_errors", return_value=[]
+                ),
+            ):
+                report, errors = skill_identity.verify_identity(expected, actual)
             self.assertEqual(
                 ["/".join(("references", "rule.md"))], report["missing_files"]
             )
@@ -101,6 +113,58 @@ class RuntimeIdentityGateTests(unittest.TestCase):
             )
             self.assertEqual(["SKILL.md"], report["changed_files"])
             self.assertTrue(any("manifest" in error.lower() for error in errors))
+
+    def test_package_manifest_is_bound_to_exact_source_provenance_and_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            expected = root / "expected"
+            actual = root / "actual"
+            write_identity_fixture(expected)
+            write_identity_fixture(actual)
+            commit = "a" * 40
+
+            def verify() -> tuple[dict, list[str]]:
+                with (
+                    mock.patch.object(skill_identity, "git_commit", return_value=commit),
+                    mock.patch.object(skill_identity, "git_dirty", return_value=False),
+                    mock.patch.object(
+                        skill_identity, "clean_git_identity_errors", return_value=[]
+                    ),
+                ):
+                    return skill_identity.verify_identity(expected, actual)
+
+            with (
+                mock.patch.object(skill_identity, "git_commit", return_value=commit),
+                mock.patch.object(skill_identity, "git_dirty", return_value=False),
+            ):
+                canonical = skill_identity.write_manifest(actual, source_root=expected)
+            self.assertEqual([], verify()[1])
+            manifest_path = actual / skill_identity.MANIFEST_NAME
+
+            for field, forged in (
+                ("source_git_commit", "b" * 40),
+                ("source_git_commit", ""),
+                ("project_version", "9.9.9"),
+                ("runtime_tree_sha256", "0" * 64),
+                ("runtime_file_count", -1),
+                ("files", {}),
+                ("source_git_dirty", True),
+            ):
+                with self.subTest(field=field, forged=forged):
+                    altered = copy.deepcopy(canonical)
+                    altered[field] = forged
+                    manifest_path.write_text(
+                        json.dumps(altered, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    report, errors = verify()
+                    self.assertEqual("fail", report["status"])
+                    self.assertTrue(errors)
+
+            manifest_path.unlink()
+            report, errors = verify()
+            self.assertEqual("fail", report["status"])
+            self.assertTrue(any("missing" in error for error in errors))
 
     def test_declared_identity_and_clean_git_fallback_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -6,12 +6,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
 
 MANIFEST_NAME = ".skill-build-manifest.json"
+GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 ROOT_FILES = ("SKILL.md", "LICENSE", "pyproject.toml")
 ROOT_DIRECTORIES = ("agents", "references", "scripts")
 EXCLUDED_NAMES = {
@@ -223,6 +225,12 @@ def declared_identity_errors(
                 errors.append(
                     f"{MANIFEST_NAME} records dirty or unverifiable source provenance"
                 )
+            if not GIT_COMMIT_RE.fullmatch(
+                str(declared.get("source_git_commit") or "")
+            ):
+                errors.append(
+                    f"{MANIFEST_NAME} source_git_commit must be one full Git commit SHA"
+                )
             if (root / ".git").exists():
                 if actual.get("source_git_dirty") is not False:
                     errors.append(
@@ -272,6 +280,15 @@ def verify_identity(
     expected = build_identity(expected_root)
     actual = build_identity(actual_root)
     errors: list[str] = []
+    source_errors = clean_git_identity_errors(expected_root, expected)
+    if source_errors:
+        errors.append(
+            "expected source provenance is not a clean Git checkout: "
+            + "; ".join(source_errors)
+        )
+    expected_commit = str(expected.get("source_git_commit") or "")
+    if not GIT_COMMIT_RE.fullmatch(expected_commit):
+        errors.append("expected source commit is not one full Git commit SHA")
     expected_files = expected["files"]
     actual_files = actual["files"]
     missing = sorted(set(expected_files) - set(actual_files))
@@ -290,23 +307,47 @@ def verify_identity(
 
     declared_path = actual_root / MANIFEST_NAME
     declared: dict[str, Any] = {}
-    if declared_path.is_file():
+    if not declared_path.is_file():
+        errors.append(f"{MANIFEST_NAME} is missing from the actual skill package")
+    else:
         try:
             raw = json.loads(declared_path.read_text(encoding="utf-8"))
             declared = raw if isinstance(raw, dict) else {}
         except (OSError, json.JSONDecodeError):
             errors.append(f"{MANIFEST_NAME} is not valid JSON")
-        if declared and (
-            declared.get("runtime_tree_sha256") != actual.get("runtime_tree_sha256")
-            or declared.get("files") != actual.get("files")
-        ):
-            errors.append(
-                f"{MANIFEST_NAME} does not match the actual installed runtime tree"
-            )
-        if declared and declared.get("source_git_dirty") is not False:
-            errors.append(
-                f"{MANIFEST_NAME} records dirty or unverifiable source provenance"
-            )
+        if declared:
+            if declared.get("kind") != "gtm_skill_runtime_identity":
+                errors.append(f"{MANIFEST_NAME} kind is invalid")
+            if declared.get("schema_version") != 1:
+                errors.append(f"{MANIFEST_NAME} schema_version must be 1")
+            for field in (
+                "project_version",
+                "runtime_tree_sha256",
+                "runtime_file_count",
+                "files",
+            ):
+                if declared.get(field) != actual.get(field):
+                    errors.append(
+                        f"{MANIFEST_NAME} {field} does not match the actual package tree"
+                    )
+                if declared.get(field) != expected.get(field):
+                    errors.append(
+                        f"{MANIFEST_NAME} {field} is not bound to the expected source tree"
+                    )
+            if declared.get("source_git_commit") != expected_commit:
+                errors.append(
+                    f"{MANIFEST_NAME} source_git_commit is not bound to the expected source commit"
+                )
+            if not GIT_COMMIT_RE.fullmatch(
+                str(declared.get("source_git_commit") or "")
+            ):
+                errors.append(
+                    f"{MANIFEST_NAME} source_git_commit must be one full Git commit SHA"
+                )
+            if declared.get("source_git_dirty") is not False:
+                errors.append(
+                    f"{MANIFEST_NAME} records dirty or unverifiable source provenance"
+                )
     report = {
         "kind": "gtm_skill_runtime_identity_verification",
         "schema_version": 1,
@@ -332,6 +373,16 @@ def verify_identity(
             )
         },
         "declared_manifest_present": declared_path.is_file(),
+        "declared": {
+            key: declared.get(key)
+            for key in (
+                "project_version",
+                "runtime_tree_sha256",
+                "runtime_file_count",
+                "source_git_commit",
+                "source_git_dirty",
+            )
+        },
         "missing_files": missing,
         "unexpected_files": unexpected,
         "changed_files": changed,

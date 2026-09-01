@@ -944,7 +944,16 @@ def _control_topology(
                 "parameter_name": setting.get("parameter_name"),
                 "configured_value": setting.get("configured_value"),
                 "origin": setting.get("origin"),
-                "source_json_paths": setting.get("source_json_paths", []),
+                "source_json_paths": sorted(
+                    {
+                        str(path)
+                        for path in [
+                            *as_list(setting.get("source_json_paths")),
+                            setting.get("source_json_path"),
+                        ]
+                        if str(path or "")
+                    }
+                ),
             }
             for setting in effective_rows
             if CONSENT_TERMS.search(str(setting.get("parameter_name") or ""))
