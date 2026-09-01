@@ -414,7 +414,8 @@ def declared_work_unit_files(
             errors.append("single-file manifest unexpectedly declares work units")
         return expected, errors
     if strategy != "family_sharded":
-        return expected, ["work-unit manifest strategy is invalid"]
+        errors.append("work-unit manifest strategy is invalid")
+        return expected, errors
     if not records:
         errors.append("family-sharded manifest declares no work units")
     seen_work_unit_ids: set[str] = set()
