@@ -86,7 +86,8 @@
   identity is recomputed; the exact audit decisions and discoveries are
   deterministically reconstructed from the units; every snapshot is a self-
   contained regular tree with no link, junction, reparse, or path escape; and a
-  failed amendment changes none of those artifacts.
+  closed schema rejects every undeclared manifest, record, or unit field. A failed
+  amendment changes none of those artifacts.
 - Every visible sheet is rendered and inspected; privacy and formula-injection
   scans pass.
 

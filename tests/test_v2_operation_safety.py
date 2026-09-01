@@ -419,6 +419,28 @@ class V2OperationSafetyTests(unittest.TestCase):
             unit_record = manifest["work_units"][0]
             unit_path = bundle / "work-units" / unit_record["filename"]
             unit = json.loads(unit_path.read_text(encoding="utf-8"))
+            manifest_path = bundle / "work-units" / "work-unit-manifest.json"
+            forged_manifest = copy.deepcopy(manifest)
+            forged_manifest["undeclared_context"] = "foreign audit verdict"
+            manifest_path.write_text(
+                json.dumps(forged_manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "closed schema"):
+                merge_work_units(bundle)
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            forged_unknown = copy.deepcopy(unit)
+            forged_unknown["undeclared_context"] = "foreign audit verdict"
+            forged_unknown["unit_closure"] = "Forged unit presented as complete."
+            unit_path.write_text(
+                json.dumps(forged_unknown, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "closed schema"):
+                merge_work_units(bundle)
             for field, forged_value, recompute_identity in (
                 ("audit_id", "audit-b", False),
                 ("source_sha256", "forged-source", False),

@@ -124,6 +124,8 @@ points, and resolved path escapes block before any evidence is read. Reconstruct
 the exact sorted decisions and ordered discoveries from all declared units and
 compare that result directly with the candidate or sealed audit; hashes stored in
 the audit are supporting evidence, never the derivation proof. A
+closed manifest, record, and work-unit schema rejects undeclared context before
+merge or sealing. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
 closes this amendment path; later semantic repair uses a successor package.
 Stage the new audit, new seal, immutable work-unit snapshot, and predecessor

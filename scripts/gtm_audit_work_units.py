@@ -39,6 +39,24 @@ WORK_UNIT_IDENTITY_FIELDS = (
     "decision_ids",
     "obligation_ids",
 )
+WORK_UNIT_MANIFEST_FIELDS = {
+    *WORK_UNIT_MANIFEST_IDENTITY_FIELDS,
+    "work_unit_manifest_sha256",
+}
+WORK_UNIT_RECORD_FIELDS = {
+    "work_unit_id",
+    "owner_family_id",
+    "filename",
+    "work_unit_identity_sha256",
+    "obligation_ids",
+}
+WORK_UNIT_FIELDS = {
+    *WORK_UNIT_IDENTITY_FIELDS,
+    "decisions",
+    "open_discoveries",
+    "unit_closure",
+    "work_unit_identity_sha256",
+}
 
 
 def workload_estimate(
@@ -144,6 +162,8 @@ def declared_work_unit_files(
 
     expected = {WORK_UNIT_MANIFEST}
     errors: list[str] = []
+    if set(manifest) != WORK_UNIT_MANIFEST_FIELDS:
+        errors.append("work-unit manifest fields differ from its closed schema")
     records = as_list(manifest.get("work_units"))
     strategy = manifest.get("strategy")
     if strategy == "single_file":
@@ -158,6 +178,8 @@ def declared_work_unit_files(
         if not isinstance(record, dict):
             errors.append("work-unit manifest record is malformed")
             continue
+        if set(record) != WORK_UNIT_RECORD_FIELDS:
+            errors.append("work-unit manifest record fields differ from their schema")
         filename = str(record.get("filename") or "")
         relative = Path(filename)
         if (
@@ -181,6 +203,8 @@ def work_unit_contract_errors(
     """Recompute immutable identity and prove one unit belongs to its manifest."""
 
     errors: list[str] = []
+    if set(unit) != WORK_UNIT_FIELDS:
+        errors.append("work-unit fields differ from their closed schema")
     checks = (
         ("kind", "gtm_cleanroom_family_work_unit"),
         ("schema_version", 1),

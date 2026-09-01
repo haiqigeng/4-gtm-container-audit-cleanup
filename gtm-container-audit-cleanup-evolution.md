@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved twenty-six issues:
+The repeated pre-release review found and resolved twenty-seven issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -541,6 +541,10 @@ The repeated pre-release review found and resolved twenty-six issues:
     now resolves through its canonical semantic decision, one visible
     Recommendations row per actionable operation, and row-bound comments; hidden
     decision surfaces are explicitly prohibited.
+27. Explicit work-unit identity projections correctly separated immutable and
+    authored fields but could otherwise ignore an undeclared top-level context
+    field. Manifest, manifest-record, and unit schemas are now closed, so foreign
+    or judgment-bearing context cannot be added without blocking merge and seal.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

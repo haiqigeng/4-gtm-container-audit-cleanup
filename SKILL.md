@@ -222,7 +222,8 @@ own self-contained regular-file snapshot, never against later live shard edits.
 Recompute each unit's explicit immutable audit, source, ledger, family, and
 membership identity, and deterministically reconstruct the audit decisions and
 discoveries from those units; do not trust embedded digests or self-rehashed
-merged-audit claims. Do not follow links, junctions, or reparse points. After
+merged-audit claims. Reject undeclared manifest, record, or unit fields. Do not
+follow links, junctions, or reparse points. After
 canonical sealing, a semantic or fidelity defect starts one
 immutable successor package bound to the predecessor record and same locked
 source, then reruns the whole workflow. Presentation-only defects create a new
