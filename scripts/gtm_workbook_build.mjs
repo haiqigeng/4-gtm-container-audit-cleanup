@@ -65,6 +65,30 @@ async function fileHash(filePath) {
   return crypto.createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
 }
 
+async function assertSafePackageRoot(packageDir) {
+  const stats = await fs.lstat(packageDir);
+  const resolved = path.resolve(packageDir);
+  const real = await fs.realpath(packageDir);
+  const normalize = (value) =>
+    process.platform === "win32"
+      ? path.normalize(value).toLowerCase()
+      : path.normalize(value);
+  if (stats.isSymbolicLink() || normalize(real) !== normalize(resolved)) {
+    throw new Error("audit package root is a link or reparse point");
+  }
+  const pending = [packageDir];
+  while (pending.length) {
+    const directory = pending.pop();
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new Error(`audit package path is a link or reparse point: ${entryPath}`);
+      }
+      if (entry.isDirectory()) pending.push(entryPath);
+    }
+  }
+}
+
 function safeText(value) {
   if (value === null || value === undefined) return "";
   const text = typeof value === "string" ? value : JSON.stringify(value);
@@ -531,6 +555,7 @@ async function main() {
     throw new Error("Usage: gtm_workbook_build.mjs <package-dir> [output.xlsx] [comment-author]");
   }
   const packageDir = path.resolve(packageArg);
+  await assertSafePackageRoot(packageDir);
   const deliveryDir = path.join(packageDir, "delivery");
   const mapPath = path.join(deliveryDir, "delivery-map.json");
   const mapSealPath = path.join(deliveryDir, "delivery-map-seal.json");
@@ -563,6 +588,15 @@ async function main() {
     ? path.dirname(path.resolve(outputArg))
     : path.join(deliveryDir, "builds", `build-${String(sequence).padStart(3, "0")}`);
   const outputPath = path.resolve(outputArg || path.join(buildDir, "gtm-container-audit.xlsx"));
+  const outputRelative = path.relative(packageDir, outputPath);
+  if (
+    !outputRelative ||
+    outputRelative.startsWith(`..${path.sep}`) ||
+    outputRelative === ".." ||
+    path.isAbsolute(outputRelative)
+  ) {
+    throw new Error("Workbook output must remain inside the audit package");
+  }
   try {
     await fs.access(outputPath);
     throw new Error(`Workbook build output already exists: ${outputPath}`);

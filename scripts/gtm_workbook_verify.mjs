@@ -47,6 +47,30 @@ async function fileHash(filePath) {
   return crypto.createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
 }
 
+async function assertSafePackageRoot(packageDir) {
+  const stats = await fs.lstat(packageDir);
+  const resolved = path.resolve(packageDir);
+  const real = await fs.realpath(packageDir);
+  const normalize = (value) =>
+    process.platform === "win32"
+      ? path.normalize(value).toLowerCase()
+      : path.normalize(value);
+  if (stats.isSymbolicLink() || normalize(real) !== normalize(resolved)) {
+    throw new Error("audit package root is a link or reparse point");
+  }
+  const pending = [packageDir];
+  while (pending.length) {
+    const directory = pending.pop();
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new Error(`audit package path is a link or reparse point: ${entryPath}`);
+      }
+      if (entry.isDirectory()) pending.push(entryPath);
+    }
+  }
+}
+
 function equal(actual, expected) {
   return JSON.stringify(actual) === JSON.stringify(expected);
 }
@@ -94,6 +118,7 @@ async function main() {
   const packageArg = process.argv[2];
   if (!packageArg) throw new Error("Usage: gtm_workbook_verify.mjs <package-dir>");
   const packageDir = path.resolve(packageArg);
+  await assertSafePackageRoot(packageDir);
   const deliveryDir = path.join(packageDir, "delivery");
   const currentPath = path.join(deliveryDir, "current-build.json");
   const current = JSON.parse(await fs.readFile(currentPath, "utf8"));

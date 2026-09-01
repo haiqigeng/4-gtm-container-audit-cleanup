@@ -121,10 +121,36 @@ def package_root_errors(package_dir: Path) -> list[str]:
     )
 
 
-def require_safe_package_root(package_dir: Path) -> None:
-    """Fail before a package-scoped workflow reads or writes redirected content."""
+def package_tree_errors(package_dir: Path) -> list[str]:
+    """Return every redirected boundary visible in one package tree."""
 
     errors = package_root_errors(package_dir)
+    if errors:
+        return errors
+    if not package_dir.exists():
+        return []
+    pending = [package_dir]
+    while pending:
+        directory = pending.pop()
+        try:
+            entries = list(directory.iterdir())
+        except OSError as exc:
+            return [f"cannot enumerate protected audit package path {directory}: {exc}"]
+        for entry in entries:
+            if path_is_link_or_reparse(entry):
+                errors.append(
+                    f"audit package path is a link or reparse point: {entry}"
+                )
+                continue
+            if entry.is_dir():
+                pending.append(entry)
+    return errors
+
+
+def require_safe_package_root(package_dir: Path) -> None:
+    """Fail before workflow I/O crosses a redirected package-tree boundary."""
+
+    errors = package_tree_errors(package_dir)
     if errors:
         raise ValueError("; ".join(errors))
 

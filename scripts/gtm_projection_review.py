@@ -221,19 +221,42 @@ def _manifest_errors(bundle: Path) -> list[str]:
     return errors
 
 
-def validate_projection_review(cycle_dir: Path, review_id: str) -> list[str]:
+def validate_projection_review(
+    cycle_dir: Path,
+    review_id: str,
+    *,
+    _review_path: Path | None = None,
+) -> list[str]:
     require_safe_package_root(cycle_dir.parents[1])
     if review_id not in REVIEW_IDS:
         return [f"unsupported projection review: {review_id}"]
     bundle = cycle_dir / REVIEW_ROOT / review_id
     errors = _manifest_errors(bundle)
-    review_path = bundle / REVIEW_FILE
+    review_path = _review_path or bundle / REVIEW_FILE
     ledger_path = bundle / "projection-obligations.json"
     if not review_path.is_file() or not ledger_path.is_file():
         return [*errors, "projection review or obligation ledger is missing"]
     review = json.loads(review_path.read_text(encoding="utf-8"))
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     manifest = json.loads((bundle / REVIEW_MANIFEST_FILE).read_text(encoding="utf-8"))
+    expected_review_fields = {
+        "kind",
+        "schema_version",
+        "review_id",
+        "cycle_number",
+        "source_sha256",
+        "canonical_scan_sha256",
+        "scan_assurance_sha256",
+        "projection_obligation_set_sha256",
+        "review_method",
+        "status",
+        "independent_context_id",
+        "host_isolation_receipt",
+        "decisions",
+        "completion_attestation",
+    }
+    if set(review) != expected_review_fields:
+        errors.append("projection review schema contains missing or undeclared fields")
     checks = (
         ("kind", "gtm_projection_cleanroom_review"),
         ("schema_version", 1),
@@ -255,6 +278,15 @@ def validate_projection_review(cycle_dir: Path, review_id: str) -> list[str]:
     if len(context_id) < 12:
         errors.append("projection review independent context identity is missing")
     receipt = review.get("host_isolation_receipt") or {}
+    if set(receipt) != {
+        "status",
+        "receipt_id",
+        "mechanism",
+        "allowed_bundle_manifest_sha256",
+        "peer_review_accessible",
+        "prohibited_artifacts_accessible",
+    }:
+        errors.append("projection host isolation receipt schema changed")
     if receipt.get("status") != "enforced":
         errors.append("projection review requires an enforced host isolation receipt")
     if len(str(receipt.get("receipt_id") or "").strip()) < 12:
@@ -286,6 +318,10 @@ def validate_projection_review(cycle_dir: Path, review_id: str) -> list[str]:
             f"PCR-{review_id[-1].upper()}-C{int(ledger.get('cycle_number') or 0):02d}-"
             f"{obligation_id}"
         )
+        if set(decision) != set(
+            _scaffold_decision(review_id, int(ledger.get("cycle_number") or 0), obligation)
+        ):
+            errors.append(f"{label}: schema contains missing or undeclared fields")
         if decision.get("decision_id") != expected_id:
             errors.append(f"{label}: decision identity changed")
         for field in LOCKED_DECISION_FIELDS:
@@ -307,6 +343,14 @@ def validate_projection_review(cycle_dir: Path, review_id: str) -> list[str]:
         elif proposal:
             errors.append(f"{label}: non-actionable decision cannot carry an operation")
     attestation = review.get("completion_attestation") or {}
+    if set(attestation) != {
+        "status",
+        "foreign_projection_review_used",
+        "fresh_context",
+        "host_scope_preserved_through_completion",
+        "conclusion",
+    }:
+        errors.append("projection review attestation schema changed")
     if attestation.get("status") != "complete":
         errors.append("projection review completion attestation is incomplete")
     if attestation.get("foreign_projection_review_used") is not False:
@@ -380,6 +424,11 @@ def _sealed_review_errors(cycle_dir: Path) -> list[str]:
             errors.append(f"{review_id}: seal hash is invalid")
         if seal.get("completed_review_sha256") != file_sha256(review_path):
             errors.append(f"{review_id}: sealed review changed")
+        errors.extend(
+            validate_projection_review(
+                cycle_dir, review_id, _review_path=review_path
+            )
+        )
         contexts.append(str(seal.get("independent_context_id") or ""))
         receipt_ids.append(str((seal.get("host_isolation_receipt") or {}).get("receipt_id") or ""))
     if len(contexts) == 2 and len(set(contexts)) != 2:

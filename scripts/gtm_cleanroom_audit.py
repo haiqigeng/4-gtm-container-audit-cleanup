@@ -31,7 +31,7 @@ from gtm_audit_work_units import (
 from gtm_lib import (
     as_list,
     file_sha256,
-    package_root_errors,
+    package_tree_errors,
     path_is_link_or_reparse,
     stable_hash,
     write_json,
@@ -221,7 +221,7 @@ def prepare_audit_bundles(
     registry_path: Path,
     requirements_path: Path | None = None,
 ) -> dict[str, Any]:
-    root_errors = package_root_errors(package_dir)
+    root_errors = package_tree_errors(package_dir)
     if root_errors:
         raise ValueError("; ".join(root_errors))
     bundles_root = package_dir / BUNDLE_DIRECTORY
@@ -650,7 +650,7 @@ def checkpoint_audit(
     audit_id: str,
     completed_checkpoint: Path | None = None,
 ) -> dict[str, Any]:
-    root_errors = package_root_errors(package_dir)
+    root_errors = package_tree_errors(package_dir)
     if root_errors:
         raise ValueError("; ".join(root_errors))
     if audit_id not in AUDIT_IDS:
@@ -1066,7 +1066,7 @@ def validate_audit(
     amendment_of: str | None = None,
     sealed_seal: dict[str, Any] | None = None,
 ) -> list[str]:
-    root_errors = package_root_errors(package_dir)
+    root_errors = package_tree_errors(package_dir)
     if root_errors:
         return root_errors
     if audit_id not in AUDIT_IDS:
@@ -1429,7 +1429,7 @@ def _commit_audit_transition(
     seal_dir = seal_path.parent
     canonical_dir = canonical_path.parent
     package_dir = seal_dir.parent
-    root_errors = package_root_errors(package_dir)
+    root_errors = package_tree_errors(package_dir)
     if root_errors:
         raise ValueError("; ".join(root_errors))
     history = seal_dir / HISTORY_DIRECTORY
@@ -1707,7 +1707,7 @@ def seal_audit(
     *,
     amendment_of: str | None = None,
 ) -> dict[str, Any]:
-    root_errors = package_root_errors(package_dir)
+    root_errors = package_tree_errors(package_dir)
     if root_errors:
         raise ValueError("; ".join(root_errors))
     bundle = package_dir / BUNDLE_DIRECTORY / audit_id
@@ -2124,7 +2124,7 @@ def _sealed_audit_record_errors(package_dir: Path, audit_id: str) -> list[str]:
 
 
 def sealed_audit_errors(package_dir: Path) -> list[str]:
-    root_errors = package_root_errors(package_dir)
+    root_errors = package_tree_errors(package_dir)
     if root_errors:
         return root_errors
     seal_root = package_dir / SEAL_DIRECTORY
