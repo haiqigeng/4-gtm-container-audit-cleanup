@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from gtm_audit_contract import ACTIONABLE_DECISION_CLASSES
-from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_consent_model import normalized_context_hosts
+from gtm_lib import as_list, container_version, file_sha256, stable_hash, write_json
 from gtm_operation_model import (
     apply_operations,
     dependency_order,
@@ -20,9 +21,89 @@ from gtm_operation_model import (
     operation_write_conflicts,
     validate_operations,
 )
+from gtm_optimization_facts import (
+    client_consent_gate_facts,
+    trigger_control_fact,
+)
+from gtm_shared_facts import effective_server_route_hosts_by_tag
 
 OPERATION_PACKET_FILE = "operation-packet.json"
 INITIAL_PROJECTION_FILE = "projected-container.json"
+
+
+def _trigger_facts_by_id(cv: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(trigger.get("triggerId") or ""): trigger_control_fact(trigger)
+        for trigger in as_list(cv.get("trigger"))
+        if isinstance(trigger, dict) and str(trigger.get("triggerId") or "")
+    }
+
+
+def _tags_by_id(cv: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(tag.get("tagId") or ""): tag
+        for tag in as_list(cv.get("tag"))
+        if isinstance(tag, dict) and str(tag.get("tagId") or "")
+    }
+
+
+def server_consent_gate_regression_errors(
+    source: dict[str, Any],
+    projected: dict[str, Any],
+    context_record: dict[str, Any],
+) -> list[str]:
+    """Block removal of a visible client gate without approved downstream ownership."""
+
+    source_cv = container_version(source)
+    projected_cv = container_version(projected)
+    source_triggers = _trigger_facts_by_id(source_cv)
+    projected_triggers = _trigger_facts_by_id(projected_cv)
+    source_routes = effective_server_route_hosts_by_tag(source_cv)
+    projected_routes = effective_server_route_hosts_by_tag(projected_cv)
+    projected_tags = _tags_by_id(projected_cv)
+    context = context_record.get("context") or {}
+    approved_hosts = set(
+        normalized_context_hosts(as_list(context.get("server_consent_gating_hosts")))
+    )
+    errors: list[str] = []
+
+    for tag_id, source_tag in _tags_by_id(source_cv).items():
+        object_key = f"tag:{tag_id}"
+        source_hosts = set(as_list(source_routes.get(object_key)))
+        if not source_hosts:
+            continue
+        source_gate = client_consent_gate_facts(source_tag, source_triggers)
+        if not source_gate["client_consent_gate_visible"]:
+            continue
+
+        projected_tag = projected_tags.get(tag_id)
+        if projected_tag is None:
+            continue
+        projected_gate = client_consent_gate_facts(
+            projected_tag,
+            projected_triggers,
+        )
+        if projected_gate["client_consent_gate_visible"]:
+            continue
+
+        projected_hosts = set(as_list(projected_routes.get(object_key)))
+        unapproved_hosts = projected_hosts - approved_hosts
+        if projected_hosts and not unapproved_hosts:
+            continue
+
+        if projected_hosts:
+            ownership_gap = (
+                "unapproved projected route host(s): "
+                + ", ".join(sorted(unapproved_hosts))
+            )
+        else:
+            ownership_gap = "the projected tag has no downstream server route owner"
+        errors.append(
+            f"{object_key}: visible client consent gating would be removed while "
+            f"{ownership_gap}; retain a client gate or lock approved ownership for "
+            "every projected server route host"
+        )
+    return errors
 
 
 def reconciliation_seal_errors(package_dir: Path) -> list[str]:
@@ -99,6 +180,9 @@ def compile_operation_packet(package_dir: Path) -> dict[str, Any]:
         raise ValueError("operation safety gate failed: " + "; ".join(errors))
     ordered = dependency_order(operations)
     projected = apply_operations(source, ordered)
+    gate_errors = server_consent_gate_regression_errors(source, projected, context)
+    if gate_errors:
+        raise ValueError("operation safety gate failed: " + "; ".join(gate_errors))
     operation_ids = {str(row.get("operation_id") or "") for row in ordered}
     reverse_dependencies: dict[str, list[str]] = defaultdict(list)
     for operation in ordered:

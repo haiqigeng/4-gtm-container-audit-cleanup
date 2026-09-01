@@ -286,7 +286,7 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
   });
   const deltaStart = summaryStart + summaryBlocks.length * 3 + 1;
   sheet.getRangeByIndexes(deltaStart - 1, 0, 1, 4).values = [
-    ["Material object-count changes", "Source", "Target", "Delta"],
+    ["Material object-count changes", "Source", "Target", "Change"],
   ];
   styleHeaders(sheet.getRangeByIndexes(deltaStart - 1, 0, 1, 4));
   const deltas = overview.material_count_deltas || [];

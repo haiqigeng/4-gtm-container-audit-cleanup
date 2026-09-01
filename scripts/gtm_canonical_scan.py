@@ -30,110 +30,198 @@ from gtm_requirement_evidence import build_requirement_evidence
 from gtm_shared_facts import build_shared_facts
 from gtm_source_model import build_model
 
-OPERATIONAL_DECISION_FIELDS = frozenset(
+OPERATIONAL_CANDIDATE_FACT_FIELDS = frozenset(
     {
-        "review_status",
-        "disposition",
-        "rationale",
-        "operation_key",
-        "title",
-        "area",
-        "problem_type",
-        "problem",
-        "why_it_matters",
-        "expected_clean_state",
-        "exact_proposed_action",
-        "canonical_object_key",
-        "canonical_selection_rationale",
-        "rationale_evidence_terms",
-        "creations",
-        "additions",
-        "changes",
-        "removals",
-        "remaps",
-        "deletions",
-        "renames",
-        "pauses",
-        "preconditions",
-        "qa_steps",
-        "rollback",
-        "priority",
-        "confidence",
-        "execution_readiness",
-        "owner_question",
-        "recommended_action",
-        "recommended_canonical_object_key",
-        "recommended_canonical_basis",
-        "challenge_review",
+        "module_name",
+        "module_status",
+        "objects_scanned",
+        "finding_id",
+        "finding_type",
+        "object_type",
+        "object_ids",
+        "object_names",
+        "signature_key",
+        "deterministic_evidence",
+        "source_lens",
+        "object_identities",
+        "shared_fact_object_keys",
+        "shared_behavior_signatures",
     }
 )
 
-CONFIGURATION_DECISION_FIELDS = frozenset(
+CONFIGURATION_OBJECT_FACT_FIELDS = frozenset(
     {
-        "minimum_semantic_review_depth",
-        "semantic_review_basis",
-        "behavior_review_groups",
-        "configuration_coverage_metrics",
-        "semantic_review_depth",
-        "review_status",
-        "purpose",
-        "execution_logic",
-        "inputs_and_terminal_sources",
-        "configured_output_or_side_effect",
-        "consumer_contract",
-        "consent_and_sequence",
-        "correctness_verdict",
-        "correctness_basis",
-        "defects",
-        "contract_checks",
-        "code_behavior_blocks",
-        "technical_facts_assessment",
-        "technical_code_recommendation",
-        "technical_exact_proposed_action",
-        "technical_disposition",
-        "technical_disposition_vocabulary",
-        "technical_finding_reviews",
-        "logic_cross_checks",
-        "configuration_branch_reviews",
-        "evidence_anchors",
-        "consumer_evidence_keys",
-        "reference_traces",
-        "disposition",
-        "owner_question",
-        "recommended_action",
-        "external_evidence_status",
-        "external_evidence_summary",
-        "external_evidence_next_action",
-        "consumer_specific_code_basis",
-        "operation",
-        "confidence",
-        "evidence_citations",
+        "review_id",
+        "object_key",
+        "layer",
+        "object_id",
+        "object_name",
+        "object_type",
+        "paused",
+        "config_hash",
+        "source_json_path",
+        "source_facts",
+        "available_evidence_anchors",
+        "required_logic_anchors",
+        "required_branch_reviews",
+        "code_line_facts",
+        "required_code_line_hashes",
+        "referenced_variables",
+        "reference_trace_requirements",
+        "export_consumers",
+        "specificity_tokens",
+        "detected_vendor",
+        "vendor_category",
+        "vendor_contexts",
+        "required_contract_topics",
+        "official_doc_candidates",
+        "technical_code_facts",
+        "shared_behavior_signatures",
+        "effective_consent_route_facts",
+        "execution_dependency_traces",
+        "execution_dependency_facts",
+        "consumer_dependency_facts",
+        "consumer_dependency_contexts",
+        "destination_peer_contexts",
+        "destination_peer_facts",
+        "source_absence_facts",
+        "approved_requirement_links",
+        "required_logic_cross_checks",
+        "required_configuration_obligations",
     }
 )
 
-ARCHITECTURE_DECISION_FIELDS = frozenset(
+ARCHITECTURE_FAMILY_FACT_FIELDS = frozenset(
     {
-        "review_status",
-        "business_action",
-        "family_purpose",
-        "member_assessments",
-        "chain_assessments",
-        "execution_path_summary",
-        "payload_coherence",
-        "consent_and_sequence_coherence",
-        "necessity_and_ownership",
-        "relationship_verdict",
-        "analyst_rationale",
-        "target_architecture",
-        "architecture_effect",
-        "disposition",
-        "owner_question",
-        "recommended_action",
-        "recommended_canonical_object_key",
-        "recommended_canonical_basis",
-        "canonical_selection_rationale",
-        "operations",
-        "confidence",
+        "family_id",
+        "family_key",
+        "family_label",
+        "member_object_keys",
+        "member_object_names",
+        "member_source_paths",
+        "member_behavior_signatures",
+        "member_config_hashes",
+        "member_evidence_terms",
+        "member_distinguishing_terms",
+        "member_paused_status",
+        "chain_object_keys",
+        "chain_object_names",
+        "chain_source_paths",
+        "chain_edges",
+        "chain_behavior_signatures",
+        "chain_config_hashes",
+        "chain_evidence_terms",
+        "chain_specificity_tokens",
+        "chain_paused_status",
+        "available_member_evidence_anchors",
+        "available_chain_evidence_anchors",
+        "approved_requirement_links",
+    }
+)
+
+ARCHITECTURE_RELATIONSHIP_FACT_FIELDS = frozenset(
+    {
+        "comparison_id",
+        "comparison_origin",
+        "comparison_type",
+        "comparison_types",
+        "layer",
+        "candidate_object_ids",
+        "candidate_object_keys",
+        "candidate_object_names",
+        "candidate_object_types",
+        "candidate_source_paths",
+        "candidate_config_hashes",
+        "candidate_behavior_signatures",
+        "candidate_evidence_terms",
+        "candidate_distinguishing_terms",
+        "candidate_specificity_tokens",
+        "candidate_paused_status",
+        "candidate_basis",
+        "discovery_methods",
+        "similarity_score",
+        "required_comparison_dimensions",
+        "required_caution_states",
+        "available_member_evidence_anchors",
+        "approved_requirement_links",
+    }
+)
+
+ARCHITECTURE_DISCOVERY_FACT_FIELDS = frozenset(
+    {
+        "method",
+        "scan_status",
+        "source_scope_sha256",
+        "review_scope_object_keys",
+        "candidate_object_keys",
+        "comparison_ids",
+    }
+)
+
+CODE_ROW_FACT_FIELDS = frozenset(
+    {
+        "technical_finding_id",
+        "object_identity",
+        "layer",
+        "object_id",
+        "object_name",
+        "type",
+        "config_hash",
+        "code_hash",
+        "code_length",
+        "logical_line_count",
+        "source_lens",
+        "source_independent_of_baseline",
+        "javascript_parser",
+        "javascript_parser_version",
+        "parser_input_normalized",
+        "parser_gtm_substitutions",
+        "ast_parse_errors",
+        "ast_node_counts",
+        "ast_calls",
+        "ast_branch_count",
+        "ast_return_count",
+        "return_expressions",
+        "returned_value_type",
+        "referenced_gtm_variables",
+        "consumers",
+        "side_effects",
+        "technical_current_behavior",
+        "external_scripts_loaded",
+        "network_calls",
+        "manual_gtag_calls",
+        "dataLayer_reads",
+        "dataLayer_pushes_or_writes",
+        "dataLayer_resets",
+        "cookies_read_written",
+        "cookie_writes",
+        "dynamic_cookie_missing_attributes",
+        "cookie_duration_multiplier_facts",
+        "localStorage_use",
+        "sessionStorage_use",
+        "dom_reads_writes",
+        "dom_selector_reads",
+        "dom_mutations",
+        "document_write_calls",
+        "event_listeners",
+        "listener_lifecycle",
+        "timer_lifecycle",
+        "observer_lifecycle",
+        "mutation_observer_signals",
+        "async_cmp_callback_candidate",
+        "postmessage_security",
+        "secret_like_credential_signals",
+        "base64_signals",
+        "debugger_statements",
+        "javascript_without_script_wrapper",
+        "google_tag_manager_internal_access",
+        "optimize_or_antiflicker_signals",
+        "cache_buster_signals",
+        "fixed_slot_aggregation",
+        "fixed_slot_groups",
+        "string_coercion_undefined_facts",
+        "semantic_name_output_findings",
+        "formula_review_required",
     }
 )
 
@@ -147,6 +235,33 @@ NEUTRAL_FACT_SEMANTIC_KEY_ALLOWLIST = frozenset(
         "firing_priority_raw",
     }
 )
+JUDGMENT_SHAPED_KEYS = frozenset(
+    {
+        "default_action",
+        "deterministic_action_candidate",
+        "finding_class",
+        "operation_packet_required",
+        "required_resolution",
+        "policy_confirmation_required",
+        "selected_naming_policy",
+        "target_naming_pattern",
+        "technical_action_candidate",
+        "technical_cleanup_implication",
+        "technical_expected_clean_state",
+        "technical_code_health_status",
+        "technical_code_health_findings",
+        "technical_code_security_findings",
+        "technical_code_optimization_findings",
+        "technical_plain_language_summary",
+        "technical_preconditions",
+        "technical_qa_steps",
+        "technical_rollback_note",
+        "technical_handoff_packet",
+        "behavior_can_be_understood_from_export",
+        "container_evidence_limits",
+        "required_technical_findings",
+    }
+)
 SEMANTIC_KEY_RE = re.compile(
     r"(?:^|_)(?:verdict|recommend(?:ed|ation)?|rationale|disposition|"
     r"correctness|priority|confidence|owner_question|target_architecture|"
@@ -155,18 +270,31 @@ SEMANTIC_KEY_RE = re.compile(
 )
 
 
-def _without_fields(row: Any, fields: frozenset[str]) -> Any:
-    """Recursively remove every known semantic field from legacy scaffolds."""
+def _select_fields(row: dict[str, Any], fields: frozenset[str]) -> dict[str, Any]:
+    """Project only declared neutral fact fields; unknown source fields are dropped."""
 
-    if isinstance(row, dict):
-        return {
-            key: _without_fields(value, fields)
-            for key, value in row.items()
-            if key not in fields
-        }
-    if isinstance(row, list):
-        return [_without_fields(value, fields) for value in row]
-    return row
+    return {key: value for key, value in row.items() if key in fields}
+
+
+def _neutral_code_row(row: dict[str, Any]) -> dict[str, Any]:
+    return _select_fields(row, CODE_ROW_FACT_FIELDS)
+
+
+def _neutral_code_evidence(report: dict[str, Any]) -> dict[str, Any]:
+    return _require_neutral_fact_projection(
+        {
+            "kind": "gtm_custom_code_fact_evidence",
+            "source_file": report.get("source_file"),
+            "source_sha256": report.get("source_sha256"),
+            "custom_code_count": report.get("custom_code_count", 0),
+            "rows": [
+                _neutral_code_row(row)
+                for row in as_list(report.get("rows"))
+                if isinstance(row, dict)
+            ],
+        },
+        "code evidence",
+    )
 
 
 def neutral_fact_judgment_leaks(value: Any, path: str = "$") -> list[str]:
@@ -178,7 +306,10 @@ def neutral_fact_judgment_leaks(value: Any, path: str = "$") -> list[str]:
             child_path = f"{path}.{key}"
             if (
                 str(key) not in NEUTRAL_FACT_SEMANTIC_KEY_ALLOWLIST
-                and SEMANTIC_KEY_RE.search(str(key))
+                and (
+                    str(key) in JUDGMENT_SHAPED_KEYS
+                    or SEMANTIC_KEY_RE.search(str(key))
+                )
             ):
                 leaks.append(child_path)
             leaks.extend(neutral_fact_judgment_leaks(child, child_path))
@@ -203,14 +334,8 @@ def _neutral_operational_evidence(review: dict[str, Any]) -> dict[str, Any]:
         "kind": "gtm_operational_candidate_evidence",
         "schema_version": 1,
         "source_sha256": review.get("source_sha256"),
-        "inventory_counts": review.get("inventory_counts", {}),
-        "lifecycle_matrix": review.get("lifecycle_matrix", []),
-        "folder_topology": review.get("folder_topology", {}),
-        "destination_matrix": review.get("destination_matrix", []),
-        "trigger_lint_summary": review.get("trigger_lint_summary", {}),
-        "module_results": review.get("module_results", []),
         "candidates": [
-            _without_fields(row, OPERATIONAL_DECISION_FIELDS)
+            _select_fields(row, OPERATIONAL_CANDIDATE_FACT_FIELDS)
             for row in as_list(review.get("findings"))
             if isinstance(row, dict)
         ],
@@ -223,7 +348,18 @@ def _neutral_configuration_evidence(review: dict[str, Any]) -> dict[str, Any]:
         "schema_version": 1,
         "source_sha256": review.get("source_sha256"),
         "objects": [
-            _without_fields(row, CONFIGURATION_DECISION_FIELDS)
+            {
+                **_select_fields(row, CONFIGURATION_OBJECT_FACT_FIELDS),
+                **(
+                    {
+                        "technical_code_facts": _neutral_code_row(
+                            row["technical_code_facts"]
+                        )
+                    }
+                    if isinstance(row.get("technical_code_facts"), dict)
+                    else {}
+                ),
+            }
             for row in as_list(review.get("rows"))
             if isinstance(row, dict)
         ],
@@ -237,28 +373,17 @@ def _neutral_architecture_evidence(review: dict[str, Any]) -> dict[str, Any]:
         "schema_version": 1,
         "source_sha256": review.get("source_sha256"),
         "families": [
-            _without_fields(row, ARCHITECTURE_DECISION_FIELDS)
+            _select_fields(row, ARCHITECTURE_FAMILY_FACT_FIELDS)
             for row in as_list(review.get("families"))
             if isinstance(row, dict)
         ],
         "relationships": [
-            _without_fields(row, ARCHITECTURE_DECISION_FIELDS)
+            _select_fields(row, ARCHITECTURE_RELATIONSHIP_FACT_FIELDS)
             for row in as_list(review.get("comparisons"))
             if isinstance(row, dict)
         ],
         "open_discovery_methods": [
-            {
-                key: value
-                for key, value in row.items()
-                if key
-                not in {
-                    "review_status",
-                    "reviewed_comparison_ids",
-                    "reviewed_object_keys",
-                    "additional_discovery_ids",
-                    "conclusion",
-                }
-            }
+            _select_fields(row, ARCHITECTURE_DISCOVERY_FACT_FIELDS)
             for row in as_list(discovery.get("method_reviews"))
             if isinstance(row, dict)
         ],
@@ -282,8 +407,6 @@ def _area_source_counts(
     variables = len(as_list(cv.get("variable")))
     templates = len(as_list(cv.get("customTemplate")))
     zones = len(as_list(cv.get("zone")))
-    clients = len(as_list(cv.get("client")))
-    transformations = len(as_list(cv.get("transformation")))
     gtag_configs = len(as_list(cv.get("gtagConfig")))
     total = sum(_source_layer_counts(cv).values())
     operational_candidates = len(as_list(operational.get("candidates")))
@@ -296,6 +419,11 @@ def _area_source_counts(
         if row.get("positive_route_contains_consent")
         or row.get("blocker_contains_consent")
         or (row.get("consent_metadata") or {}).get("contains_consent_value")
+    )
+    server_route_tags = sum(
+        1
+        for row in as_list(optimization.get("tag_control_topology"))
+        if as_list(row.get("server_route_hosts"))
     )
     google_surfaces = len(as_list(optimization.get("effective_google_settings")))
     destinations = sum(
@@ -330,12 +458,8 @@ def _area_source_counts(
         "AREA-09": consent_tags,
         "AREA-10": consent_tags,
         "AREA-11": consent_tags,
-        "AREA-12": sum(
-            1
-            for row in as_list(optimization.get("tag_control_topology"))
-            if as_list(row.get("server_route_hosts"))
-        ),
-        "AREA-13": clients + transformations,
+        "AREA-12": server_route_tags,
+        "AREA-13": server_route_tags,
         "AREA-14": variables,
         "AREA-15": google_surfaces + gtag_configs,
         "AREA-16": tags + gtag_configs + destinations,
@@ -346,7 +470,7 @@ def _area_source_counts(
         ),
         "AREA-18": ecommerce,
         "AREA-19": tags,
-        "AREA-20": transformations + variables,
+        "AREA-20": variables,
         "AREA-21": sensitive,
         "AREA-22": code_rows + templates,
         "AREA-23": zones + gtag_configs,
@@ -408,6 +532,7 @@ def build_canonical_scan(
         provided_context=provided_context,
     )
     technical = extract_export(export_path)
+    neutral_code = _neutral_code_evidence(technical)
     shared_facts = build_shared_facts(
         export_path,
         context=context,
@@ -460,7 +585,7 @@ def build_canonical_scan(
         "configuration_evidence": configuration,
         "architecture_evidence": architecture,
         "optimization_facts": optimization,
-        "code_evidence": technical,
+        "code_evidence": neutral_code,
         "approved_requirements_present": bool(requirements),
         "source_only_checkpoint_boundary": (
             "Approved requirements are separately identified and must remain withheld "
@@ -482,6 +607,7 @@ def build_canonical_scan(
             "approved_requirements": len(as_list(requirements.get("requirements"))),
         },
     }
+    _require_neutral_fact_projection(scan, "canonical scan")
     scan["canonical_scan_sha256"] = _content_hash(scan)
     return {
         "canonical_scan": scan,

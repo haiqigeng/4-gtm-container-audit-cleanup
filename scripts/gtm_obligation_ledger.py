@@ -313,10 +313,68 @@ def _requirement_obligations(
     return rows
 
 
+def _apply_semantic_repairs(
+    obligations: list[dict[str, Any]],
+    repair_evidence: dict[str, Any] | None,
+) -> None:
+    by_id = {
+        str(row.get("obligation_id") or ""): row for row in obligations
+    }
+    for repair in as_list((repair_evidence or {}).get("repair_records")):
+        if not isinstance(repair, dict):
+            continue
+        predecessor = repair.get("predecessor_decision") or {}
+        repair_id = str(repair.get("repair_id") or "")
+        obligation_id = str(predecessor.get("obligation_id") or "")
+        obligation = by_id.get(obligation_id)
+        if obligation is None:
+            raise ValueError(
+                f"semantic repair owner obligation is absent from the same-source ledger: {obligation_id}"
+            )
+        record = {
+            "repair_id": repair_id,
+            "canonical_decision_id": repair.get("canonical_decision_id"),
+            "fields": repair.get("fields", []),
+            "reason": repair.get("reason"),
+            "source_reference_path": repair.get("source_reference_path"),
+            "predecessor_evidence": {
+                "source_reference_path": repair.get(
+                    "predecessor_source_reference_path"
+                ),
+                "decision": predecessor,
+            },
+        }
+        obligation["semantic_repair_records"] = [
+            *as_list(obligation.get("semantic_repair_records")),
+            record,
+        ]
+        obligation["source_coordinates"] = sorted(
+            {
+                *as_list(obligation.get("source_coordinates")),
+                *_source_paths(record),
+            }
+        )
+        obligation["material_verification_triggers"] = sorted(
+            {
+                *as_list(obligation.get("material_verification_triggers")),
+                "semantic_repair",
+            }
+        )
+        obligation["obligation_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in obligation.items()
+                if key != "obligation_sha256"
+            },
+            64,
+        )
+
+
 def build_obligation_ledger(
     scan: dict[str, Any],
     assurance: dict[str, Any],
     requirement_evidence: dict[str, Any] | None = None,
+    semantic_repair_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if assurance.get("status") != "pass":
         raise ValueError("canonical scan assurance must pass before obligations are built")
@@ -657,6 +715,7 @@ def build_obligation_ledger(
         )
 
     rows.extend(_requirement_obligations(requirement_evidence))
+    _apply_semantic_repairs(rows, semantic_repair_evidence)
 
     rows = sorted(rows, key=lambda row: row["obligation_id"])
     ids = [row["obligation_id"] for row in rows]
@@ -695,6 +754,9 @@ def build_obligation_ledger(
             "by_scope": dict(sorted(Counter(row["scope_level"] for row in rows).items())),
             "by_mechanism": dict(
                 sorted(Counter(row["audit_mechanism"] for row in rows).items())
+            ),
+            "semantic_repairs": sum(
+                len(as_list(row.get("semantic_repair_records"))) for row in rows
             ),
         },
     }

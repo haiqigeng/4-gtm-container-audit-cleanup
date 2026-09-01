@@ -9,6 +9,10 @@ FIXME
 HACK
 test ended
 analyst-hardening-compare
+before execution approval
+executor-level mutation fence
+compiling mutations
+before production mutation
 
 # Generic local test/client residue.
 workspace[0-9]+

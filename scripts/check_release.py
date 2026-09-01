@@ -135,6 +135,14 @@ def referenced_resources(root: Path) -> tuple[set[str], list[str]]:
                     )
                 continue
             if "*" in rel:
+                matches = sorted(path for path in root.glob(rel) if path.is_file())
+                if not matches:
+                    missing.append(
+                        f"{path.relative_to(root)} references unmatched wildcard {rel}"
+                    )
+                refs.update(
+                    match.relative_to(root).as_posix() for match in matches
+                )
                 continue
             refs.add(rel)
             if not target.exists():
@@ -158,13 +166,15 @@ def imported_scripts(root: Path) -> set[str]:
 
 def release_blocklist(root: Path) -> list[str]:
     path = root / BLOCKLIST_FILE
-    if not path.exists():
-        return []
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing required release blocklist: {BLOCKLIST_FILE}")
     patterns = []
     for line in path.read_text(encoding="utf-8").splitlines():
         value = line.strip()
         if value and not value.startswith("#"):
             patterns.append(value)
+    if not patterns:
+        raise ValueError(f"Required release blocklist is empty: {BLOCKLIST_FILE}")
     return patterns
 
 
@@ -333,6 +343,26 @@ def check_project_version(root: Path, tag: str | None) -> list[str]:
     return []
 
 
+def check_clean_tagged_checkout(root: Path, tag: str | None) -> list[str]:
+    """A release tag may only identify a clean, fully committed source tree."""
+
+    if not tag:
+        return []
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return ["Tagged release checkout cleanliness could not be verified"]
+    if result.stdout.strip():
+        return ["Tagged release checkout must be clean and fully committed"]
+    return []
+
+
 def check_release_notes(path: Path | None) -> list[str]:
     if path is None:
         return []
@@ -406,11 +436,17 @@ def main() -> int:
     errors.extend(check_reference_navigation(root))
     errors.extend(check_forbidden_skill_files(root))
     errors.extend(check_generated_artifacts(root))
-    errors.extend(check_patterns(root, "blocklist", release_blocklist(root)))
+    try:
+        blocklist = release_blocklist(root)
+    except (OSError, ValueError) as exc:
+        errors.append(str(exc))
+    else:
+        errors.extend(check_patterns(root, "blocklist", blocklist))
     errors.extend(check_py_compile(root))
     errors.extend(check_production_test_imports(root))
     errors.extend(check_release_tag(args.tag))
     errors.extend(check_project_version(root, args.tag))
+    errors.extend(check_clean_tagged_checkout(root, args.tag))
     errors.extend(check_release_notes(args.release_notes))
 
     if errors:

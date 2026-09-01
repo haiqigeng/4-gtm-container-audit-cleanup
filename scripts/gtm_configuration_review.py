@@ -1042,9 +1042,7 @@ def vendor_contexts_for_objects(
         layer = key.split(":", 1)[0]
         serialized = behavior_bearing_vendor_text(obj, layer)
         vendors = vendor_records(serialized)
-        transport_hosts = (
-            set(server_route_hosts(obj)) if vendors or layer == "gtagConfig" else set()
-        )
+        transport_hosts = set(server_route_hosts(obj))
         hosts = sorted(
             {
                 urlparse(match).netloc.lower()

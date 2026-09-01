@@ -404,6 +404,20 @@ def canonical_record_seal_errors(package_dir: Path) -> list[str]:
         errors.append("canonical seal content hash is invalid")
     if seal.get("canonical_record_file_sha256") != file_sha256(record_path):
         errors.append("canonical record changed after sealing")
+    if manifest.get("canonical_record_sha256") != record.get(
+        "canonical_record_sha256"
+    ):
+        errors.append("canonical manifest is bound to another record")
+    if manifest.get("canonical_record_file_sha256") != file_sha256(record_path):
+        errors.append("canonical manifest record file hash is invalid")
+    if seal.get("canonical_record_sha256") != record.get(
+        "canonical_record_sha256"
+    ):
+        errors.append("canonical seal is bound to another record")
+    if seal.get("canonical_manifest_sha256") != manifest.get(
+        "canonical_manifest_sha256"
+    ):
+        errors.append("canonical seal is bound to another manifest")
     if seal.get("canonical_manifest_file_sha256") != file_sha256(manifest_path):
         errors.append("canonical manifest changed after sealing")
     for item in as_list(manifest.get("inputs")):

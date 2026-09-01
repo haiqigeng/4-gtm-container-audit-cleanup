@@ -72,6 +72,11 @@ Any mismatch blocks semantic review. A mechanism may be inapplicable only with a
 source-counted zero; it is never silently skipped. Assurance is intentionally a
 critical-invariant recomputation, not a second full scanner.
 
+Area ownership is explicit: area 1 is the evidence and assurance gate, areas
+2–26 are complete semantic-audit obligations, and area 27 is the exact-operation,
+projection, replay, and fixed-point control. Gate/control outcomes do not receive
+invented semantic decision classes.
+
 ## Stages 3 And 4 — Two Complete Clean-Room Audits
 
 Audit A starts from literal objects and chains, then closes families and the
@@ -125,6 +130,11 @@ The neutral bundle contains exact raw coordinates, independently reconstructed
 facts, the contract, and a neutral question. It excludes audit identity,
 rationale, vote count, and expected answer. The verifier may confirm, narrow,
 reject, or keep the decision blocked; it cannot invent a third actionable target.
+Every neutral bundle has its own deterministic manifest hash and one host-issued
+isolation receipt bound to that hash. The neutral context and receipt must be
+fresh against source checkpoints, both source audits, all peer neutrals, both
+projection reviews, and every prior cycle; those prior contexts and prohibited
+artifacts must be inaccessible.
 
 ## Stage 6 — Exact Operations And Fixed Point
 
@@ -152,6 +162,13 @@ tuple recurs while actionable, a target oscillates, operations conflict, or no
 exact safe operation exists. This block cannot be bypassed by dropping work or
 weakening assurance.
 
+Build a next-cycle candidate in an isolated staging directory. Validate the
+candidate decision set, complete operation packet, consent-ownership safety,
+global scan, and independent assurance before committing it. Commit packet,
+projection decisions, and the cycle directory as one recoverable transition. On
+any failure, restore the preceding packet and decision record, remove staging,
+and return `non_convergent_target_state` with the deterministic reason.
+
 ## Stage 7 — Human Delivery
 
 After fixed-point replay, seal one canonical record and transform it through the
@@ -159,10 +176,12 @@ rules in `references/03-rules/workbook-delivery.md`. The delivery layer may chan
 declared prose only. It cannot create a finding, target, operation, evidence
 boundary, priority, or confidence value.
 
-A missing canonical delivery field reopens the owning source audit or projection
-review in a fresh amendment context, then repeats reconciliation, required neutral
-verification, fixed-point closure, and canonical sealing. Stage 7 never patches a
-sealed semantic record.
+A missing or incorrect canonical delivery field stops Stage 7. Create a new
+semantic-successor package from the same locked source, bind it to the sealed
+predecessor canonical record plus an approved repair brief, and rerun all stages.
+Each repair is released after source checkpoints as an obligation for both fresh
+audits and neutral reconciliation. Stage 7 never patches or replaces a sealed
+semantic record.
 
 ## Speed Without Weakening Trust
 

@@ -582,6 +582,55 @@ def shared_content_hash(payload: dict[str, Any]) -> str:
     )
 
 
+def effective_server_route_hosts_by_tag(
+    cv: dict[str, Any],
+    root_path: str = "$.containerVersion",
+    records: dict[str, list[dict[str, Any]]] | None = None,
+) -> dict[str, list[str]]:
+    """Resolve direct, settings-variable, and destination-owner server routes."""
+
+    records = records or object_records(cv, root_path)
+    variables = [
+        row for row in as_list(cv.get("variable")) if isinstance(row, dict)
+    ]
+    route_by_key: dict[str, set[str]] = {}
+    destinations_by_key: dict[str, set[str]] = {}
+    for record in [*records.get("tag", []), *records.get("gtagConfig", [])]:
+        key = str(record.get("object_key") or "")
+        route_by_key[key] = set(
+            as_list(
+                tag_consent_route(
+                    record["object"],
+                    variables=variables,
+                    root_path=root_path,
+                ).get("server_routing_hosts")
+            )
+        )
+        destinations_by_key[key] = set(configured_destinations(record))
+
+    route_owners = [
+        record
+        for record in [*records.get("gtagConfig", []), *records.get("tag", [])]
+        if route_by_key.get(str(record.get("object_key") or ""))
+        and destinations_by_key.get(str(record.get("object_key") or ""))
+        and (
+            record.get("layer") == "gtagConfig"
+            or str(record.get("object_type") or "").lower() in {"googtag", "gaawc"}
+        )
+    ]
+    result: dict[str, list[str]] = {}
+    for tag_record in records.get("tag", []):
+        key = str(tag_record.get("object_key") or "")
+        destinations = destinations_by_key.get(key, set())
+        hosts = set(route_by_key.get(key, set()))
+        for owner in route_owners:
+            owner_key = str(owner.get("object_key") or "")
+            if destinations & destinations_by_key.get(owner_key, set()):
+                hosts.update(route_by_key.get(owner_key, set()))
+        result[key] = sorted(hosts)
+    return result
+
+
 def build_shared_facts(
     export_path: Path,
     context: dict[str, Any] | None = None,
@@ -649,12 +698,21 @@ def build_shared_facts(
         for key, record in semantic_by_key.items()
         if record["layer"] == "tag"
     }
+    effective_server_routes = effective_server_route_hosts_by_tag(
+        cv,
+        root_path,
+        records,
+    )
     consent_routes_by_key = {
         key: tag_consent_route(
             record["object"],
             record["source_json_path"],
             variables=variables,
             root_path=root_path,
+            approved_server_consent_hosts=as_list(
+                (context.get("context") or {}).get("server_consent_gating_hosts")
+            ),
+            inherited_server_route_hosts=effective_server_routes.get(key, []),
         )
         for key, record in semantic_by_key.items()
         if record["layer"] in {"tag", "gtagConfig"}

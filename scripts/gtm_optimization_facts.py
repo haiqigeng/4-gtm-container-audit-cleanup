@@ -424,7 +424,7 @@ def _contains_consent_control_condition(conditions: list[str]) -> bool:
     return False
 
 
-def _trigger_fact(trigger: dict[str, Any], path: str) -> dict[str, Any]:
+def trigger_control_fact(trigger: dict[str, Any], path: str = "$") -> dict[str, Any]:
     conditions = trigger_conditions(trigger)
     serialized = json.dumps(trigger, ensure_ascii=False)
     return {
@@ -487,6 +487,40 @@ def _consent_metadata(tag: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def client_consent_gate_facts(
+    tag: dict[str, Any],
+    trigger_facts_by_id: dict[str, dict[str, Any]],
+) -> dict[str, bool]:
+    """Describe visible client-side consent gating without judging its design."""
+
+    firing = [
+        trigger_facts_by_id[trigger_id]
+        for trigger_id in sorted(
+            str(value) for value in as_list(tag.get("firingTriggerId"))
+        )
+        if trigger_id in trigger_facts_by_id
+    ]
+    blockers = [
+        trigger_facts_by_id[trigger_id]
+        for trigger_id in sorted(
+            str(value) for value in as_list(tag.get("blockingTriggerId"))
+        )
+        if trigger_id in trigger_facts_by_id
+    ]
+    consent = _consent_metadata(tag)
+    positive_consent = any(row["contains_consent_condition"] for row in firing)
+    blocker_consent = any(row["contains_consent_condition"] for row in blockers)
+    additional_check = bool(consent["has_additional_consent_check"])
+    return {
+        "positive_route_contains_consent": positive_consent,
+        "blocker_contains_consent": blocker_consent,
+        "additional_consent_check_visible": additional_check,
+        "client_consent_gate_visible": (
+            positive_consent or blocker_consent or additional_check
+        ),
+    }
+
+
 def _control_topology(
     cv: dict[str, Any],
     root_path: str,
@@ -494,7 +528,7 @@ def _control_topology(
     effective_settings_by_tag: dict[str, list[dict[str, Any]]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     trigger_by_id = {
-        str(trigger.get("triggerId") or ""): _trigger_fact(
+        str(trigger.get("triggerId") or ""): trigger_control_fact(
             trigger, f"{root_path}.trigger[{index}]"
         )
         for index, trigger in enumerate(as_list(cv.get("trigger")))
@@ -517,6 +551,7 @@ def _control_topology(
         blockers = [trigger_by_id[value] for value in blocking_ids if value in trigger_by_id]
         explicit, priority, priority_raw = _explicit_priority(tag)
         effective_rows = effective_settings_by_tag.get(key, [])
+        shared = shared_objects.get(key, {})
         effective_route_hosts = {
             host
             for setting in effective_rows
@@ -541,7 +576,17 @@ def _control_topology(
                 }
             )
         }
-        route_hosts = sorted({*server_route_hosts(tag), *effective_route_hosts})
+        route_hosts = sorted(
+            {
+                *server_route_hosts(tag),
+                *effective_route_hosts,
+                *as_list(
+                    (shared.get("effective_consent_route") or {}).get(
+                        "server_routing_hosts"
+                    )
+                ),
+            }
+        )
         consent_forwarding_settings = [
             {
                 "settings_scope": setting.get("settings_scope"),
@@ -554,10 +599,17 @@ def _control_topology(
             if CONSENT_TERMS.search(str(setting.get("parameter_name") or ""))
             or CONSENT_TERMS.search(str(setting.get("configured_value") or ""))
         ]
-        shared = shared_objects.get(key, {})
         consent = _consent_metadata(tag)
-        positive_consent = any(row["contains_consent_condition"] for row in firing)
-        blocker_consent = any(row["contains_consent_condition"] for row in blockers)
+        client_gate = client_consent_gate_facts(
+            tag,
+            {
+                trigger_id: trigger_by_id[trigger_id]
+                for trigger_id in {*firing_ids, *blocking_ids}
+                if trigger_id in trigger_by_id
+            },
+        )
+        positive_consent = client_gate["positive_route_contains_consent"]
+        blocker_consent = client_gate["blocker_contains_consent"]
         coeligible = sorted(
             other_key
             for other_key, other_routes in tag_routes.items()

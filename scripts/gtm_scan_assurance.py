@@ -61,6 +61,10 @@ ROUTE_PARAMETER_NAMES = {
     "firstpartyurl",
     "serverurl",
 }
+DESTINATION_PARAMETER_RE = re.compile(
+    r"(?:measurement|property|pixel|advertiser|conversion|destination|tag|account).*id$",
+    re.I,
+)
 
 
 def _raw_data(path: Path) -> tuple[dict[str, Any], dict[str, Any], str]:
@@ -1020,6 +1024,109 @@ def _normalized_field_rows(
     ]
 
 
+def _normalized_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
+
+def _independent_parameter_pairs(value: Any) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    if isinstance(value, dict):
+        key = str(value.get("key") or "")
+        scalar = value.get("value")
+        if key and scalar is not None and not isinstance(scalar, (dict, list)):
+            pairs.append((key, str(scalar)))
+        for child in value.values():
+            pairs.extend(_independent_parameter_pairs(child))
+    elif isinstance(value, list):
+        for child in value:
+            pairs.extend(_independent_parameter_pairs(child))
+    return pairs
+
+
+def _independent_destinations(obj: dict[str, Any]) -> set[str]:
+    return {
+        re.sub(r"\s+", " ", value.strip().casefold())
+        for key, value in _independent_parameter_pairs(obj.get("parameter", []))
+        if (
+            DESTINATION_PARAMETER_RE.search(_normalized_key(key))
+            or _normalized_key(key) == "conversionlabel"
+        )
+        and value.strip()
+    }
+
+
+def _independent_route_hosts_from_object(obj: dict[str, Any]) -> set[str]:
+    route_values: list[Any] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            parameter_key = _normalized_key(value.get("key"))
+            if parameter_key in ROUTE_PARAMETER_NAMES:
+                route_values.extend(
+                    value[field]
+                    for field in ("value", "list", "map")
+                    if field in value
+                )
+            for key, child in value.items():
+                if _normalized_key(key) in ROUTE_PARAMETER_NAMES:
+                    route_values.append(child)
+                elif key != "key":
+                    visit(child)
+        elif isinstance(value, list):
+            pairs = {
+                _normalized_key(item.get("key")): item.get("value")
+                for item in value
+                if isinstance(item, dict) and "key" in item and "value" in item
+            }
+            route_name = pairs.get("parameter") or pairs.get("parametername")
+            if _normalized_key(route_name) in ROUTE_PARAMETER_NAMES:
+                route_values.extend(
+                    pairs[key]
+                    for key in ("parametervalue", "configuredvalue")
+                    if key in pairs
+                )
+            for child in value:
+                visit(child)
+
+    visit(obj)
+    return {
+        (urlparse(url).hostname or "").casefold()
+        for url in URL_RE.findall(json.dumps(route_values, ensure_ascii=False))
+        if (urlparse(url).hostname or "")
+    }
+
+
+def _independent_effective_object_route_hosts(
+    obj: dict[str, Any],
+    variables_by_name: dict[str, dict[str, Any]],
+) -> set[str]:
+    hosts = set(_independent_route_hosts_from_object(obj))
+    queue = sorted(
+        set(REF_RE.findall(json.dumps(obj.get("parameter", []), ensure_ascii=False)))
+    )
+    visited: set[str] = set()
+    while queue:
+        name = queue.pop(0)
+        if name in visited:
+            continue
+        visited.add(name)
+        variable = variables_by_name.get(name)
+        if variable is None:
+            continue
+        hosts.update(_independent_route_hosts_from_object(variable))
+        queue.extend(
+            sorted(
+                set(
+                    REF_RE.findall(
+                        json.dumps(variable.get("parameter", []), ensure_ascii=False)
+                    )
+                )
+                - visited
+            )
+        )
+    return hosts
+
+
 def _effective_route_consent_topology(
     objects: list[dict[str, Any]], effective_settings: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -1030,25 +1137,53 @@ def _effective_route_consent_topology(
             for item in as_list(row.get("effective_settings"))
             if isinstance(item, dict)
         )
+    variables_by_name = {
+        str(row.get("object_name") or ""): row["object"]
+        for row in objects
+        if row.get("layer") == "variable" and str(row.get("object_name") or "")
+    }
+    base_hosts_by_key: dict[str, set[str]] = {}
+    destinations_by_key: dict[str, set[str]] = {}
+    for obj in objects:
+        if obj.get("layer") not in {"tag", "gtagConfig"}:
+            continue
+        key = str(obj["object_key"])
+        base_hosts_by_key[key] = _independent_effective_object_route_hosts(
+            obj["object"],
+            variables_by_name,
+        )
+        destinations_by_key[key] = _independent_destinations(obj["object"])
+
+    for key, effective in settings_by_tag.items():
+        base_hosts_by_key.setdefault(key, set()).update(
+            host
+            for item in effective
+            for host in as_list(item.get("route_hosts"))
+        )
+
+    route_owners = [
+        obj
+        for obj in objects
+        if obj.get("layer") in {"tag", "gtagConfig"}
+        and base_hosts_by_key.get(str(obj["object_key"]))
+        and destinations_by_key.get(str(obj["object_key"]))
+        and (
+            obj.get("layer") == "gtagConfig"
+            or str(obj.get("object_type") or "") in GOOGLE_CONFIGURATION_TYPES
+        )
+    ]
     rows = []
     for obj in objects:
         if obj.get("layer") != "tag":
             continue
-        inline_hosts = set()
-        for parameter in _raw_parameters(obj["object"]):
-            key = re.sub(r"[^a-z0-9]", "", str(parameter.get("key") or "").casefold())
-            if key not in ROUTE_PARAMETER_NAMES:
-                continue
-            for url in URL_RE.findall(json.dumps(parameter, ensure_ascii=False)):
-                host = (urlparse(url).hostname or "").casefold()
-                if host:
-                    inline_hosts.add(host)
+        object_key = str(obj["object_key"])
+        route_hosts = set(base_hosts_by_key.get(object_key, set()))
+        destinations = destinations_by_key.get(object_key, set())
+        for owner in route_owners:
+            owner_key = str(owner["object_key"])
+            if destinations & destinations_by_key.get(owner_key, set()):
+                route_hosts.update(base_hosts_by_key.get(owner_key, set()))
         effective = settings_by_tag.get(str(obj["object_key"]), [])
-        inherited_hosts = {
-            host
-            for item in effective
-            for host in as_list(item.get("route_hosts"))
-        }
         consent = [
             {
                 "parameter_name": str(item.get("parameter_name") or ""),
@@ -1063,8 +1198,8 @@ def _effective_route_consent_topology(
         ]
         rows.append(
             {
-                "object_key": str(obj["object_key"]),
-                "server_route_hosts": sorted(inline_hosts | inherited_hosts),
+                "object_key": object_key,
+                "server_route_hosts": sorted(route_hosts),
                 "consent_forwarding_settings": consent,
             }
         )
@@ -1241,8 +1376,17 @@ def _vendor_and_unknown_ownership(
     vendors = _vendor_patterns(registry_path)
     matched = []
     unmatched_hosts: dict[str, list[str]] = defaultdict(list)
+    variables_by_name = {
+        str(row.get("object_name") or ""): row["object"]
+        for row in objects
+        if row.get("layer") == "variable" and str(row.get("object_name") or "")
+    }
     for row in objects:
         serialized = json.dumps(row["object"], ensure_ascii=False)
+        route_hosts = _independent_effective_object_route_hosts(
+            row["object"],
+            variables_by_name,
+        )
         identities = []
         for vendor in vendors:
             if any(
@@ -1257,7 +1401,7 @@ def _vendor_and_unknown_ownership(
             )
         for raw_url in URL_RE.findall(serialized):
             host = (urlparse(raw_url).hostname or "").casefold()
-            if not host:
+            if not host or host in route_hosts:
                 continue
             known = any(
                 re.search(str(pattern), host, re.I)

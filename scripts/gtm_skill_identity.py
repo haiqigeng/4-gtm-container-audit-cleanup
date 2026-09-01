@@ -219,6 +219,21 @@ def declared_identity_errors(
                     errors.append(
                         f"{MANIFEST_NAME} {field} does not match the actual runtime tree"
                     )
+            if declared.get("source_git_dirty") is not False:
+                errors.append(
+                    f"{MANIFEST_NAME} records dirty or unverifiable source provenance"
+                )
+            if (root / ".git").exists():
+                if actual.get("source_git_dirty") is not False:
+                    errors.append(
+                        "the source checkout is dirty or its state cannot be verified"
+                    )
+                if declared.get("source_git_commit") != actual.get(
+                    "source_git_commit"
+                ):
+                    errors.append(
+                        f"{MANIFEST_NAME} source commit differs from the checkout"
+                    )
     report = {
         "kind": "gtm_declared_runtime_identity_check",
         "schema_version": 1,
@@ -287,6 +302,10 @@ def verify_identity(
         ):
             errors.append(
                 f"{MANIFEST_NAME} does not match the actual installed runtime tree"
+            )
+        if declared and declared.get("source_git_dirty") is not False:
+            errors.append(
+                f"{MANIFEST_NAME} records dirty or unverifiable source provenance"
             )
     report = {
         "kind": "gtm_skill_runtime_identity_verification",

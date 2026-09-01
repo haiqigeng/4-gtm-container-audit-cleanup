@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,7 @@ from gtm_projection_review import (
     prepare_projection_reviews,
 )
 from gtm_scan_assurance import assure_scan
+from gtm_target_synthesis import server_consent_gate_regression_errors
 
 FIXED_POINT_ROOT = "fixed-point"
 STATE_FILE = "state.json"
@@ -161,6 +164,11 @@ def _approved_requirements(package_dir: Path) -> dict[str, Any]:
     return _load(path) if path.is_file() else {}
 
 
+def _semantic_repair_evidence(package_dir: Path) -> dict[str, Any]:
+    path = package_dir / "semantic-repair-evidence.json"
+    return _load(path) if path.is_file() else {}
+
+
 def _build_projection_artifacts(
     package_dir: Path,
     output_dir: Path,
@@ -195,7 +203,12 @@ def _build_projection_artifacts(
             "projected scan assurance failed: " + ", ".join(sorted(failed))
         )
     requirements = _approved_requirements(package_dir)
-    ledger = build_obligation_ledger(scan, assurance, requirements)
+    ledger = build_obligation_ledger(
+        scan,
+        assurance,
+        requirements,
+        _semantic_repair_evidence(package_dir),
+    )
     write_json(output_dir / "canonical-scan.json", scan)
     write_json(output_dir / "scan-assurance.json", assurance)
     write_json(output_dir / "obligation-ledger.json", ledger)
@@ -289,15 +302,24 @@ def _base_decisions(package_dir: Path) -> list[dict[str, Any]]:
     return as_list(_load(package_dir / "reconciled-decisions.json").get("canonical_decisions"))
 
 
-def _projection_decisions(package_dir: Path) -> list[dict[str, Any]]:
+def _projection_decisions(
+    package_dir: Path, payload: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    if payload is not None:
+        return as_list(payload.get("canonical_decisions"))
     path = package_dir / FIXED_POINT_ROOT / PROJECTION_DECISIONS_FILE
     if not path.is_file():
         return []
     return as_list(_load(path).get("canonical_decisions"))
 
 
-def _all_decisions(package_dir: Path) -> list[dict[str, Any]]:
-    return [*_base_decisions(package_dir), *_projection_decisions(package_dir)]
+def _all_decisions(
+    package_dir: Path, projection_payload: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    return [
+        *_base_decisions(package_dir),
+        *_projection_decisions(package_dir, projection_payload),
+    ]
 
 
 def _operation_source_errors(
@@ -331,30 +353,43 @@ def _create_cycle(
     cycle_number: int,
     packet: dict[str, Any],
     previous_ledger: dict[str, Any],
+    *,
+    cycle_dir: Path | None = None,
+    decisions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    cycle_dir = _cycle_directory(package_dir, cycle_number)
-    if cycle_dir.exists():
+    cycle_dir = cycle_dir or _cycle_directory(package_dir, cycle_number)
+    if cycle_dir.exists() and any(cycle_dir.iterdir()):
         raise ValueError(f"fixed-point cycle {cycle_number} already exists")
-    cycle_dir.mkdir(parents=True)
     source = _load(package_dir / "locked-source.json")
     operations = as_list(packet.get("operations"))
+    decision_rows = decisions if decisions is not None else _all_decisions(package_dir)
+    context_record = _load(package_dir / "context.json")
     errors = validate_operations(
         source,
         operations,
         do_not_touch={
             str(value)
             for value in as_list(
-                (_load(package_dir / "context.json").get("context") or {}).get(
+                (context_record.get("context") or {}).get(
                     "do_not_touch"
                 )
             )
         },
     )
     errors.extend(operation_write_conflicts(operations))
-    errors.extend(_operation_source_errors(packet, _all_decisions(package_dir)))
+    errors.extend(_operation_source_errors(packet, decision_rows))
     if errors:
         raise ValueError("fixed-point operation gate failed: " + "; ".join(errors))
     projected = apply_operations(source, operations)
+    consent_errors = server_consent_gate_regression_errors(
+        source, projected, context_record
+    )
+    if consent_errors:
+        raise ValueError(
+            "fixed-point consent ownership gate failed: "
+            + "; ".join(consent_errors)
+        )
+    cycle_dir.mkdir(parents=True, exist_ok=True)
     scan, assurance, ledger = _build_projection_artifacts(
         package_dir, cycle_dir, projected
     )
@@ -362,9 +397,8 @@ def _create_cycle(
         cycle_number, previous_ledger, ledger, scan, assurance
     )
     write_json(cycle_dir / "projection-obligations.json", delta)
-    decisions = _all_decisions(package_dir)
     hashes = _projection_hashes(
-        projected, scan, assurance, ledger, decisions, packet
+        projected, scan, assurance, ledger, decision_rows, packet
     )
     state = {
         "kind": "gtm_fixed_point_cycle",
@@ -540,9 +574,9 @@ def _closure_errors(cycle_dir: Path) -> tuple[dict[str, Any], list[str]]:
     return closure, errors
 
 
-def _append_projection_decisions(
+def _projection_decision_candidate(
     package_dir: Path, cycle_number: int, closure: dict[str, Any]
-) -> list[dict[str, Any]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     path = package_dir / FIXED_POINT_ROOT / PROJECTION_DECISIONS_FILE
     payload = _load(path)
     existing = as_list(payload.get("canonical_decisions"))
@@ -563,8 +597,7 @@ def _append_projection_decisions(
     payload["projection_decisions_sha256"] = _hash_without(
         payload, "projection_decisions_sha256"
     )
-    write_json(path, payload)
-    return additions
+    return payload, additions
 
 
 def _packet_with_projection_operations(
@@ -591,7 +624,25 @@ def _packet_with_projection_operations(
         [*as_list(packet.get("operations")), *new_operations]
     )
     errors = operation_write_conflicts(operations)
-    errors.extend(validate_operations(_load(package_dir / "locked-source.json"), operations))
+    source = _load(package_dir / "locked-source.json")
+    context_record = _load(package_dir / "context.json")
+    errors.extend(
+        validate_operations(
+            source,
+            operations,
+            do_not_touch={
+                str(value)
+                for value in as_list(
+                    (context_record.get("context") or {}).get("do_not_touch")
+                )
+            },
+        )
+    )
+    errors.extend(
+        server_consent_gate_regression_errors(
+            source, apply_operations(source, operations), context_record
+        )
+    )
     if errors:
         raise ValueError(
             "projection operation cannot enter the packet: " + "; ".join(errors)
@@ -616,8 +667,47 @@ def _packet_with_projection_operations(
     updated["decision_to_operation"] = mapping
     updated.pop("operation_record_sha256", None)
     updated["operation_record_sha256"] = stable_hash(updated, 64)
-    write_json(package_dir / "operation-packet.json", updated)
     return updated
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Replace one JSON artifact without exposing a partially written file."""
+
+    temporary = path.with_name(f".{path.name}.next")
+    try:
+        write_json(temporary, payload)
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _commit_next_cycle(
+    package_dir: Path,
+    final_cycle_dir: Path,
+    staged_cycle_dir: Path,
+    projection_payload: dict[str, Any],
+    packet: dict[str, Any],
+    state: dict[str, Any],
+) -> None:
+    """Commit the candidate semantic state and cycle, restoring prior files on failure."""
+
+    decisions_path = package_dir / FIXED_POINT_ROOT / PROJECTION_DECISIONS_FILE
+    packet_path = package_dir / "operation-packet.json"
+    state_path = package_dir / FIXED_POINT_ROOT / STATE_FILE
+    prior_decisions = decisions_path.read_bytes()
+    prior_packet = packet_path.read_bytes()
+    prior_state = state_path.read_bytes()
+    try:
+        _atomic_write_json(decisions_path, projection_payload)
+        _atomic_write_json(packet_path, packet)
+        _atomic_write_json(state_path, state)
+        staged_cycle_dir.replace(final_cycle_dir)
+    except OSError:
+        decisions_path.write_bytes(prior_decisions)
+        packet_path.write_bytes(prior_packet)
+        state_path.write_bytes(prior_state)
+        raise
 
 
 def _block_non_convergent(
@@ -758,7 +848,9 @@ def advance_fixed_point(package_dir: Path) -> dict[str, Any]:
     closure, errors = _closure_errors(cycle_dir)
     if errors:
         raise ValueError("projection closure gate failed: " + "; ".join(errors))
-    additions = _append_projection_decisions(package_dir, cycle_number, closure)
+    projection_payload, additions = _projection_decision_candidate(
+        package_dir, cycle_number, closure
+    )
     actionable = [
         row
         for row in additions
@@ -772,8 +864,12 @@ def advance_fixed_point(package_dir: Path) -> dict[str, Any]:
             _load(cycle_dir / "canonical-scan.json"),
             _load(cycle_dir / "scan-assurance.json"),
             _load(cycle_dir / "obligation-ledger.json"),
-            _all_decisions(package_dir),
+            _all_decisions(package_dir, projection_payload),
             packet,
+        )
+        _atomic_write_json(
+            package_dir / FIXED_POINT_ROOT / PROJECTION_DECISIONS_FILE,
+            projection_payload,
         )
         cycle["hashes"] = final_hashes
         cycle["status"] = "stable_candidate"
@@ -806,26 +902,61 @@ def advance_fixed_point(package_dir: Path) -> dict[str, Any]:
             state,
             "a prior projection hash tuple recurred with an actionable obligation",
         )
-    try:
-        packet = _packet_with_projection_operations(package_dir, packet, actionable)
-    except ValueError as exc:
-        return _block_non_convergent(package_dir, state, str(exc))
     previous_ledger = _load(cycle_dir / "obligation-ledger.json")
     next_cycle = cycle_number + 1
-    created = _create_cycle(
-        package_dir, next_cycle, packet, previous_ledger
+    final_cycle_dir = _cycle_directory(package_dir, next_cycle)
+    if final_cycle_dir.exists():
+        return _block_non_convergent(
+            package_dir,
+            state,
+            f"fixed-point cycle {next_cycle} already exists",
+        )
+    staged_cycle_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".cycle-{next_cycle:02d}-",
+            dir=package_dir / FIXED_POINT_ROOT,
+        )
     )
-    state["status"] = created["status"]
-    state["current_cycle"] = next_cycle
-    state["cycle_history"].append(
-        {
-            "cycle_number": next_cycle,
-            "cycle_state_sha256": created["cycle_state_sha256"],
-            "hashes": created["hashes"],
+    try:
+        packet = _packet_with_projection_operations(
+            package_dir, packet, actionable
+        )
+        created = _create_cycle(
+            package_dir,
+            next_cycle,
+            packet,
+            previous_ledger,
+            cycle_dir=staged_cycle_dir,
+            decisions=_all_decisions(package_dir, projection_payload),
+        )
+        next_state = {
+            **state,
             "status": created["status"],
+            "current_cycle": next_cycle,
+            "cycle_history": [
+                *as_list(state.get("cycle_history")),
+                {
+                    "cycle_number": next_cycle,
+                    "cycle_state_sha256": created["cycle_state_sha256"],
+                    "hashes": created["hashes"],
+                    "status": created["status"],
+                },
+            ],
         }
-    )
-    _write_global_state(package_dir, state)
+        next_state["state_sha256"] = _hash_without(next_state, "state_sha256")
+        _commit_next_cycle(
+            package_dir,
+            final_cycle_dir,
+            staged_cycle_dir,
+            projection_payload,
+            packet,
+            next_state,
+        )
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+        if staged_cycle_dir.exists():
+            shutil.rmtree(staged_cycle_dir)
+        return _block_non_convergent(package_dir, state, str(exc))
+    state = next_state
     if created["status"] == "stable_candidate":
         return _seal_stable_fixed_point(package_dir, state, created)
     return {

@@ -8,7 +8,6 @@
 | Definition of done | `../01-skill/acceptance-criteria.md` |
 | Dual-audit workflow and fixed point | `workflow-and-assurance.md` |
 | Human workbook | `workbook-delivery.md` |
-| Capability disposition | `capability-migration.md` |
 | Runtime/release identity | `scripts/gtm_skill_identity.py` and `.skill-build-manifest.json` |
 | Canonical scan and assurance | `scripts/gtm_canonical_scan.py` and `scripts/gtm_scan_assurance.py` |
 | Obligation ownership | `scripts/gtm_obligation_ledger.py` |

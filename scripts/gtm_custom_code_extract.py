@@ -1174,7 +1174,7 @@ def technical_expected_state(action: str) -> str:
     if action == "consolidate_candidate":
         return (
             "The object is replaced by a simpler native GTM feature or one canonical helper, "
-            "with the same output and timing proven before production mutation."
+            "with the same output and timing proven before a separate authorised implementation."
         )
     if action == "owner_decision_needed":
         return (

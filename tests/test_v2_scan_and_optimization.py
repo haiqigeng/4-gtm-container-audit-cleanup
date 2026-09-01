@@ -12,6 +12,12 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from gtm_canonical_scan import (  # noqa: E402
+    ARCHITECTURE_DISCOVERY_FACT_FIELDS,
+    ARCHITECTURE_FAMILY_FACT_FIELDS,
+    ARCHITECTURE_RELATIONSHIP_FACT_FIELDS,
+    CODE_ROW_FACT_FIELDS,
+    CONFIGURATION_OBJECT_FACT_FIELDS,
+    OPERATIONAL_CANDIDATE_FACT_FIELDS,
     build_canonical_scan,
     neutral_fact_judgment_leaks,
 )
@@ -275,9 +281,21 @@ def rich_export() -> dict:
 class V2ScanAndOptimizationTests(unittest.TestCase):
     def test_neutral_fact_projection_rejects_unknown_judgment_shaped_fields(self) -> None:
         self.assertEqual(
-            ["$.candidate.recommended_target"],
+            [
+                "$.candidate.recommended_target",
+                "$.candidate.default_action",
+                "$.candidate.required_resolution",
+                "$.candidate.selected_naming_policy",
+            ],
             neutral_fact_judgment_leaks(
-                {"candidate": {"recommended_target": "merge tags"}}
+                {
+                    "candidate": {
+                        "recommended_target": "merge tags",
+                        "default_action": "remove duplicate",
+                        "required_resolution": "cleanup operation",
+                        "selected_naming_policy": "default-standardized",
+                    }
+                }
             ),
         )
         self.assertEqual(
@@ -285,6 +303,68 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
             neutral_fact_judgment_leaks(
                 {"candidate_status": "neutral_candidate_not_a_verdict"}
             ),
+        )
+
+    def test_canonical_scan_exposes_only_declared_neutral_fact_schemas(self) -> None:
+        operational = self.scan["operational_evidence"]
+        self.assertEqual(
+            {"kind", "schema_version", "source_sha256", "candidates"},
+            set(operational),
+        )
+        operational_candidates = operational["candidates"]
+        prohibited = {
+            "default_action",
+            "deterministic_action_candidate",
+            "finding_class",
+            "operation_packet_required",
+            "required_resolution",
+            "policy_confirmation_required",
+            "selected_naming_policy",
+            "target_naming_pattern",
+            "technical_action_candidate",
+            "technical_cleanup_implication",
+            "technical_code_recommendation",
+            "technical_disposition",
+            "technical_disposition_vocabulary",
+            "technical_exact_proposed_action",
+            "technical_expected_clean_state",
+        }
+        self.assertTrue(operational_candidates)
+        self.assertTrue(
+            all(not (prohibited & set(candidate)) for candidate in operational_candidates)
+        )
+        self.assertTrue(
+            all(
+                set(candidate) <= OPERATIONAL_CANDIDATE_FACT_FIELDS
+                for candidate in operational_candidates
+            )
+        )
+        self.assertEqual([], neutral_fact_judgment_leaks(self.scan))
+        self.assertTrue(
+            all(
+                not (prohibited & set(row)) and set(row) <= CODE_ROW_FACT_FIELDS
+                for row in self.scan["code_evidence"].get("rows", [])
+            )
+        )
+        for row in self.scan["configuration_evidence"]["objects"]:
+            self.assertTrue(set(row) <= CONFIGURATION_OBJECT_FACT_FIELDS)
+            if isinstance(row.get("technical_code_facts"), dict):
+                self.assertTrue(set(row["technical_code_facts"]) <= CODE_ROW_FACT_FIELDS)
+        architecture = self.scan["architecture_evidence"]
+        self.assertTrue(
+            all(set(row) <= ARCHITECTURE_FAMILY_FACT_FIELDS for row in architecture["families"])
+        )
+        self.assertTrue(
+            all(
+                set(row) <= ARCHITECTURE_RELATIONSHIP_FACT_FIELDS
+                for row in architecture["relationships"]
+            )
+        )
+        self.assertTrue(
+            all(
+                set(row) <= ARCHITECTURE_DISCOVERY_FACT_FIELDS
+                for row in architecture["open_discovery_methods"]
+            )
         )
 
     def setUp(self) -> None:
@@ -395,6 +475,112 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         names = {row["parameter_name"] for row in shared_candidates}
         self.assertIn("currency", names)
         self.assertNotIn("content_group", names)
+
+    def test_server_consent_owner_is_unconfirmed_until_exact_host_is_approved(self) -> None:
+        default_tag = next(
+            row for row in self.scan["objects"] if row["object_key"] == "tag:301"
+        )
+        default_route = default_tag["effective_consent_route"]
+        self.assertEqual(
+            "unconfirmed",
+            default_route["server_consent_gating_ownership_status"],
+        )
+        self.assertEqual(
+            ["collect.example.test"],
+            default_route["unconfirmed_server_consent_gating_hosts"],
+        )
+
+        approved_scan = build_canonical_scan(
+            self.export,
+            provided_context={
+                "server_consent_gating_hosts": [
+                    "https://collect.example.test"
+                ]
+            },
+        )["canonical_scan"]
+        approved_tag = next(
+            row
+            for row in approved_scan["objects"]
+            if row["object_key"] == "tag:301"
+        )
+        approved_route = approved_tag["effective_consent_route"]
+        self.assertEqual(
+            "approved_context",
+            approved_route["server_consent_gating_ownership_status"],
+        )
+        self.assertEqual(
+            ["collect.example.test"],
+            approved_route["approved_server_consent_gating_hosts"],
+        )
+        self.assertEqual(
+            [],
+            approved_route["unconfirmed_server_consent_gating_hosts"],
+        )
+
+    def test_destination_linked_gtag_config_route_is_effective_and_assured(self) -> None:
+        inherited = rich_export()
+        cv = inherited["containerVersion"]
+        cv["variable"][0]["parameter"] = [
+            table_parameter(
+                "configSettingsTable",
+                [
+                    ("consent_state", "{{Consent State}}"),
+                    ("language", "en"),
+                ],
+            )
+        ]
+        cv["gtagConfig"] = [
+            {
+                "gtagConfigId": "401",
+                "name": "Google destination settings",
+                "type": "googtag",
+                "parameter": [
+                    {
+                        "type": "TEMPLATE",
+                        "key": "tagId",
+                        "value": "G-TEST",
+                    },
+                    {
+                        "type": "TEMPLATE",
+                        "key": "transport_url",
+                        "value": "https://collect.example.test",
+                    },
+                ],
+            }
+        ]
+        export = self.root / "inherited-gtag-config.json"
+        export.write_text(json.dumps(inherited), encoding="utf-8")
+        scan = build_canonical_scan(export)["canonical_scan"]
+
+        topology = {
+            row["object_key"]: row
+            for row in scan["optimization_facts"]["tag_control_topology"]
+        }
+        self.assertEqual(
+            ["collect.example.test"],
+            topology["tag:301"]["server_route_hosts"],
+        )
+        shared_tag = next(
+            row for row in scan["objects"] if row["object_key"] == "tag:301"
+        )
+        self.assertEqual(
+            ["collect.example.test"],
+            shared_tag["effective_consent_route"]["server_routing_hosts"],
+        )
+        coverage = {
+            row["area_id"]: row for row in scan["coverage_ledger"]
+        }
+        self.assertEqual("applicable", coverage["AREA-12"]["applicability"])
+        self.assertEqual("applicable", coverage["AREA-13"]["applicability"])
+        assurance = assure_scan(
+            export,
+            scan,
+            vendor_registry_path=self.registry,
+        )
+        self.assertEqual(
+            [],
+            [row for row in assurance["checks"] if row["status"] != "pass"],
+        )
 
     def test_assurance_blocks_tampered_settings_code_and_candidate_identity(self) -> None:
         tampered = copy.deepcopy(self.scan)

@@ -34,12 +34,18 @@
   complement, one-sided finding, conflict, and evidence-boundary difference.
 - Every mandatory material class receives fresh neutral verification without
   audit identity, rationale, votes, or expected result.
+- Every neutral result has a unique host-scoped context and receipt bound to its
+  exact bundle hash; no source, peer-neutral, projection-review, or prior-cycle
+  reasoning context is accessible or reused.
 
 ## Target Closure
 
 - Every actionable canonical decision has exact creates, additions, changes,
   named-field removals, remaps, renames, pauses, deletions, dependencies,
   verification, and rollback.
+- No operation removes a client consent control from a server-routed tag unless
+  locked approved context names every affected route host as having a downstream
+  server consent-gating owner.
 - No operation touches an exact `do_not_touch` key, uses an invalid path, conflicts
   with another write, depends on an unknown ID, or deletes before required remaps.
 - Each projection begins from the locked original, applies the full packet, and
@@ -48,13 +54,17 @@
   required neutral check.
 - Stability occurs in at most three cycles and deterministic replay reproduces
   every stable hash; otherwise the result is `non_convergent_target_state`.
+- A failed candidate cycle leaves the preceding packet and projection-decision
+  record byte-identical and leaves no partial next-cycle directory.
 - The canonical record is complete and sealed after fixed-point replay.
 
 ## Human Delivery
 
 - Every canonical record has all mandatory delivery fields before mapping.
-- A missing semantic field reopens and reseals its owning audit/reconciliation
-  chain; delivery code never patches the record.
+- A missing or wrong sealed semantic field starts a same-source successor package
+  bound to the predecessor canonical seal and approved repair brief; both fresh
+  audits disposition every repair before a new canonical record can be sealed.
+  Delivery code never patches the predecessor.
 - Every canonical audit decision has one disjoint primary owner; every operation
   has one Recommendations row; all locked fields remain unchanged after the
   deterministic privacy projection.
@@ -72,6 +82,8 @@
 
 Fail or block on partial/ambiguous evidence, assurance mismatch, missing audit
 isolation, incomplete obligations, foreign verdict access, unresolved neutral
-work, semantic invention during synthesis/delivery, operation conflict,
-non-convergence, canonical drift, workbook row drift, missing delivery coverage,
-privacy/formula risk, illegible rendering, or any claim of mutation/publication.
+work, reused context or receipt identity, semantic invention during
+synthesis/delivery, operation conflict, a partial candidate cycle,
+non-convergence, invalid successor lineage, canonical drift, workbook row drift,
+missing delivery coverage, dirty release provenance, privacy/formula risk,
+illegible rendering, or any claim of mutation/publication.

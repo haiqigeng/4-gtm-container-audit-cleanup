@@ -118,8 +118,13 @@ https://developers.google.com/tag-platform/tag-manager/server-side/intro
 A pure client transporter uses normal firing triggers only and inherits one
 canonical complete consent-state value through its Google configuration/settings
 owner. It has no positive consent condition, blocking consent trigger, Additional
-Consent Check, inline per-event copies, or direct browser-vendor bypass. Missing,
-multiple, inconsistent, partially inherited, or mixed routes are findings.
+Consent Check, inline per-event copies, or direct browser-vendor bypass. Pure
+classification also requires locked approved context naming every route host as
+having a downstream server consent-gating owner. Missing, multiple, inconsistent,
+partially inherited, mixed, or ownership-unconfirmed routes are findings. An
+ownership-unconfirmed route may be audited for forwarding quality, but any client-
+gate removal remains an `owner_decision` or `container_evidence_limit` and cannot
+enter the operation packet.
 
 This skill never accepts a server-container export. Conclude only whether the
 web-container transport and consent-forwarding contract is aligned. Downstream

@@ -27,6 +27,9 @@ from gtm_operation_model import (  # noqa: E402
     operation_write_conflicts,
     validate_operations,
 )
+from gtm_target_synthesis import (  # noqa: E402
+    server_consent_gate_regression_errors,
+)
 
 
 def operation(operation_id: str, **actions: list[dict]) -> dict:
@@ -223,6 +226,117 @@ class V2OperationSafetyTests(unittest.TestCase):
         errors = validate_operations(source, [rename], do_not_touch={"tag:1"})
         self.assertTrue(
             any("implicit operation" in error and "tag:1" in error for error in errors)
+        )
+
+    def test_server_route_client_gate_removal_requires_approved_owner(self) -> None:
+        def consent_route_source(*, inherited_from_gtag_config: bool) -> dict:
+            source = operation_fixture()
+            cv = container_version(source)
+            cv["tag"][0]["blockingTriggerId"] = ["12"]
+            cv["trigger"].append(
+                {
+                    "triggerId": "12",
+                    "name": "Block without vendor consent",
+                    "type": "CUSTOM_EVENT",
+                    "filter": [
+                        {
+                            "type": "DOES_NOT_CONTAIN",
+                            "parameter": [
+                                {
+                                    "key": "arg0",
+                                    "type": "TEMPLATE",
+                                    "value": "{{didomiVendorsEnabled}}",
+                                },
+                                {
+                                    "key": "arg1",
+                                    "type": "TEMPLATE",
+                                    "value": "vendor-42",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            )
+            route_parameter = {
+                "key": "transport_url",
+                "type": "TEMPLATE",
+                "value": "https://collect.example.test",
+            }
+            if inherited_from_gtag_config:
+                cv["gtagConfig"].append(
+                    {
+                        "gtagConfigId": "30",
+                        "name": "Google destination settings",
+                        "type": "googtag",
+                        "parameter": [
+                            {
+                                "key": "tagId",
+                                "type": "TEMPLATE",
+                                "value": "G-OLD",
+                            },
+                            route_parameter,
+                        ],
+                    }
+                )
+            else:
+                cv["tag"][0]["parameter"].append(route_parameter)
+            return source
+
+        remove_gate = operation(
+            "OP-REMOVE-CLIENT-GATE",
+            removals=[
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.blockingTriggerId",
+                    "before": ["12"],
+                }
+            ],
+        )
+        for inherited in (False, True):
+            with self.subTest(inherited_from_gtag_config=inherited):
+                source = consent_route_source(
+                    inherited_from_gtag_config=inherited
+                )
+                projected = apply_operations(source, [remove_gate])
+                errors = server_consent_gate_regression_errors(
+                    source,
+                    projected,
+                    {"context": {"server_consent_gating_hosts": []}},
+                )
+                self.assertTrue(
+                    any(
+                        "collect.example.test" in error
+                        and "retain a client gate" in error
+                        for error in errors
+                    )
+                )
+                self.assertEqual(
+                    [],
+                    server_consent_gate_regression_errors(
+                        source,
+                        projected,
+                        {
+                            "context": {
+                                "server_consent_gating_hosts": [
+                                    "https://collect.example.test"
+                                ]
+                            }
+                        },
+                    ),
+                )
+
+        source = consent_route_source(inherited_from_gtag_config=True)
+        deleted = apply_operations(
+            source,
+            [operation("OP-DELETE-TAG", deletions=[{"object_key": "tag:1"}])],
+        )
+        self.assertEqual(
+            [],
+            server_consent_gate_regression_errors(
+                source,
+                deleted,
+                {"context": {"server_consent_gating_hosts": []}},
+            ),
         )
 
     def test_deletion_does_not_materialize_absent_layers(self) -> None:

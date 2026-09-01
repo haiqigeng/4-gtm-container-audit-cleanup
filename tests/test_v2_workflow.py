@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -297,7 +298,9 @@ def complete_audit(package: Path, audit_id: str, *, actionable_priority: bool = 
     seal_audit(package, audit_id)
 
 
-def complete_base_reconciliation(package: Path) -> None:
+def complete_base_reconciliation(
+    package: Path, neutral_context_override: str | None = None
+) -> None:
     scaffold_reconciliation(package)
     reconciliation_path = package / "reconciliation.json"
     neutral_path = package / "neutral-verification.json"
@@ -314,7 +317,22 @@ def complete_base_reconciliation(package: Path) -> None:
         row.update(
             {
                 "status": "complete",
-                "independent_context_id": f"neutral-test-context-{index:03d}",
+                "independent_context_id": (
+                    neutral_context_override
+                    if index == 1 and neutral_context_override
+                    else f"neutral-test-context-{index:03d}"
+                ),
+                "host_isolation_receipt": {
+                    "status": "enforced",
+                    "receipt_id": f"neutral-test-receipt-{index:03d}",
+                    "mechanism": "orchestrator_scoped_context",
+                    "allowed_bundle_manifest_sha256": row[
+                        "neutral_bundle_manifest_sha256"
+                    ],
+                    "prior_reasoning_contexts_accessible": False,
+                    "peer_neutral_contexts_accessible": False,
+                    "prohibited_artifacts_accessible": False,
+                },
                 "canonical_decision": decision,
                 "evidence_citations": list(row.get("source_coordinates") or []),
                 "verification_rationale": (
@@ -345,7 +363,13 @@ def complete_base_reconciliation(package: Path) -> None:
     finalize_reconciliation(package)
 
 
-def complete_projection_cycle(package: Path, cycle: int) -> None:
+def complete_projection_cycle(
+    package: Path,
+    cycle: int,
+    neutral_context_override: str | None = None,
+    *,
+    force_neutral: bool = False,
+) -> None:
     cycle_dir = package / "fixed-point" / f"cycle-{cycle:02d}"
     for review_id, context_id in (
         ("review-a", f"projection-a-context-{cycle:02d}"),
@@ -364,8 +388,16 @@ def complete_projection_cycle(package: Path, cycle: int) -> None:
             "peer_review_accessible": False,
             "prohibited_artifacts_accessible": False,
         }
+        neutral_forced = False
         for row in payload["decisions"]:
             complete_semantic_decision(row)
+            if (
+                force_neutral
+                and not neutral_forced
+                and row.get("decision_class") != "not_applicable"
+            ):
+                row["priority"] = "High"
+                neutral_forced = True
         payload["completion_attestation"] = {
             "status": "complete",
             "foreign_projection_review_used": False,
@@ -391,7 +423,24 @@ def complete_projection_cycle(package: Path, cycle: int) -> None:
         row.update(
             {
                 "status": "complete",
-                "independent_context_id": f"projection-neutral-{cycle:02d}-{index:03d}",
+                "independent_context_id": (
+                    neutral_context_override
+                    if index == 1 and neutral_context_override
+                    else f"projection-neutral-{cycle:02d}-{index:03d}"
+                ),
+                "host_isolation_receipt": {
+                    "status": "enforced",
+                    "receipt_id": (
+                        f"projection-neutral-receipt-{cycle:02d}-{index:03d}"
+                    ),
+                    "mechanism": "orchestrator_scoped_context",
+                    "allowed_bundle_manifest_sha256": row[
+                        "neutral_bundle_manifest_sha256"
+                    ],
+                    "prior_reasoning_contexts_accessible": False,
+                    "peer_neutral_contexts_accessible": False,
+                    "prohibited_artifacts_accessible": False,
+                },
                 "canonical_decision": decision,
                 "evidence_citations": list(row.get("source_coordinates") or []),
                 "verification_rationale": (
@@ -400,6 +449,7 @@ def complete_projection_cycle(package: Path, cycle: int) -> None:
             }
         )
         neutral_by_id[row["verification_id"]] = decision
+    neutral["status"] = "complete" if neutral["verifications"] else "not_required"
     for row in reconciliation["comparisons"]:
         row.update(
             {
@@ -599,6 +649,96 @@ class V2WorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot reuse one reasoning-context"):
             complete_checkpoint(self.package, "audit-b", "shared-context-test-001")
 
+    def test_neutral_verifier_cannot_reuse_a_source_audit_context(self) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "neutral-source-a-checkpoint")
+        complete_checkpoint(self.package, "audit-b", "neutral-source-b-checkpoint")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        audit_a_seal = json.loads(
+            (self.package / "audit-seals" / "audit-a.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "neutral context identity is reused"):
+            complete_base_reconciliation(
+                self.package,
+                str(audit_a_seal["independent_context_id"]),
+            )
+
+    def test_projection_neutral_cannot_reuse_prior_reasoning_context(self) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "projection-source-a-checkpoint")
+        complete_checkpoint(self.package, "audit-b", "projection-source-b-checkpoint")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(self.package)
+        compile_operation_packet(self.package)
+        result = start_fixed_point(self.package)
+        self.assertEqual("awaiting_projection_reviews", result["status"])
+        audit_a_context = json.loads(
+            (self.package / "audit-seals" / "audit-a.json").read_text(
+                encoding="utf-8"
+            )
+        )["independent_context_id"]
+        with self.assertRaisesRegex(ValueError, "neutral context identity is reused"):
+            complete_projection_cycle(
+                self.package,
+                int(result["cycle"]),
+                str(audit_a_context),
+                force_neutral=True,
+            )
+
+    def test_next_cycle_failure_preserves_packet_and_projection_decisions(self) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "atomic-source-a-checkpoint")
+        complete_checkpoint(self.package, "audit-b", "atomic-source-b-checkpoint")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(self.package)
+        compile_operation_packet(self.package)
+        result = start_fixed_point(self.package)
+        self.assertEqual("awaiting_projection_reviews", result["status"])
+        packet_path = self.package / "operation-packet.json"
+        decisions_path = self.package / "fixed-point" / "projection-decisions.json"
+        original_packet = packet_path.read_bytes()
+        original_decisions = decisions_path.read_bytes()
+        decision = {
+            "canonical_decision_id": "PCD-ATOMIC-FAILURE",
+            "decision": {"decision_class": "incorrect_configuration"},
+        }
+        candidate_payload = json.loads(original_decisions.decode("utf-8"))
+        candidate_payload["canonical_decisions"] = [decision]
+        with (
+            mock.patch(
+                "gtm_fixed_point._closure_errors", return_value=({}, [])
+            ),
+            mock.patch(
+                "gtm_fixed_point._projection_decision_candidate",
+                return_value=(candidate_payload, [decision]),
+            ),
+            mock.patch(
+                "gtm_fixed_point._packet_with_projection_operations",
+                return_value=json.loads(original_packet.decode("utf-8")),
+            ),
+            mock.patch(
+                "gtm_fixed_point._create_cycle",
+                side_effect=ValueError("forced next-cycle assurance failure"),
+            ),
+        ):
+            blocked = advance_fixed_point(self.package)
+        self.assertEqual("non_convergent_target_state", blocked["status"])
+        self.assertEqual(original_packet, packet_path.read_bytes())
+        self.assertEqual(original_decisions, decisions_path.read_bytes())
+        self.assertFalse((self.package / "fixed-point" / "cycle-02").exists())
+        self.assertEqual(
+            [],
+            list((self.package / "fixed-point").glob(".cycle-02-*")),
+        )
+
     def test_complete_static_workflow_reaches_sealed_canonical_record(self) -> None:
         self.run_to_editorial()
         canonical = json.loads((self.package / "canonical-record.json").read_text(encoding="utf-8"))
@@ -666,6 +806,100 @@ class V2WorkflowTests(unittest.TestCase):
         record_path.write_text(json.dumps(canonical, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "canonical record gate failed"):
             create_delivery_map(self.package)
+
+    def test_sealed_semantic_repair_starts_a_bound_successor_package(self) -> None:
+        self.run_to_editorial()
+        predecessor_path = self.package / "canonical-record.json"
+        predecessor = json.loads(predecessor_path.read_text(encoding="utf-8"))
+        decision = predecessor["audit_decisions"][0]
+        repair_brief = self.root / "semantic-repair-brief.json"
+        repair_brief.write_text(
+            json.dumps(
+                {
+                    "kind": "gtm_semantic_repair_brief",
+                    "schema_version": 1,
+                    "status": "approved",
+                    "canonical_record_sha256": predecessor[
+                        "canonical_record_sha256"
+                    ],
+                    "repair_records": [
+                        {
+                            "repair_id": "REPAIR-MISSING-NEXT-STEP",
+                            "canonical_decision_id": decision[
+                                "canonical_decision_id"
+                            ],
+                            "fields": ["next_step"],
+                            "reason": (
+                                "The sealed decision lacks the required canonical next "
+                                "step needed for faithful human delivery."
+                            ),
+                        }
+                    ],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        successor = self.root / "successor-package"
+        manifest = build_package(
+            self.export,
+            successor,
+            predecessor_record_path=predecessor_path,
+            repair_brief_path=repair_brief,
+        )
+        self.assertEqual(
+            predecessor["canonical_record_sha256"],
+            manifest["semantic_successor_of"]["canonical_record_sha256"],
+        )
+        self.assertTrue((successor / "superseded-canonical-record.json").is_file())
+        ledger = json.loads(
+            (successor / "obligation-ledger.json").read_text(encoding="utf-8")
+        )
+        repairs = [
+            row
+            for row in ledger["obligations"]
+            if row.get("semantic_repair_records")
+        ]
+        self.assertEqual(1, len(repairs))
+        self.assertEqual(decision["obligation_id"], repairs[0]["obligation_id"])
+        self.assertIn(
+            "semantic_repair", repairs[0]["material_verification_triggers"]
+        )
+        checkpoint_ledger = json.loads(
+            (
+                successor
+                / "audit-bundles"
+                / "audit-a"
+                / "source-obligations.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertFalse(
+            any(row.get("semantic_repair_records") for row in checkpoint_ledger["obligations"])
+        )
+        complete_checkpoint(successor, "audit-a", "successor-source-a-checkpoint")
+        released_ledger = json.loads(
+            (
+                successor / "audit-bundles" / "audit-a" / "obligation-ledger.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertTrue(
+            any(row.get("semantic_repair_records") for row in released_ledger["obligations"])
+        )
+        self.assertTrue(
+            (successor / "audit-bundles" / "audit-a" / "semantic-repair-brief.json").is_file()
+        )
+        mismatched_export = self.root / "mismatched-container.json"
+        changed_source = minimal_export()
+        changed_source["containerVersion"]["container"]["publicId"] = "GTM-OTHER"
+        mismatched_export.write_text(json.dumps(changed_source), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "same locked source"):
+            build_package(
+                mismatched_export,
+                self.root / "mismatched-successor",
+                predecessor_record_path=predecessor_path,
+                repair_brief_path=repair_brief,
+            )
 
     @unittest.skipUnless(
         os.environ.get("CODEX_NODE") and os.environ.get("CODEX_ARTIFACT_NODE_MODULES"),

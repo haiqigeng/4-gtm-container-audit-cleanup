@@ -65,6 +65,7 @@ INTAKE_FIELDS = (
     "cmp",
     "markets",
     "server_routing_hosts",
+    "server_consent_gating_hosts",
     "spa",
     "canonical_ids",
     "staging_hosts",
@@ -79,6 +80,7 @@ INFERENCE_EVIDENCE = {
     "cmp": "reachable active-object CMP identifiers",
     "markets": "domain ccTLD, container prefix, or Zone scope",
     "server_routing_hosts": "recognized route fields on reachable tags and Google configurations",
+    "server_consent_gating_hosts": "analyst-approved downstream consent-gating ownership by exact route host",
     "spa": "reachable History Change trigger configuration",
     "canonical_ids": "analyst-owned canonical destination or object decision",
     "staging_hosts": "behavior-bearing development/staging/QA endpoint",
@@ -210,6 +212,7 @@ def context_value_present(field: str, value: Any, provided: bool = False) -> boo
         "cmp",
         "markets",
         "server_routing_hosts",
+        "server_consent_gating_hosts",
         "canonical_ids",
         "staging_hosts",
         "do_not_touch",
@@ -372,6 +375,7 @@ def build_context_model(
             name for name, pattern in CMP_PATTERNS.items() if pattern.search(active_text)
         ),
         "server_routing_hosts": route_hosts,
+        "server_consent_gating_hosts": [],
         "spa": "yes" if active_history_triggers else "unknown",
         "canonical_ids": [],
         "staging_hosts": detected_staging_hosts,
@@ -480,6 +484,24 @@ def build_context_model(
                 "browser/server ownership, consent forwarding, and deduplication boundaries",
             )
         )
+    if (
+        route_hosts
+        and context.get("container_type") == "web"
+        and evidence["server_consent_gating_hosts"]["status"] != "provided"
+    ):
+        intake_questions.append(
+            intake_question(
+                "INTAKE-SERVER-CONSENT-OWNER",
+                "server_consent_gating_hosts",
+                (
+                    "Confirm which detected server route hosts have an explicitly approved "
+                    "downstream server consent-gating owner. Until confirmed, client consent "
+                    "controls cannot be removed."
+                ),
+                False,
+                "pure-transporter classification and safe client-gate disposition",
+            )
+        )
     if detected_staging_hosts and evidence["staging_hosts"]["status"] != "provided":
         intake_questions.append(
             intake_question(
@@ -500,10 +522,10 @@ def build_context_model(
                 "do_not_touch",
                 (
                     "List any exact layer:ID objects that must not be changed, or "
-                    "confirm none before execution approval."
+                    "confirm none before the source and context lock."
                 ),
                 False,
-                "executor-level mutation fence; audit depth is unchanged",
+                "exact target-state protection; audit depth is unchanged",
             )
         )
     for index, value in enumerate(as_list(provided.get("unresolved_questions")), start=1):

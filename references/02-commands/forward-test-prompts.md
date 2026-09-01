@@ -41,9 +41,9 @@ schemas or filenames.
   and deliberately ambiguous prose.
 
 Seed both material defects and valid-but-non-optimal configurations. Also seed
-configurations that look repetitive but must remain distinct. Every retained or
-strengthened capability in `references/03-rules/capability-migration.md` requires
-an observable assertion.
+configurations that look repetitive but must remain distinct. Every retained
+defect family and every optimisation or architecture class in
+`references/03-rules/audit-coverage.md` requires an observable assertion.
 
 ## Quality Metrics
 
@@ -53,10 +53,14 @@ Measure:
 - seeded material finding and optimisation recall;
 - false-positive rate against intentional variants and evidence limits;
 - independent discovery overlap and unique valid findings from Audit A/B;
-- correct neutral handling of conflicts, one-sided findings, and material risk;
+- correct neutral handling of conflicts, one-sided findings, and material risk,
+  including hash-bound host receipts and rejection of every reused source,
+  peer-neutral, projection-review, or prior-cycle identity;
 - exact operation validity, dependency safety, target coherence, and fixed-point
-  convergence/non-convergence blocking;
-- canonical-field completeness and repair ownership;
+  convergence/non-convergence blocking, with byte-identical rollback after a
+  failed candidate cycle;
+- canonical-field completeness and repair ownership, including same-source
+  predecessor binding and complete successor-package reruns;
 - workbook row coverage, locked-field equality, claim fidelity, standalone reader
   comprehension, formula/privacy safety, and rendered layout; and
 - only after quality passes: wall-clock time, work-unit cost, amendment rate,

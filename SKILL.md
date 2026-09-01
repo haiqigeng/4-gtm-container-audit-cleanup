@@ -27,8 +27,7 @@ Read before work:
 
 Use `references/03-rules/source-map.md` to route any deeper question. Use
 `references/03-rules/container-json-guide.md` for export shape and
-`references/03-rules/naming-standardization.md` for names. The v1 capability
-disposition is in `references/03-rules/capability-migration.md`.
+`references/03-rules/naming-standardization.md` for names.
 
 ## Hard Boundary
 
@@ -80,6 +79,8 @@ must reread raw source and pass every applicable critical identity.
 Use the typed `obligation-ledger.json`. Every object, chain, family,
 relationship, singleton, source-owned branch/leaf/recursive trace, executable
 code segment, and container-level method receives work or a source-counted zero.
+Area 1 closes through evidence and assurance status, areas 2–26 through the two
+semantic audits, and area 27 through synthesis and fixed-point proof.
 
 ### 3. Run Two Host-Scoped Complete Audits
 
@@ -115,6 +116,10 @@ Send every disagreement, one-sided finding, and material-risk class listed in
 the workflow reference to a fresh neutral verifier. The neutral input excludes
 audit identity, rationale, vote count, and expected answer. It may confirm,
 narrow, reject, or keep blocked; it cannot invent a third actionable target.
+Each neutral verifier receives one hash-bound allowlisted bundle in a host-scoped
+context with an enforced receipt. Its context and receipt identities must be new
+relative to source checkpoints, source audits, peer neutrals, projection reviews,
+and every prior cycle. If the host cannot enforce that boundary, block.
 
 ### 5. Synthesize And Prove The Target
 
@@ -130,6 +135,10 @@ scan and independent assurance, and sends new/changed semantic obligations to tw
 fresh host-scoped reviews plus required neutral checks. Permit at most three cycles.
 Block as `non_convergent_target_state` on cycle-three actionability, recurring
 actionable hashes, oscillation, conflicts, or no exact safe operation.
+Construct each next cycle in staging and commit its decision record, operation
+packet, and cycle directory together. Any candidate-cycle safety or assurance
+failure preserves the last committed packet and decisions and returns the blocked
+outcome; it may not leave a partial cycle.
 
 Replay a stable packet from the locked original and require the complete hash
 tuple to match. Then create the authoritative record with
@@ -138,10 +147,11 @@ tuple to match. Then create the authoritative record with
 ### 6. Build One Human Workbook
 
 Use `scripts/gtm_delivery_mapper.py` only after canonical sealing. If a mandatory
-delivery field is absent or semantically wrong, reopen its owning audit or
-projection record in a fresh amendment context, repeat reconciliation/neutral
-checks/fixed-point closure, and reseal. Delivery may never patch a canonical
-field.
+delivery field is absent or semantically wrong, stop delivery. Build a new
+semantic-successor package from the same locked source, bind it to the prior
+canonical record and one approved repair brief, and rerun the complete workflow.
+The repair becomes an obligation in both fresh audits and neutral reconciliation.
+Delivery may never patch a canonical field or overwrite the sealed predecessor.
 
 Run the editorial transformation in a fresh context. It may improve declared
 prose fields only and must preserve every technical identifier and locked meaning.
@@ -174,7 +184,11 @@ Built-In Consent Checks remain intrinsic metadata.
 
 A pure client-to-server transporter has firing triggers only, no client consent
 gate, and one complete canonical consent value configured once and inherited by
-every transported event. Mixed direct/server routes are judged per branch.
+every transported event. Classify and remediate a route as pure only when locked
+approved context names every route host as having a downstream server consent-
+gating owner. Without that ownership confirmation, keep client-gate removal
+blocked as an owner decision or container evidence limit. Mixed direct/server
+routes are judged per branch.
 
 Treat explicit firing priority as suspect, including `0`. Keep nonzero priority
 only for an evidenced start-order need among same-event competitors; sequencing,
@@ -189,9 +203,11 @@ and ownership compatibility determine the verdict.
 ## Repair And Completion
 
 Sealed semantic artifacts are immutable. An amendment uses a fresh context bound
-to the prior seal and append-only history. Presentation-only defects create a new
-editorial artifact and rebuild; semantic or fidelity defects reopen the owning
-semantic chain.
+to the prior seal and append-only history before canonical sealing. After
+canonical sealing, a semantic or fidelity defect starts one immutable successor
+package bound to the predecessor record and same locked source, then reruns the
+whole workflow. Presentation-only defects create a new editorial artifact and
+rebuild.
 
 Use `references/02-commands/validation-commands.md` for exact commands and
 `references/02-commands/forward-test-prompts.md` for release proof. Deliver only

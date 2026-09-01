@@ -2194,7 +2194,7 @@ def add_source_integrity_findings(
             str(finding.get("details") or "The source identity or shape is invalid."),
             (
                 "Obtain a corrected complete export or resolve the source identity conflict "
-                "before claiming a complete audit or compiling mutations."
+                "before claiming a complete audit or synthesising target operations."
             ),
             "owner_decision_needed | documented_exception | cleanup_operation",
             {"source_integrity_finding": finding},

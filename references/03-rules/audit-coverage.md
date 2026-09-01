@@ -20,7 +20,9 @@ or vendor family, and complete container. A deterministic scan creates facts and
 candidates. Two independent audits create judgments. A candidate is never a
 verdict.
 
-Every applicable obligation receives exactly one decision:
+Every applicable semantic obligation in areas 2–26 receives exactly one decision.
+Area 1 is owned by the evidence/assurance gate; area 27 is owned by target
+synthesis, projection, replay, and fixed-point status:
 
 - `defect`: wrong, contradictory, unsafe, broken, or obsolete configuration;
 - `correct_but_materially_non_optimal`: materially simpler or lower-drift target with the
@@ -44,7 +46,7 @@ Classify each consent-relevant route before judging triggers:
 | --- | --- | --- |
 | Consent infrastructure | Consent Initialization or documented CMP default/update event | The consent writer; never vendor-gated |
 | Confirmed Advanced Consent Mode | Normal lifecycle or business event without a granted-state condition | Coherent defaults and updates plus intrinsic product behaviour |
-| Pure client-to-server transporter | Normal lifecycle or business event without a granted-state condition | One canonical consent value forwarded to the server; downstream gating belongs to the server |
+| Pure client-to-server transporter | Normal lifecycle or business event without a granted-state condition | One canonical consent value forwarded to a route host whose downstream consent-gating ownership is explicitly approved in locked context |
 | Other direct browser/vendor route | Consent-free CMP timing/lifecycle event for page-load tags, otherwise the real business event | One reusable vendor, purpose, or category denial blocker |
 
 For direct non-Advanced routes the blocker is mandatory and must fail closed for
@@ -54,10 +56,13 @@ template metadata, not a substitute for the selected control owner.
 
 Advanced Consent Mode requires explicit approved context plus coherent visible
 defaults and updates; native Google capability alone is insufficient. A pure
-transporter must have no direct browser-vendor branch and must inherit one
-complete shared consent value. Mixed direct/server routes are split and judged
-per branch; an inseparable branch follows the direct-route rule. Always conclude
-only: “Client transport and consent-forwarding contract aligned or not aligned;
+transporter must have no direct browser-vendor branch, must inherit one complete
+shared consent value, and must have locked approved context naming every route
+host as owned by downstream server consent gating. Without that ownership proof,
+classify client-gate removal as `owner_decision` or `container_evidence_limit` and
+emit no removal operation. Mixed direct/server routes are split and judged per
+branch; an inseparable branch follows the direct-route rule. Always conclude only:
+“Client transport and consent-forwarding contract aligned or not aligned;
 downstream server-container enforcement is outside this audit.”
 
 ## Areas 1–27
@@ -153,8 +158,10 @@ downstream server-container enforcement is outside this audit.”
   source and forwarding field, inline copies, client gates, destinations, event
   IDs, and browser/server overlap.
 - For a pure route require normal firing only, one shared inherited consent value,
-  and no direct bypass; report missing, multiple, inconsistent, partial, inline,
-  blocked, or mixed implementations.
+  no direct bypass, and explicit approved downstream consent-gating ownership for
+  every route host. Report missing, multiple, inconsistent, partial, inline,
+  blocked, mixed, or ownership-unconfirmed implementations. Never remove a client
+  consent gate from ownership-unconfirmed evidence.
 
 ### 13. Client-Side Server Handoff And Evidence Boundary
 

@@ -20,6 +20,8 @@ from gtm_reconciliation import (
     canonical_matches_allowed,
     comparison_classification,
     material_verification_reasons,
+    neutral_bundle_manifest_sha256,
+    neutral_isolation_errors,
 )
 
 REVIEW_IDS = ("review-a", "review-b")
@@ -47,6 +49,7 @@ LOCKED_DECISION_FIELDS = (
     "source_coordinates",
     "applicability",
     "material_verification_triggers",
+    "semantic_repair_records",
     "projection_delta_class",
 )
 
@@ -433,19 +436,38 @@ def scaffold_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
         }
         comparisons.append(row)
         if reasons:
-            neutral_rows.append(
-                {
-                    "verification_id": verification_id,
-                    **{field: obligation.get(field) for field in LOCKED_DECISION_FIELDS},
-                    "verification_reasons": reasons,
-                    "neutral_evidence": obligation.get("evidence", {}),
+            neutral_row = {
+                "verification_id": verification_id,
+                **{field: obligation.get(field) for field in LOCKED_DECISION_FIELDS},
+                "verification_reasons": reasons,
+                "neutral_question": (
+                    "From this projected-source evidence and contract only, what "
+                    "source-supported decision and narrowest safe target follow?"
+                ),
+                "neutral_evidence": obligation.get("evidence", {}),
+                "prohibited_context": (
+                    "Do not expose source-audit, prior-cycle, peer-review, peer-neutral, "
+                    "reconciliation, fixed-point, or workbook conclusions."
+                ),
+                "status": "pending",
+                "independent_context_id": "",
+                "host_isolation_receipt": {
                     "status": "pending",
-                    "independent_context_id": "",
-                    "canonical_decision": {},
-                    "evidence_citations": [],
-                    "verification_rationale": "",
-                }
+                    "receipt_id": "",
+                    "mechanism": "",
+                    "allowed_bundle_manifest_sha256": "",
+                    "prior_reasoning_contexts_accessible": None,
+                    "peer_neutral_contexts_accessible": None,
+                    "prohibited_artifacts_accessible": None,
+                },
+                "canonical_decision": {},
+                "evidence_citations": [],
+                "verification_rationale": "",
+            }
+            neutral_row["neutral_bundle_manifest_sha256"] = (
+                neutral_bundle_manifest_sha256(neutral_row)
             )
+            neutral_rows.append(neutral_row)
     reconciliation = {
         "kind": "gtm_projection_reconciliation",
         "schema_version": 1,
@@ -474,8 +496,52 @@ def scaffold_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
     }
 
 
+def _prior_reasoning_identities(cycle_dir: Path) -> tuple[set[str], set[str]]:
+    package_dir = cycle_dir.parents[1]
+    contexts: set[str] = set()
+    receipts: set[str] = set()
+
+    def add_record(data: dict[str, Any]) -> None:
+        context_id = str(data.get("independent_context_id") or "").strip()
+        receipt_id = str(
+            (data.get("host_isolation_receipt") or {}).get("receipt_id") or ""
+        ).strip()
+        if context_id:
+            contexts.add(context_id)
+        if receipt_id:
+            receipts.add(receipt_id)
+
+    paths = [
+        *(package_dir / "audit-seals").glob("**/*.json"),
+        *(package_dir / "audit-bundles").glob("*/source-checkpoint-seal.json"),
+        *(cycle_dir / REVIEW_SEAL_ROOT).glob("review-?.json"),
+    ]
+    for path in paths:
+        add_record(json.loads(path.read_text(encoding="utf-8")))
+
+    base_neutral = package_dir / "neutral-verification.json"
+    if base_neutral.is_file():
+        data = json.loads(base_neutral.read_text(encoding="utf-8"))
+        for row in as_list(data.get("verifications")):
+            if isinstance(row, dict):
+                add_record(row)
+
+    current_cycle = int(cycle_dir.name.removeprefix("cycle-") or 0)
+    for path in (package_dir / "fixed-point").glob(
+        "cycle-*/projection-neutral-verification.json"
+    ):
+        prior_cycle = int(path.parent.name.removeprefix("cycle-") or 0)
+        if prior_cycle >= current_cycle:
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for row in as_list(data.get("verifications")):
+            if isinstance(row, dict):
+                add_record(row)
+    return contexts, receipts
+
+
 def _neutral_errors(
-    neutral: dict[str, Any], expected: dict[str, Any], review_contexts: set[str]
+    cycle_dir: Path, neutral: dict[str, Any], expected: dict[str, Any]
 ) -> list[str]:
     errors = []
     expected_rows = {
@@ -485,7 +551,10 @@ def _neutral_errors(
     supplied = {str(row.get("verification_id") or ""): row for row in supplied_rows}
     if len(supplied) != len(supplied_rows) or set(supplied) != set(expected_rows):
         errors.append("projection neutral verification set differs from its queue")
-    contexts = set(review_contexts)
+    expected_status = "complete" if expected_rows else "not_required"
+    if neutral.get("status") != expected_status:
+        errors.append(f"projection neutral status must be {expected_status}")
+    contexts, receipts = _prior_reasoning_identities(cycle_dir)
     for verification_id, expected_row in expected_rows.items():
         row = supplied.get(verification_id)
         if not row:
@@ -495,16 +564,20 @@ def _neutral_errors(
             "verification_id",
             *LOCKED_DECISION_FIELDS,
             "verification_reasons",
+            "neutral_question",
             "neutral_evidence",
+            "prohibited_context",
+            "neutral_bundle_manifest_sha256",
         ):
             if row.get(field) != expected_row.get(field):
                 errors.append(f"{label}: locked field {field} changed")
         if row.get("status") != "complete":
             errors.append(f"{label}: status must be complete")
-        context_id = str(row.get("independent_context_id") or "")
-        if len(context_id) < 12 or context_id in contexts:
-            errors.append(f"{label}: context must be fresh and unique")
-        contexts.add(context_id)
+        errors.extend(
+            neutral_isolation_errors(
+                row, expected_row, label, contexts, receipts
+            )
+        )
         decision = row.get("canonical_decision")
         if not isinstance(decision, dict):
             errors.append(f"{label}: canonical decision is missing")
@@ -528,11 +601,7 @@ def finalize_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
     expected_neutral = json.loads(neutral_queue_path.read_text(encoding="utf-8"))
     reconciliation = json.loads((cycle_dir / RECONCILIATION_FILE).read_text(encoding="utf-8"))
     neutral = json.loads((cycle_dir / NEUTRAL_FILE).read_text(encoding="utf-8"))
-    review_contexts = {
-        str(json.loads(path.read_text(encoding="utf-8")).get("independent_context_id") or "")
-        for path in (cycle_dir / REVIEW_SEAL_ROOT).glob("review-?.json")
-    }
-    errors = _neutral_errors(neutral, expected_neutral, review_contexts)
+    errors = _neutral_errors(cycle_dir, neutral, expected_neutral)
     expected_rows = {
         str(row.get("comparison_id") or ""): row for row in as_list(expected.get("comparisons"))
     }

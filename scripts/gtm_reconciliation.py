@@ -15,7 +15,7 @@ from gtm_audit_contract import (
     OPERATION_ACTION_FIELDS,
     semantic_contract_errors,
 )
-from gtm_cleanroom_audit import AUDIT_IDS, sealed_audit_errors
+from gtm_cleanroom_audit import AUDIT_IDS, ISOLATION_MECHANISMS, sealed_audit_errors
 from gtm_lib import as_list, file_sha256, stable_hash, write_json
 
 RECONCILIATION_FILE = "reconciliation.json"
@@ -25,9 +25,101 @@ NEUTRAL_QUEUE_FILE = "neutral-verification-queue.json"
 RECONCILED_RECORD_FILE = "reconciled-decisions.json"
 RECONCILIATION_SEAL_FILE = "reconciliation-seal.json"
 
+NEUTRAL_MUTABLE_FIELDS = {
+    "status",
+    "independent_context_id",
+    "host_isolation_receipt",
+    "canonical_decision",
+    "evidence_citations",
+    "verification_rationale",
+    "neutral_bundle_manifest_sha256",
+}
+
 
 def _normalized_text(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
+
+
+def neutral_bundle_manifest_sha256(row: dict[str, Any]) -> str:
+    """Hash exactly the evidence and question released to one neutral verifier."""
+
+    return stable_hash(
+        {
+            key: value
+            for key, value in row.items()
+            if key not in NEUTRAL_MUTABLE_FIELDS
+        },
+        64,
+    )
+
+
+def neutral_isolation_errors(
+    row: dict[str, Any],
+    expected_row: dict[str, Any],
+    label: str,
+    used_contexts: set[str],
+    used_receipts: set[str],
+) -> list[str]:
+    """Validate a fresh host-scoped neutral context bound to one locked bundle."""
+
+    errors: list[str] = []
+    expected_hash = str(expected_row.get("neutral_bundle_manifest_sha256") or "")
+    if not expected_hash or expected_hash != neutral_bundle_manifest_sha256(expected_row):
+        errors.append(f"{label}: neutral bundle manifest hash is invalid")
+    if row.get("neutral_bundle_manifest_sha256") != expected_hash:
+        errors.append(f"{label}: neutral result is not bound to its released bundle")
+
+    context_id = str(row.get("independent_context_id") or "").strip()
+    if len(context_id) < 12:
+        errors.append(f"{label}: independent context identity is missing")
+    elif context_id in used_contexts:
+        errors.append(f"{label}: neutral context identity is reused")
+    if context_id:
+        used_contexts.add(context_id)
+
+    receipt = row.get("host_isolation_receipt") or {}
+    receipt_id = str(receipt.get("receipt_id") or "").strip()
+    if receipt.get("status") != "enforced":
+        errors.append(f"{label}: an enforced host isolation receipt is required")
+    if len(receipt_id) < 12:
+        errors.append(f"{label}: host isolation receipt identity is missing")
+    elif receipt_id in used_receipts:
+        errors.append(f"{label}: host isolation receipt identity is reused")
+    if receipt_id:
+        used_receipts.add(receipt_id)
+    if receipt.get("mechanism") not in ISOLATION_MECHANISMS:
+        errors.append(f"{label}: host isolation mechanism is unsupported or absent")
+    if receipt.get("allowed_bundle_manifest_sha256") != expected_hash:
+        errors.append(f"{label}: host receipt is not bound to this neutral bundle")
+    if receipt.get("prior_reasoning_contexts_accessible") is not False:
+        errors.append(f"{label}: prior reasoning contexts must be inaccessible")
+    if receipt.get("peer_neutral_contexts_accessible") is not False:
+        errors.append(f"{label}: peer neutral contexts must be inaccessible")
+    if receipt.get("prohibited_artifacts_accessible") is not False:
+        errors.append(f"{label}: prohibited artifacts must be inaccessible")
+    return errors
+
+
+def _sealed_source_reasoning_identities(
+    package_dir: Path,
+) -> tuple[set[str], set[str]]:
+    contexts: set[str] = set()
+    receipts: set[str] = set()
+    paths = [
+        *(package_dir / "audit-seals").glob("**/*.json"),
+        *(package_dir / "audit-bundles").glob("*/source-checkpoint-seal.json"),
+    ]
+    for path in paths:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        context_id = str(data.get("independent_context_id") or "").strip()
+        receipt_id = str(
+            (data.get("host_isolation_receipt") or {}).get("receipt_id") or ""
+        ).strip()
+        if context_id:
+            contexts.add(context_id)
+        if receipt_id:
+            receipts.add(receipt_id)
+    return contexts, receipts
 
 
 def operation_action_payload(proposal: Any) -> dict[str, Any]:
@@ -195,6 +287,8 @@ def _comparison_row(
         or present.get("applicability", "applicable"),
         "source_coordinates": obligation.get("source_coordinates")
         or present.get("source_coordinates", []),
+        "semantic_repair_records": obligation.get("semantic_repair_records")
+        or present.get("semantic_repair_records", []),
         "classification": classification,
         "neutral_verification_required": requires_neutral,
         "neutral_verification_id": verification_id if requires_neutral else "",
@@ -218,6 +312,7 @@ def _comparison_row(
         "fact_kind": comparison["fact_kind"],
         "subject_keys": comparison["subject_keys"],
         "source_coordinates": comparison["source_coordinates"],
+        "semantic_repair_records": obligation.get("semantic_repair_records", []),
         "verification_reasons": reasons,
         "neutral_question": (
             "From the supplied raw coordinates, neutral evidence, and applicable contract "
@@ -230,10 +325,20 @@ def _comparison_row(
         ),
         "status": "pending",
         "independent_context_id": "",
+        "host_isolation_receipt": {
+            "status": "pending",
+            "receipt_id": "",
+            "mechanism": "",
+            "allowed_bundle_manifest_sha256": "",
+            "prior_reasoning_contexts_accessible": None,
+            "peer_neutral_contexts_accessible": None,
+            "prohibited_artifacts_accessible": None,
+        },
         "canonical_decision": {},
         "evidence_citations": [],
         "verification_rationale": "",
     }
+    queue["neutral_bundle_manifest_sha256"] = neutral_bundle_manifest_sha256(queue)
     return comparison, queue
 
 
@@ -360,7 +465,9 @@ def scaffold_reconciliation(package_dir: Path) -> dict[str, Any]:
     }
 
 
-def _neutral_errors(neutral: dict[str, Any], expected: dict[str, Any]) -> list[str]:
+def _neutral_errors(
+    package_dir: Path, neutral: dict[str, Any], expected: dict[str, Any]
+) -> list[str]:
     errors: list[str] = []
     expected_rows = {
         str(row.get("verification_id") or ""): row
@@ -376,7 +483,10 @@ def _neutral_errors(neutral: dict[str, Any], expected: dict[str, Any]) -> list[s
         errors.append("neutral verification IDs are blank or duplicated")
     if set(supplied) != set(expected_rows):
         errors.append("neutral verification must cover the exact queued rows")
-    contexts: set[str] = set()
+    expected_status = "complete" if expected_rows else "not_required"
+    if neutral.get("status") != expected_status:
+        errors.append(f"neutral verification status must be {expected_status}")
+    contexts, receipts = _sealed_source_reasoning_identities(package_dir)
     for verification_id, expected_row in expected_rows.items():
         row = supplied.get(verification_id)
         if not row:
@@ -389,21 +499,22 @@ def _neutral_errors(neutral: dict[str, Any], expected: dict[str, Any]) -> list[s
             "area_id",
             "subject_keys",
             "source_coordinates",
+            "semantic_repair_records",
             "verification_reasons",
             "neutral_question",
             "neutral_evidence",
             "prohibited_context",
+            "neutral_bundle_manifest_sha256",
         ):
             if row.get(field) != expected_row.get(field):
                 errors.append(f"{label}: locked field {field} changed")
         if row.get("status") != "complete":
             errors.append(f"{label}: status must be complete")
-        context_id = str(row.get("independent_context_id") or "")
-        if len(context_id) < 12:
-            errors.append(f"{label}: independent context identity is missing")
-        elif context_id in contexts:
-            errors.append(f"{label}: neutral context identity is reused")
-        contexts.add(context_id)
+        errors.extend(
+            neutral_isolation_errors(
+                row, expected_row, label, contexts, receipts
+            )
+        )
         decision = row.get("canonical_decision")
         if not isinstance(decision, dict):
             errors.append(f"{label}: canonical decision is missing")
@@ -472,7 +583,7 @@ def finalize_reconciliation(
     neutral = json.loads(
         (neutral_path or package_dir / NEUTRAL_FILE).read_text(encoding="utf-8")
     )
-    errors = _neutral_errors(neutral, expected_neutral)
+    errors = _neutral_errors(package_dir, neutral, expected_neutral)
     expected_rows = {
         str(row.get("comparison_id") or ""): row
         for row in as_list(expected_reconciliation.get("comparisons"))
@@ -510,6 +621,7 @@ def finalize_reconciliation(
             "candidate_id",
             "applicability",
             "source_coordinates",
+            "semantic_repair_records",
             "classification",
             "neutral_verification_required",
             "neutral_verification_id",
@@ -571,6 +683,9 @@ def finalize_reconciliation(
                 "candidate_id": row.get("candidate_id"),
                 "applicability": row.get("applicability"),
                 "source_coordinates": row.get("source_coordinates", []),
+                "semantic_repair_records": row.get(
+                    "semantic_repair_records", []
+                ),
                 "reconciliation_class": row.get("classification"),
                 "neutral_verification_id": row.get("neutral_verification_id"),
                 "decision": canonical,

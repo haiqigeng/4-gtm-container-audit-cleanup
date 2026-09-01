@@ -23,8 +23,10 @@ configured behaviour, decision class, consequence or benefit, preserved
 distinctions, target direction, confidence, evidence boundary when applicable,
 and next step.
 
-If one of those fields is missing, stop. Reopen and reseal the owning audit and
-reconciliation chain. The mapper, editor, and builder may not infer or repair it.
+If one of those fields is missing or wrong, stop. Start a semantic-successor
+package from the same locked source, bound to the predecessor canonical seal and
+an approved field-level repair brief, then rerun the complete audit workflow. The
+mapper, editor, and builder may not infer, patch, or overwrite it.
 
 The fresh editorial context may edit only declared prose fields. It must preserve
 IDs, object keys and names, event/parameter/destination identifiers, decision
@@ -37,7 +39,7 @@ All workbooks contain:
 
 | Sheet | Purpose |
 | --- | --- |
-| `01 Overview` | Source/static boundary, status, counts, highest-value actions, target summary, retained architecture, blockers, deltas, and one next step |
+| `01 Overview` | Source/static boundary, status, counts, highest-value actions, target summary, retained architecture, blockers, source-to-target object-count and operation summary, and one next step |
 | `02 Recommendations` | Every decision-ready atomic operation exactly once |
 | `03 Decisions Needed` | Every owner-decision audit record exactly once, with recommendation and what it unlocks |
 | `04 Full Audit` | Every audit decision not owned by Decisions Needed or Custom Code, including retained and not-applicable outcomes |
@@ -124,6 +126,6 @@ Then run two host-scoped checks with separate allowlisted inputs:
   illegible, or poorly navigable output.
 
 Apply presentation-only corrections through a new editorial artifact and rebuild.
-Reopen semantics only for a canonical completeness or fidelity defect. Render and
+Start a semantic successor only for a canonical completeness or fidelity defect. Render and
 inspect every visible sheet, then pass formula-injection and privacy checks before
 sealing delivery. Workbook completion is not GTM mutation approval.

@@ -11,10 +11,14 @@ Server-container exports are not accepted in this version.
 ## Optional Locked Input
 
 - analyst-confirmed context such as CMP, route intent, Advanced Consent Mode,
-  known server ownership, naming rules, exclusions, and exact `do_not_touch`
-  object keys;
+  exact server route hosts approved to own downstream consent gating, naming
+  rules, exclusions, and exact `do_not_touch` object keys;
 - an analyst-approved tracking plan or requirement artifact. It is withheld from
   each audit until that audit seals its source-only checkpoint.
+- for a post-canonical semantic repair only: the sealed predecessor
+  `canonical-record.json` and one approved `gtm_semantic_repair_brief` bound to
+  that record. The new package must use the same locked source; repair evidence
+  is withheld until each fresh audit seals its source checkpoint.
 
 Inference may route review; it cannot silently become an approved fact. Ambiguity
 that changes a verdict becomes an owner decision or evidence limit.
@@ -27,6 +31,11 @@ and seals, reconciliation and neutral verification, exact operation packet,
 fixed-point proof and deterministic replay, sealed canonical record and manifest,
 delivery map/editorial seals, workbook build and verification artifacts, and
 independent fidelity/reader review seals.
+
+A semantic successor additionally contains copied predecessor record/manifest/
+seal evidence, the approved repair brief, explicit post-checkpoint repair
+evidence on each exact owning obligation, and an immutable lineage binding. It is a complete new audit package,
+not an in-place patch or reduced workflow.
 
 The user-facing output is exactly one `.xlsx` workbook with four required visible
 sheets and an optional Custom Code sheet, as specified in

@@ -30,6 +30,36 @@ Optional locked context and approved requirements:
 python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --context context.json --requirements requirements.json --pretty
 ```
 
+For a defect discovered after canonical sealing, create an approved repair brief:
+
+```json
+{
+  "kind": "gtm_semantic_repair_brief",
+  "schema_version": 1,
+  "status": "approved",
+  "canonical_record_sha256": "<exact predecessor record hash>",
+  "repair_records": [
+    {
+      "repair_id": "REPAIR-MISSING-NEXT-STEP",
+      "canonical_decision_id": "<exact canonical decision ID>",
+      "fields": ["next_step"],
+      "reason": "The sealed decision lacks the required evidence-bound next step for faithful delivery."
+    }
+  ]
+}
+```
+
+Then start one new same-source successor package:
+
+```powershell
+python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package-successor --supersedes-canonical-record prior-audit-package/canonical-record.json --semantic-repair-brief semantic-repair-brief.json --pretty
+```
+
+The builder validates the predecessor record/manifest/seal, exact source hash,
+repair decision IDs and fields, copies lineage evidence, and adds each repair as
+post-checkpoint evidence on its exact owning obligation. The successor reruns the
+complete workflow.
+
 The output directory must be new or empty. Package creation verifies the runtime
 identity, builds the scan and obligation ledger, runs independent raw-source
 assurance, and creates separate allowlisted Audit A/B bundles. Before completing
@@ -66,8 +96,10 @@ python -B scripts/gtm_cleanroom_audit.py validate audit-package audit-b
 python -B scripts/gtm_cleanroom_audit.py seal audit-package audit-b
 ```
 
-For a semantic repair, use a new context and bind `--amendment-of` to the current
-seal hash. Never edit a sealed result in place or expose the other audit.
+Before canonical sealing, an audit amendment uses a new context and binds
+`--amendment-of` to the current audit seal hash. After canonical sealing, use the
+successor-package command above. Never edit a sealed result in place or expose
+the other audit.
 
 ## Reconcile And Synthesize
 
@@ -76,7 +108,11 @@ python -B scripts/gtm_reconciliation.py scaffold audit-package
 ```
 
 Complete `reconciliation.json` and every required row in
-`neutral-verification.json` using fresh neutral contexts, then:
+`neutral-verification.json` using fresh neutral contexts. For every row, supply
+an enforced host isolation receipt bound to its
+`neutral_bundle_manifest_sha256`; the context and receipt must not reuse or
+access source-audit, checkpoint, peer-neutral, projection-review, or prior-cycle
+identities. Then:
 
 ```powershell
 python -B scripts/gtm_reconciliation.py finalize audit-package
@@ -144,6 +180,7 @@ python -B scripts/gtm_delivery_reviews.py scaffold audit-package
 python -B scripts/gtm_delivery_reviews.py seal audit-package
 ```
 
-The final seal returns the one workbook path. If semantic content is missing or
-wrong, reopen the owning semantic chain. If wording/layout alone fails, create a
-fresh editorial amendment, rebuild, and repeat the affected delivery checks.
+The final seal returns the one workbook path. If sealed semantic content is
+missing or wrong, start the same-source successor package described above. If
+wording/layout alone fails, create a fresh editorial amendment, rebuild, and
+repeat the affected delivery checks.

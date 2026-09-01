@@ -157,6 +157,24 @@ def server_route_hosts(obj: dict[str, Any]) -> list[str]:
     return sorted(hosts)
 
 
+def normalized_context_hosts(values: list[str] | None) -> list[str]:
+    """Normalize analyst-approved route hosts without inferring ownership."""
+
+    hosts: set[str] = set()
+    for value in values or []:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        candidate = text if "://" in text else f"https://{text}"
+        try:
+            host = urlsplit(candidate).hostname
+        except ValueError:
+            host = None
+        if host:
+            hosts.add(host.lower())
+    return sorted(hosts)
+
+
 def referenced_variables(
     obj: dict[str, Any], variables: list[dict[str, Any]]
 ) -> list[tuple[int, dict[str, Any]]]:
@@ -217,6 +235,8 @@ def tag_consent_route(
     source_path: str = "$",
     variables: list[dict[str, Any]] | None = None,
     root_path: str = "$.containerVersion",
+    approved_server_consent_hosts: list[str] | None = None,
+    inherited_server_route_hosts: list[str] | None = None,
 ) -> dict[str, Any]:
     serialized_behavior = behavior_bearing_vendor_text(tag, "tag")
     matches = vendor_records(serialized_behavior)
@@ -243,7 +263,10 @@ def tag_consent_route(
     native_capability = tag_type in GOOGLE_NATIVE_CONSENT_TYPES
     variable_chain = referenced_variables(tag, variables or [])
     forwarding_evidence = forwarding_consent_values(tag, source_path)
-    server_hosts = set(server_route_hosts(tag))
+    server_hosts = {
+        *server_route_hosts(tag),
+        *normalized_context_hosts(inherited_server_route_hosts),
+    }
     forwarding_variables: set[str] = set()
     for index, variable in variable_chain:
         variable_name = str(variable.get("name") or "")
@@ -278,6 +301,17 @@ def tag_consent_route(
         )
         for row in forwarding_evidence
     )
+    approved_hosts = set(normalized_context_hosts(approved_server_consent_hosts))
+    confirmed_hosts = server_hosts & approved_hosts
+    unconfirmed_hosts = server_hosts - approved_hosts
+    if not server_hosts:
+        server_consent_owner_status = "not_applicable"
+    elif not unconfirmed_hosts:
+        server_consent_owner_status = "approved_context"
+    elif confirmed_hosts:
+        server_consent_owner_status = "partially_approved_context"
+    else:
+        server_consent_owner_status = "unconfirmed"
     if not status_known:
         control_status = "unrecognized_consent_status"
     elif additional_checks:
@@ -318,6 +352,9 @@ def tag_consent_route(
         "server_enforcement_visibility": (
             "not_visible_in_web_export" if server_hosts else "not_applicable"
         ),
+        "server_consent_gating_ownership_status": server_consent_owner_status,
+        "approved_server_consent_gating_hosts": sorted(confirmed_hosts),
+        "unconfirmed_server_consent_gating_hosts": sorted(unconfirmed_hosts),
         "consent_source_values": consent_values(tag, source_path),
         "effective_control_status": control_status,
         "requires_media_consent_review": any(
