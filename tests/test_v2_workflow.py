@@ -15,6 +15,7 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import gtm_cleanroom_audit as cleanroom_audit  # noqa: E402
+import gtm_projection_review as projection_review  # noqa: E402
 from gtm_audit_contract import (  # noqa: E402
     DECISION_CLASSES,
     HUMAN_DECISION_LABELS,
@@ -732,6 +733,53 @@ class V2WorkflowTests(unittest.TestCase):
         with mock.patch.object(Path, "iterdir", side_effect=OSError("denied")):
             _files, errors = cleanroom_audit._regular_tree_files(tree)
         self.assertTrue(any("cannot enumerate protected tree" in error for error in errors))
+
+    def test_rehashed_locked_input_paths_cannot_escape_review_bundles(self) -> None:
+        outside = self.root / "outside-locked-input.json"
+        outside.write_text('{"outside": true}\n', encoding="utf-8")
+        outside_before = outside.read_bytes()
+
+        audit_bundle = self.root / "audit-bundle"
+        audit_bundle.mkdir()
+        audit_manifest = {
+            "allowed_files": [
+                {
+                    "path": "../outside-locked-input.json",
+                    "sha256": file_sha256(outside),
+                    "mutable": False,
+                }
+            ]
+        }
+        audit_manifest["bundle_manifest_sha256"] = stable_hash(
+            audit_manifest, 64
+        )
+        (audit_bundle / cleanroom_audit.BUNDLE_MANIFEST_FILE).write_text(
+            json.dumps(audit_manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        _manifest, errors = cleanroom_audit._bundle_manifest_errors(audit_bundle)
+        self.assertTrue(any("remain inside" in error for error in errors), errors)
+
+        projection_bundle = self.root / "projection-bundle"
+        projection_bundle.mkdir()
+        projection_manifest = {
+            "locked_files": [
+                {
+                    "path": "../outside-locked-input.json",
+                    "sha256": file_sha256(outside),
+                }
+            ]
+        }
+        projection_manifest["bundle_manifest_sha256"] = stable_hash(
+            projection_manifest, 64
+        )
+        (projection_bundle / projection_review.REVIEW_MANIFEST_FILE).write_text(
+            json.dumps(projection_manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        errors = projection_review._manifest_errors(projection_bundle)
+        self.assertTrue(any("remain inside" in error for error in errors), errors)
+        self.assertEqual(outside_before, outside.read_bytes())
 
     def test_package_root_redirect_is_rejected_before_any_write(self) -> None:
         empty_target = self.root / "external-empty-package-target"
