@@ -1,7 +1,7 @@
-# GTM Container Audit & Cleanup
+# GTM Container Audit & Optimize
 
-A reusable Codex skill for static, container-only Google Tag Manager audit and
-optimisation. Version 2 replaces the former three complementary reviews and
+A reusable Codex skill for static Google Tag Manager web-container audit and
+optimization. Version 2.1 replaces the former three complementary reviews and
 mutation-era tooling with one verified scan, two host-scoped complete semantic
 audits, deterministic target closure, and one analyst workbook.
 
@@ -20,16 +20,16 @@ lifecycle graphs, duplicates and overlap, tag/template configuration, triggers,
 priority/sequencing, CMP and consent architecture, Advanced Consent Mode,
 client-to-server transport, variables, effective Google Configuration/Event
 Settings, destination/page-view ownership, GA4/ecommerce/vendor semantics,
-transformations, identity and sensitive fields, custom code/templates, Zones and
-portability, naming, static complexity, business architecture, exact operations,
-and fixed-point cleanup.
+source-to-destination value semantics, identity and sensitive fields, custom
+code/templates, Zones and portability, naming, static complexity, business
+architecture, exact operations, and fixed-point optimization.
 
 Important architectural positions include:
 
 - direct non-Advanced vendor tags use a consent-free positive trigger plus one
   reusable denial blocker;
 - pure client-to-server transporters use firing triggers only and inherit one
-  canonical consent value for server-side enforcement;
+  canonical consent value for explicitly approved downstream enforcement;
 - explicit firing priority is retained only for a proven same-event start-order
   need;
 - Google Configuration Settings and Event Settings are used only where effective
@@ -37,6 +37,11 @@ Important architectural positions include:
 - `gtagConfig` direct settings and same-destination differences are explicit
   audited surfaces, while variable-backed transport hosts are resolved only from
   route-owned chains and independently assured.
+
+Client-to-server transport remains in scope because its route, field ownership,
+and consent forwarding are configured in the web container. Server-container
+exports and server-container Clients, Transformations, and templates are outside
+the skill.
 
 See [audit-coverage.md](references/03-rules/audit-coverage.md) for the complete
 contract.
@@ -57,10 +62,11 @@ source lock
 ```
 
 Both audits cover every semantic obligation; their object-first and target-first
-orders reduce correlated misses. The execution host must make the peer audit
-inaccessible until both are sealed; bundle hashes and receipts validate that
-contract without pretending JSON alone proves access control. A third full audit
-is replaced by neutral verification of disagreements,
+orders reduce correlated misses. Both may read the same version-locked skill
+rules, while the execution host must make the peer audit and downstream judgments
+inaccessible until both are sealed. Bundle hashes validate artifact identity and
+receipts record the host action for traceability; neither proves access control.
+A third full audit is replaced by neutral verification of disagreements,
 one-sided findings, and material-risk conclusions.
 
 One ownership-aware registry enforces context and host-receipt freshness across
@@ -126,7 +132,9 @@ python -B scripts/build_skill_package.py <new-empty-output-directory>
 ```
 
 Set `CODEX_NODE` and `CODEX_ARTIFACT_NODE_MODULES` to the exact paths returned by
-the workspace dependency loader before release validation. CI deliberately runs
+the workspace dependency loader and run
+`& $env:CODEX_NODE scripts/gtm_workbook_build.mjs --preflight` before package
+creation. CI deliberately runs
 `gtm_self_test.py --code-only` because the bundled workbook runtime is
 host-provided; only the release-complete local self-test may claim workbook
 validation. If that runtime is unavailable, workbook delivery blocks rather than

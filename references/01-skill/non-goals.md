@@ -12,7 +12,8 @@ This skill does not:
   workbook as execution approval;
 - generate an execution preflight, post-change readback certification, change
   log, or audit-to-audit delta;
-- audit an unseen server container; or
+- accept or audit a server-container export, Client, Transformation, or
+  server-template implementation; or
 - provide a reduced-depth, one-audit, same-context, or legacy three-run fallback.
 
 Use a runtime recette or consent/privacy audit for browser-observed behaviour,

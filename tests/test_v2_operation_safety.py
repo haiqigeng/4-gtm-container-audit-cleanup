@@ -562,7 +562,6 @@ class V2OperationSafetyTests(unittest.TestCase):
         )
         cv = container_version(projected)
         self.assertNotIn("zone", cv)
-        self.assertNotIn("client", cv)
 
     def test_non_convergence_has_a_fixed_blocking_outcome(self) -> None:
         self.assertEqual(3, MAX_CYCLES)

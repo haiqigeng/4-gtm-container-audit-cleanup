@@ -1,8 +1,8 @@
-# GTM Container Audit & Cleanup — v2 Evolution Record
+# GTM Container Audit & Optimize — v2.1 Evolution Record
 
 ## Status And Authority
 
-This document records the product decisions that produced the v2 static audit
+This document records the product decisions that produced the v2.1 static audit
 workflow. It is an evolution record, not a second runtime contract.
 
 The authoritative implementation sources are:
@@ -53,7 +53,8 @@ read-only evidence and ends at one validated analyst workbook.
 
 It does not:
 
-- audit a server container or accept a server-container export;
+- audit a server container, accept a server-container export, or model
+  server-container Clients, Transformations, or templates;
 - run GTM Preview, browser, network, data-layer, cookie, or CMP runtime checks;
 - design missing measurement requirements or a tracking plan;
 - decide legal compliance;
@@ -113,9 +114,9 @@ owner. Do not infer obsolescence from an unclear name.
 ### 3. Dependency And Reference Graph
 
 Recursively resolve variables, triggers, blockers, trigger groups, sequencing,
-folders, templates, Zones, settings, destinations, clients, and transformations.
-Detect cycles, missing references, ambiguous targets, and all consumers that must
-be remapped before retirement.
+folders, templates, Zones, settings, destinations, and every web-container value
+path. Detect cycles, missing references, ambiguous targets, and all consumers
+that must be remapped before retirement.
 
 ### 4. Lifecycle, Reachability, And Usage
 
@@ -161,6 +162,11 @@ blocker, CMP source, exact token matching, Additional/Built-In checks, repetitio
 firing option, and later-grant behaviour. Enforce the direct non-Advanced blocker
 architecture without vendor exceptions.
 
+For page-load routes, assess whether the configured CMP lifecycle/update event
+provides a later-grant firing opportunity or whether an approved reload dependency
+is explicit. If neither is established, retain an owner decision or evidence
+limit; never move granted-state consent into the positive trigger.
+
 ### 11. Advanced Consent Mode
 
 Inspect Google destinations, default/update writers, consent types, timing,
@@ -181,7 +187,7 @@ every route host; otherwise client-gate removal remains blocked.
 Reconcile every web-container transport host, destination, event identifier,
 consent-forwarding field, settings owner, and mixed-route branch. Report whether
 the client handoff is aligned and state that downstream enforcement is unseen.
-Never request or inspect a server-container export in v2.
+Never request or inspect a server-container export in v2.1.
 
 ### 14. Variable Graph And Source Contracts
 
@@ -226,11 +232,12 @@ keys, route, template, scripts, and deprecated fields against a current official
 or installed-template contract. Unknown integrations remain blocked evidence
 limits.
 
-### 20. Transformations And Source-To-Destination Semantics
+### 20. Source-To-Destination Value Semantics
 
-Trace values through variables, transformations, settings, overrides, payloads,
-and destinations, preserving type, cardinality, null, empty, zero, false, array,
-and object meaning. Prefer fixing the source over keeping compensating transforms.
+Trace values through variables, lookup or code-based mappings, settings,
+overrides, payloads, and destinations, preserving type, cardinality, null, empty,
+zero, false, array, and object meaning. Prefer fixing the source over keeping
+compensating mappings. Do not inspect server-container Transformation objects.
 
 ### 21. First-Party Data, Identity, And Privacy-Sensitive Fields
 
@@ -272,7 +279,7 @@ destination, loader, consent owner, route, source, market, brand, and product;
 include singletons and open discovery. Define what a senior analyst would build
 from empty for the same proven needs.
 
-### 27. Exact Operations And Fixed-Point Cleanup
+### 27. Exact Operations And Fixed-Point Optimization
 
 Compile exact creates, additions, changes, named-field removals, remaps, renames,
 pauses, deletions, dependencies, verification, and rollback. Project the complete
@@ -307,9 +314,10 @@ Run two complete host-scoped audits concurrently:
 - Audit B traverses families and target architecture first.
 
 Both cover every applicable semantic obligation. Separate allowlisted bundles,
-context IDs, and host-issued isolation receipts are mandatory. Audit B is
-generated-candidate-blind until its source-only checkpoint. Neither audit may see
-the other's work before both are sealed.
+context IDs, and host-issued isolation receipts are mandatory. Both may read the
+same version-locked skill rules; neither may see the other's work before both are
+sealed. Receipts provide traceability and binding, not proof of host access
+control. Audit B is generated-candidate-blind until its source-only checkpoint.
 
 ### Stage 5 — Neutral Reconciliation
 
@@ -425,7 +433,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved fifty-nine issues:
+The repeated pre-release review found and resolved sixty-two issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -605,10 +613,10 @@ The repeated pre-release review found and resolved fifty-nine issues:
 44. One invalid work-unit strategy could stop validation before sibling schema
     defects were reported. Validation now retains the complete deterministic
     error set so malformed evidence cannot hide another obligation failure.
-45. Areas 20 and 23 could be marked inapplicable when optional Transformation,
-    Zone, or Google-settings layers were absent even though behavior-bearing
-    objects still carried semantic or portability obligations. Applicability is
-    now counted from the complete relevant raw scope and independently assured.
+45. Areas 20 and 23 could be marked inapplicable when optional mapping, Zone, or
+    Google-settings surfaces were absent even though behavior-bearing web objects
+    still carried semantic or portability obligations. Applicability is now
+    counted from the complete relevant raw scope and independently assured.
 46. Duplicate Configuration or Event Settings variable names were collapsed to
     one export-order owner. Effective-settings facts and assurance now preserve
     every candidate, identify the reference as ambiguous, and conservatively
@@ -620,10 +628,11 @@ The repeated pre-release review found and resolved fifty-nine issues:
 48. Rename and pause actions did not participate in the shared write-conflict
     model. They now conflict on `$.name` and `$.paused`, reject contradictory
     packets, and reject blank or no-op operations.
-49. A legacy `unresolved_questions` context channel remained as a compatibility
-    path beside structured intake questions. It was removed; unknown provided
-    context fields now fail the closed contract and only typed `intake_questions`
-    plus `intake_status` persist.
+49. Generated intake-question and status channels over-scripted the agent's
+    interaction and asked for context that could remain an evidence-bound
+    decision. They were removed. Unknown provided context fields still fail the
+    closed contract; the agent asks only for the explicitly missing source or the
+    smallest non-inferable fact needed for a safe conclusion.
 50. Correctly rehashed workbook, editorial, audit, canonical, projection, or
     review manifests could carry `..` or drive-qualified paths and cause reads or
     writes outside the package. One closed canonical-relative-path contract now
@@ -675,9 +684,23 @@ The repeated pre-release review found and resolved fifty-nine issues:
     gate environment-dependent. The registry now cites Cookiebot's equivalent
     first-party GTM resource on its public product domain, retaining an official
     source while making the same fail-closed check portable across release hosts.
+60. The interaction contract still allowed source discovery and generated fixed
+    prompts for optional context. Source selection is now always explicit, only
+    the validated-start and successful-completion messages are frozen, and every
+    other necessary clarification remains contextual.
+61. The WEB-only gate still carried dormant server-container Clients,
+    Transformations, and server-template code through canonical layers and
+    reviewers. Those entities and modules were removed end to end; a server-only
+    layer or template section now blocks as unsupported, while web-side
+    client-to-server route and consent-forwarding analysis remains intact.
+62. The v2.1 release aligned the canonical skill identity, package metadata, UI
+    prompt, and evolution record on `gtm-container-audit-optimize`. It also made
+    the missing-source request the only frozen start message, added an early
+    reuse of the existing workbook-runtime preflight, clarified shared-rule versus
+    peer-judgment access, and bounded the static evidence and privacy wording.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
-removed from this document. No server-container audit exists in v2.
+removed from this document. No server-container audit exists in v2.1.
 
 ## Release Validation Contract
 
@@ -708,4 +731,4 @@ Release requires all of the following to pass from a clean final commit:
   or downstream server enforcement.
 - Server-container audit, runtime recette, GTM mutation, execution approval,
   change logs, and audit deltas may be designed later only as separate authorised
-  capabilities. They are not partial or dormant paths in v2.
+  capabilities. They are not partial or dormant paths in v2.1.

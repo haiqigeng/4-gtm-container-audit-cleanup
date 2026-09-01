@@ -98,6 +98,13 @@ granted-state condition. Use a CMP readiness/lifecycle event for page-load timin
 or the real business event for later actions, plus one reusable denial blocker
 per vendor/purpose/category. Unknown and absent state fail closed.
 
+For each page-load route, resolve from locked configuration and current CMP
+documentation whether a lifecycle/update event gives the tag another eligible
+firing opportunity after a later grant, or whether an approved reload dependency
+is explicit. If neither is established, return an `owner_decision` or
+`container_evidence_limit`; do not recommend duplicating consent in the positive
+trigger.
+
 Do not use Additional Consent Checks as the configurable gate in this selected
 architecture. Record Built-In Consent Checks as intrinsic template behaviour;
 they cannot be disabled and do not prove Advanced Consent Mode. Confirm Advanced
@@ -146,7 +153,7 @@ Inspect installed custom-template metadata, permissions, allowed domains, and
 version. Prefer native or reviewed template behaviour over custom code only when
 full value/type/timing/consent/route equivalence is proven.
 
-Treat `gtagConfig`, Zones, clients, and transformations as first-class objects.
-For Zones inspect child containers, boundary triggers, type restrictions,
-allowlists, permissions, and duplicated parent/child ownership. An unseen child
-container is an evidence boundary.
+Treat `gtagConfig` and Zones as first-class web-container objects. For Zones
+inspect child containers, boundary triggers, type restrictions, allowlists,
+permissions, and duplicated parent/child ownership. An unseen child container is
+an evidence boundary. Never model server-container Clients or Transformations.

@@ -37,10 +37,7 @@ CONSENT_FIELD_RE = re.compile(
 )
 CODE_PARAMETER_KEYS = {"html", "javascript"}
 CUSTOM_TEMPLATE_SECTION_RE = re.compile(r"(?m)^___([A-Z0-9_]+)___\s*$")
-CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS = (
-    "SANDBOXED_JS_FOR_WEB_TEMPLATE",
-    "SANDBOXED_JS_FOR_SERVER_TEMPLATE",
-)
+CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS = ("SANDBOXED_JS_FOR_WEB_TEMPLATE",)
 GOOGLE_TAG_TYPES = {"googtag", "gaawe", "gaawc", "gclidw", "flc", "fls"}
 GOOGLE_CONFIGURATION_TYPES = {"googtag", "gaawc"}
 GOOGLE_EVENT_TYPES = {"gaawe", "googtag"}
@@ -93,7 +90,6 @@ RAW_APPLICABILITY_LAYERS = {
     "variable",
     "customTemplate",
     "gtagConfig",
-    "transformation",
 }
 RAW_ECOMMERCE_SIGNAL_RE = re.compile(
     r"\becommerce\b|\bpurchase\b|\brefund\b|\bitems\b|\btransaction[_ .-]?id\b",
@@ -102,6 +98,51 @@ RAW_ECOMMERCE_SIGNAL_RE = re.compile(
 RAW_SENSITIVE_DATA_SIGNAL_RE = re.compile(
     r"\bemail\b|\bphone\b|\buser[_ .-]?id\b|\buser[_ .-]?data\b|\baddress\b",
     re.I,
+)
+INDEPENDENT_BEHAVIOR_NEUTRAL_FIELDS = frozenset(
+    {
+        "accountId",
+        "containerId",
+        "workspaceId",
+        "fingerprint",
+        "path",
+        "tagManagerUrl",
+        "notes",
+        "parentFolderId",
+    }
+)
+INDEPENDENT_VENDOR_NEUTRAL_FIELDS = frozenset(
+    {
+        *INDEPENDENT_BEHAVIOR_NEUTRAL_FIELDS,
+        "name",
+        "monitoringMetadata",
+        "monitoringMetadataTagNameKey",
+    }
+)
+INDEPENDENT_SEMANTIC_LAYERS = frozenset(
+    {"tag", "trigger", "variable", "zone", "customTemplate", "gtagConfig"}
+)
+INDEPENDENT_VENDOR_RESEARCH_OWNER_LAYERS = frozenset(
+    {"tag", "variable", "zone", "customTemplate", "gtagConfig"}
+)
+INDEPENDENT_CMP_TIMING_EVENTS = (
+    "didomi-consent",
+    "didomi-ready",
+    "didomi-consent-changed",
+    "OneTrustLoaded",
+    "OneTrustGroupsUpdated",
+    "OTConsentApplied",
+)
+INDEPENDENT_CONSENT_CONTROL_RE = re.compile(
+    r"consent|didomi|onetrust|optanon|cookiebot|analytics_storage|ad_storage|"
+    r"ad_user_data|ad_personalization|enabled[_ -]?vendors|active[_ -]?groups|"
+    r"purpose(?:s)?[_ -]?(?:enabled|consent|status)",
+    re.I,
+)
+INDEPENDENT_COMMENT_OR_LITERAL_RE = re.compile(
+    r"(?P<literal>'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`)"
+    r"|(?P<comment>/\*.*?\*/|//[^\r\n]*|<!--.*?-->)",
+    re.S,
 )
 
 
@@ -378,6 +419,39 @@ def _scan_reference_edges(scan: dict[str, Any]) -> list[dict[str, str]]:
     )
 
 
+def _independent_behavior_references(obj: Any) -> set[str]:
+    """Extract root behavior references without using the canonical helper."""
+
+    references: set[str] = set()
+
+    def visit(value: Any, *, root: bool = False) -> None:
+        if isinstance(value, str):
+            references.update(REF_RE.findall(value))
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+
+        is_custom_template = root and "templateId" in value and "templateData" in value
+        for key, item in value.items():
+            if root and key in {
+                *INDEPENDENT_BEHAVIOR_NEUTRAL_FIELDS,
+                *ID_KEYS.values(),
+                "name",
+            }:
+                continue
+            if is_custom_template and key == "templateData":
+                visit(_independent_template_code(item))
+            else:
+                visit(item)
+
+    visit(obj, root=isinstance(obj, dict))
+    return references
+
+
 def _terminal_sources(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
     variables_by_name = {
         row["object_name"]: row
@@ -391,7 +465,7 @@ def _terminal_sources(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row = variables_by_name.get(name)
         if not row:
             return {"name": name, "state": "builtin_or_missing", "terminals": [name]}
-        nested = sorted(set(REF_RE.findall(json.dumps(row["object"], ensure_ascii=False))))
+        nested = sorted(_independent_behavior_references(row["object"]))
         if not nested:
             return {
                 "name": name,
@@ -416,7 +490,7 @@ def _terminal_sources(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
         {
             reference
             for row in objects
-            for reference in REF_RE.findall(json.dumps(row["object"], ensure_ascii=False))
+            for reference in _independent_behavior_references(row["object"])
         }
     )
     return [visit(name, ()) for name in referenced]
@@ -514,6 +588,36 @@ def _independent_trigger_event_values(value: Any) -> list[str]:
     )
 
 
+def _independent_trigger_has_consent_condition(value: Any) -> bool:
+    """Detect consent control while excluding known CMP timing event literals."""
+
+    pending: list[Any] = [value]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            pending.extend(node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        parameters = {
+            str(parameter.get("key") or ""): parameter.get("value")
+            for parameter in as_list(node.get("parameter"))
+            if isinstance(parameter, dict)
+            and str(parameter.get("key") or "")
+            and parameter.get("value") is not None
+            and not isinstance(parameter.get("value"), (dict, list))
+        }
+        if "arg0" in parameters and "arg1" in parameters:
+            rendered = json.dumps(node, ensure_ascii=False)
+            for event in INDEPENDENT_CMP_TIMING_EVENTS:
+                rendered = re.sub(re.escape(event), "", rendered, flags=re.I)
+            rendered = re.sub(r"\b_event\b", "", rendered, flags=re.I)
+            if INDEPENDENT_CONSENT_CONTROL_RE.search(rendered):
+                return True
+        pending.extend(node.values())
+    return False
+
+
 def _trigger_and_control_facts(objects: list[dict[str, Any]]) -> dict[str, Any]:
     triggers = {
         row["object_id"]: row for row in objects if row["layer"] == "trigger"
@@ -521,7 +625,6 @@ def _trigger_and_control_facts(objects: list[dict[str, Any]]) -> dict[str, Any]:
     trigger_rows = []
     for trigger_id, row in sorted(triggers.items()):
         event_values = _independent_trigger_event_values(row["object"])
-        serialized = json.dumps(row["object"], ensure_ascii=False)
         trigger_rows.append(
             {
                 "trigger_id": trigger_id,
@@ -529,20 +632,23 @@ def _trigger_and_control_facts(objects: list[dict[str, Any]]) -> dict[str, Any]:
                 "event_value_hashes": [
                     stable_hash(configured, 32) for configured in event_values
                 ],
-                "contains_consent_term": bool(CONSENT_FIELD_RE.search(serialized)),
+                "contains_consent_condition": _independent_trigger_has_consent_condition(
+                    row["object"]
+                ),
             }
         )
-    attachments = []
-    for row in objects:
-        if row["layer"] != "tag":
-            continue
-        attachments.append(
+    attachments = sorted(
+        (
             {
                 "object_key": row["object_key"],
                 "firing": sorted(str(value) for value in as_list(row["object"].get("firingTriggerId"))),
                 "blocking": sorted(str(value) for value in as_list(row["object"].get("blockingTriggerId"))),
             }
-        )
+            for row in objects
+            if row["layer"] == "tag"
+        ),
+        key=lambda item: item["object_key"],
+    )
     return {"triggers": trigger_rows, "attachments": attachments}
 
 
@@ -566,34 +672,32 @@ def _scan_trigger_and_control_facts(scan: dict[str, Any]) -> dict[str, Any]:
             for value in as_list(parsed.get("event_names"))
             if str(value).strip()
         ]
-        contains_consent = False
-        for leaf in as_list(row.get("source_leaf_facts")):
-            if not isinstance(leaf, dict):
-                continue
-            path = str(leaf.get("json_path") or "")
-            if CONSENT_FIELD_RE.search(
-                f"{path} {leaf.get('value_preview') or ''}"
-            ):
-                contains_consent = True
         trigger_rows.append(
             {
                 "trigger_id": str(row.get("object_id") or ""),
                 "source_json_path": str(row.get("source_json_path") or ""),
                 "event_value_hashes": sorted(set(event_hashes)),
-                "contains_consent_term": contains_consent,
+                "contains_consent_condition": bool(
+                    parsed.get("contains_consent_condition")
+                ),
             }
         )
-    attachments = [
-        {
-            "object_key": str(row.get("object_key") or ""),
-            "firing": sorted(str(value) for value in as_list(row.get("firing_trigger_ids"))),
-            "blocking": sorted(
-                str(value) for value in as_list(row.get("blocking_trigger_ids"))
-            ),
-        }
-        for row in objects
-        if row.get("layer") == "tag"
-    ]
+    attachments = sorted(
+        (
+            {
+                "object_key": str(row.get("object_key") or ""),
+                "firing": sorted(
+                    str(value) for value in as_list(row.get("firing_trigger_ids"))
+                ),
+                "blocking": sorted(
+                    str(value) for value in as_list(row.get("blocking_trigger_ids"))
+                ),
+            }
+            for row in objects
+            if row.get("layer") == "tag"
+        ),
+        key=lambda item: item["object_key"],
+    )
     return {"triggers": trigger_rows, "attachments": attachments}
 
 
@@ -1768,7 +1872,7 @@ def _strip_nonbehavior_comments(text: str) -> str:
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
     text = re.sub(r"(?m)^\s*//.*$", "", text)
-    return text.strip()
+    return text
 
 
 def _independent_template_code(template_data: Any) -> str:
@@ -1895,56 +1999,200 @@ def _vendor_patterns(registry_path: Path) -> list[dict[str, Any]]:
     return [row for row in as_list(payload.get("vendors")) if isinstance(row, dict)]
 
 
+def _independent_strip_code_comments(value: str) -> str:
+    return INDEPENDENT_COMMENT_OR_LITERAL_RE.sub(
+        lambda match: match.group("literal") or " ",
+        value,
+    )
+
+
+def _independent_vendor_behavior_text(row: dict[str, Any]) -> str:
+    obj = row["object"]
+    layer = str(row.get("layer") or "")
+    payload: Any = obj
+    if layer == "customTemplate":
+        payload = {
+            "type": obj.get("type"),
+            "templateId": obj.get("templateId"),
+            "executable_code": _independent_template_code(obj.get("templateData")),
+        }
+
+    def project(value: Any) -> Any:
+        if isinstance(value, dict):
+            parameter_key = str(value.get("key") or "").casefold()
+            projected = {}
+            for key, child in value.items():
+                if key in INDEPENDENT_VENDOR_NEUTRAL_FIELDS:
+                    continue
+                is_parameter_code = (
+                    key == "value"
+                    and parameter_key in {"html", "javascript"}
+                    and isinstance(child, str)
+                )
+                if is_parameter_code or (
+                    key in {"html", "javascript", "executable_code"}
+                    and isinstance(child, str)
+                ):
+                    projected[key] = _independent_strip_code_comments(child)
+                else:
+                    projected[key] = project(child)
+            return projected
+        if isinstance(value, list):
+            return [project(child) for child in value]
+        return value
+
+    return json.dumps(project(payload), ensure_ascii=False, sort_keys=True)
+
+
+def _independent_vendor_names(
+    text: str, vendors: list[dict[str, Any]]
+) -> set[str]:
+    by_name = {
+        str(vendor.get("name") or ""): vendor
+        for vendor in vendors
+        if str(vendor.get("name") or "")
+    }
+    matched: set[str] = set()
+    if re.search(r"\bUA-\d|universal analytics|\"type\"\s*:\s*\"ua\"", text, re.I):
+        if "Universal Analytics (legacy)" in by_name:
+            matched.add("Universal Analytics (legacy)")
+    elif "Google Ads" in by_name and re.search(
+        r"\bAW-[A-Z0-9-]+|google ads|adwords|conversion linker", text, re.I
+    ):
+        matched.add("Google Ads")
+    for name, vendor in by_name.items():
+        if any(
+            re.search(str(pattern), text, re.I)
+            for pattern in as_list(vendor.get("patterns"))
+            if str(pattern)
+        ):
+            matched.add(name)
+    return matched
+
+
+def _independent_vendor_consumers(
+    objects: list[dict[str, Any]],
+) -> dict[str, set[str]]:
+    semantic_rows = [
+        row for row in objects if row.get("layer") in INDEPENDENT_SEMANTIC_LAYERS
+    ]
+    variables_by_name: dict[str, list[str]] = defaultdict(list)
+    templates_by_id: dict[str, str] = {}
+    template_types: dict[str, set[str]] = defaultdict(set)
+    for row in semantic_rows:
+        if row.get("layer") == "variable" and row.get("object_name"):
+            variables_by_name[str(row["object_name"])].append(str(row["object_key"]))
+        if row.get("layer") != "customTemplate":
+            continue
+        obj = row["object"]
+        template_id = str(obj.get("templateId") or "").strip()
+        if not template_id:
+            continue
+        templates_by_id[template_id] = str(row["object_key"])
+        account_id = str(obj.get("accountId") or "").strip()
+        if account_id:
+            template_types[f"cvt_{account_id}_{template_id}"].add(template_id)
+        gallery = obj.get("galleryReference")
+        gallery_id = (
+            str(gallery.get("galleryTemplateId") or "").strip()
+            if isinstance(gallery, dict)
+            else ""
+        )
+        if gallery_id:
+            template_types[f"cvt_{gallery_id}"].add(template_id)
+
+    consumers: dict[str, set[str]] = defaultdict(set)
+    for row in semantic_rows:
+        consumer_key = str(row["object_key"])
+        for leaf in _walk(row["object"], str(row["source_json_path"])):
+            for reference in leaf["references"]:
+                for variable_key in variables_by_name.get(reference, []):
+                    consumers[variable_key].add(consumer_key)
+
+        if row.get("layer") not in {"tag", "variable", "gtagConfig"}:
+            continue
+        type_token = str(row["object"].get("type") or "")
+        legacy = re.fullmatch(r"cvt_\d+_(\d+)", type_token)
+        template_ids = (
+            {legacy.group(1)} if legacy else set(template_types.get(type_token, set()))
+        )
+        for template_id in template_ids:
+            template_key = templates_by_id.get(template_id)
+            if template_key:
+                consumers[template_key].add(consumer_key)
+    return dict(consumers)
+
+
 def _vendor_and_unknown_ownership(
     objects: list[dict[str, Any]], registry_path: Path
 ) -> dict[str, Any]:
     vendors = _vendor_patterns(registry_path)
-    matched = []
-    unmatched_hosts: dict[str, list[str]] = defaultdict(list)
-    variables_by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in objects:
-        name = str(row.get("object_name") or "")
-        if row.get("layer") == "variable" and name:
-            variables_by_name[name].append(row["object"])
-    for row in objects:
-        serialized = json.dumps(row["object"], ensure_ascii=False)
-        route_hosts = _independent_effective_object_route_hosts(
-            row["object"],
-            variables_by_name,
-        )
-        identities = []
-        for vendor in vendors:
-            if any(
-                re.search(str(pattern), serialized, re.I)
-                for pattern in as_list(vendor.get("patterns"))
-                if str(pattern)
-            ):
-                identities.append(str(vendor.get("name") or ""))
-        if identities:
-            matched.append(
-                {"object_key": row["object_key"], "vendor_names": sorted(set(identities))}
-            )
+    semantic_rows = [
+        row for row in objects if row.get("layer") in INDEPENDENT_SEMANTIC_LAYERS
+    ]
+    direct_consumers = _independent_vendor_consumers(semantic_rows)
+    own_known: dict[str, set[str]] = {}
+    own_unknown: dict[str, set[str]] = {}
+    layers_by_key = {
+        str(row["object_key"]): str(row.get("layer") or "") for row in semantic_rows
+    }
+
+    for row in semantic_rows:
+        object_key = str(row["object_key"])
+        serialized = _independent_vendor_behavior_text(row)
+        known_names = _independent_vendor_names(serialized, vendors)
+        route_hosts = _independent_route_hosts_from_object(row["object"])
+        unknown_names: set[str] = set()
         for raw_url in URL_RE.findall(serialized):
             host = (urlparse(raw_url).hostname or "").casefold()
             if not host or host in route_hosts:
                 continue
-            known = any(
-                re.search(str(pattern), host, re.I)
-                for vendor in vendors
-                for pattern in as_list(vendor.get("patterns"))
-                if str(pattern)
+            if not _independent_vendor_names(host, vendors):
+                unknown_names.add(f"Unclassified external integration ({host})")
+        if not known_names and not unknown_names and row.get("layer") == "customTemplate":
+            cue = str(
+                row["object"].get("name")
+                or row["object"].get("type")
+                or object_key
             )
-            if not known:
-                unmatched_hosts[host].append(row["object_key"])
-    unknown = [
-        {
-            "identity": host,
-            "candidate_object_keys": sorted(set(keys)),
-            "canonical_research_owner": sorted(set(keys))[0],
-        }
-        for host, keys in sorted(unmatched_hosts.items())
-    ]
-    return {"matched": matched, "unknown": unknown}
+            unknown_names.add(f"Unclassified external integration ({cue})")
+        own_known[object_key] = known_names
+        own_unknown[object_key] = unknown_names
+
+    research_owners: dict[str, str] = {}
+    for object_key in sorted(own_unknown):
+        if layers_by_key.get(object_key) not in INDEPENDENT_VENDOR_RESEARCH_OWNER_LAYERS:
+            continue
+        for identity in sorted(own_unknown[object_key]):
+            research_owners.setdefault(identity, object_key)
+
+    matched_pairs: set[tuple[str, str]] = set()
+    for source_key in sorted(layers_by_key):
+        pending = [source_key]
+        seen: set[str] = set()
+        while pending:
+            current = pending.pop(0)
+            if current in seen:
+                continue
+            seen.add(current)
+            matched_pairs.update((source_key, name) for name in own_known.get(current, set()))
+            pending.extend(sorted(direct_consumers.get(current, set()) - seen))
+
+    unknown_candidates: dict[str, set[str]] = defaultdict(set)
+    for object_key, identities in own_unknown.items():
+        for identity in identities:
+            unknown_candidates[identity].add(object_key)
+    return {
+        "matched_pairs": [list(pair) for pair in sorted(matched_pairs)],
+        "unknown": [
+            {
+                "identity": identity,
+                "candidate_object_keys": sorted(candidate_keys),
+                "canonical_research_owner": research_owners.get(identity, ""),
+            }
+            for identity, candidate_keys in sorted(unknown_candidates.items())
+        ],
+    }
 
 
 def _scan_vendor_and_unknown_ownership(scan: dict[str, Any]) -> dict[str, Any]:
@@ -1964,25 +2212,22 @@ def _scan_vendor_and_unknown_ownership(scan: dict[str, Any]) -> dict[str, Any]:
             if category != "unknown_vendor" and vendor:
                 matched.add((object_key, vendor))
                 continue
+            if not vendor:
+                continue
             owner = str(context.get("research_owner_object_key") or "")
-            for cue in as_list(context.get("detection_evidence")):
-                cue_text = str(cue or "")
-                host = (urlparse(cue_text).hostname or cue_text).casefold()
-                if not host or "." not in host:
-                    continue
-                current = unknown_by_identity.setdefault(
-                    host,
-                    {
-                        "identity": host,
-                        "candidate_object_keys": set(),
-                        "canonical_research_owner": owner,
-                    },
-                )
-                current["candidate_object_keys"].add(object_key)
-                if owner and current["canonical_research_owner"] != owner:
-                    current["canonical_research_owner"] = "<conflict>"
+            current = unknown_by_identity.setdefault(
+                vendor,
+                {
+                    "identity": vendor,
+                    "candidate_object_keys": set(),
+                    "canonical_research_owner": owner,
+                },
+            )
+            current["candidate_object_keys"].add(object_key)
+            if current["canonical_research_owner"] != owner:
+                current["canonical_research_owner"] = "<conflict>"
     return {
-        "matched_pairs": sorted(matched),
+        "matched_pairs": [list(pair) for pair in sorted(matched)],
         "unknown": [
             {
                 "identity": identity,
@@ -1998,41 +2243,59 @@ def _vendor_coverage_check(
     raw: dict[str, Any], observed: dict[str, Any]
 ) -> dict[str, Any]:
     expected_pairs = {
-        (str(row.get("object_key") or ""), str(vendor))
-        for row in as_list(raw.get("matched"))
-        if isinstance(row, dict)
-        for vendor in as_list(row.get("vendor_names"))
+        (str(pair[0]), str(pair[1]))
+        for pair in as_list(raw.get("matched_pairs"))
+        if isinstance(pair, (list, tuple)) and len(pair) == 2
     }
     observed_pairs = {
         (str(pair[0]), str(pair[1]))
         for pair in as_list(observed.get("matched_pairs"))
         if isinstance(pair, (list, tuple)) and len(pair) == 2
     }
-    raw_unknown = {
-        str(row.get("identity") or ""): str(row.get("canonical_research_owner") or "")
+    expected_unknown = {
+        str(row.get("identity") or ""): (
+            tuple(sorted(str(key) for key in as_list(row.get("candidate_object_keys")))),
+            str(row.get("canonical_research_owner") or ""),
+        )
         for row in as_list(raw.get("unknown"))
         if isinstance(row, dict)
     }
     observed_unknown = {
-        str(row.get("identity") or ""): str(row.get("canonical_research_owner") or "")
+        str(row.get("identity") or ""): (
+            tuple(sorted(str(key) for key in as_list(row.get("candidate_object_keys")))),
+            str(row.get("canonical_research_owner") or ""),
+        )
         for row in as_list(observed.get("unknown"))
         if isinstance(row, dict)
     }
     missing_pairs = sorted(expected_pairs - observed_pairs)
-    owner_mismatches = sorted(
+    unexpected_pairs = sorted(observed_pairs - expected_pairs)
+    missing_unknown = sorted(set(expected_unknown) - set(observed_unknown))
+    unexpected_unknown = sorted(set(observed_unknown) - set(expected_unknown))
+    unknown_detail_mismatches = sorted(
         identity
-        for identity, owner in raw_unknown.items()
-        if observed_unknown.get(identity) != owner
+        for identity in set(expected_unknown) & set(observed_unknown)
+        if expected_unknown[identity] != observed_unknown[identity]
     )
+    mismatches = [
+        *missing_pairs,
+        *unexpected_pairs,
+        *missing_unknown,
+        *unexpected_unknown,
+        *unknown_detail_mismatches,
+    ]
     return {
         "check_id": "vendor_classification_and_research_ownership",
-        "status": "pass" if not missing_pairs and not owner_mismatches else "mismatch",
+        "status": "pass" if not mismatches else "mismatch",
         "expected_matched_count": len(expected_pairs),
         "observed_matched_count": len(observed_pairs),
-        "expected_unknown_count": len(raw_unknown),
+        "expected_unknown_count": len(expected_unknown),
         "observed_unknown_count": len(observed_unknown),
         "missing_matched_pairs": missing_pairs,
-        "unknown_owner_mismatches": owner_mismatches,
+        "unexpected_matched_pairs": unexpected_pairs,
+        "missing_unknown_identities": missing_unknown,
+        "unexpected_unknown_identities": unexpected_unknown,
+        "unknown_owner_or_candidate_mismatches": unknown_detail_mismatches,
     }
 
 
@@ -2420,7 +2683,6 @@ def assure_scan(
             "source_count": (
                 raw_counts.get("tag", 0)
                 + raw_counts.get("variable", 0)
-                + raw_counts.get("transformation", 0)
                 + raw_counts.get("gtagConfig", 0)
                 + raw_counts.get("customTemplate", 0)
                 + len(raw_code_keys)

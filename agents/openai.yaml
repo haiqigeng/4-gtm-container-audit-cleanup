@@ -1,7 +1,7 @@
 interface:
   display_name: "GTM Container Audit & Optimize"
-  short_description: "Audit a GTM container and deliver its optimal static target"
-  default_prompt: "Use $gtm-container-audit-cleanup to audit this complete GTM container, identify defects and material optimisations, prove an exact static target through independent review and fixed-point closure, and deliver one analyst workbook without mutating GTM."
+  short_description: "Audit and optimize a GTM web container"
+  default_prompt: "Use $gtm-container-audit-optimize to audit the GTM web-container export I provide, identify defects and material optimisations, prove an exact static target, and deliver one verified analyst workbook without changing GTM."
 
 policy:
   allow_implicit_invocation: true

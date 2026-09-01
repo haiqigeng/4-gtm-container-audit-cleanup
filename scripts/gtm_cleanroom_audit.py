@@ -354,12 +354,15 @@ def prepare_audit_bundles(
             ],
             "isolation_contract": {
                 "required": True,
-                "scope": "this audit bundle and its declared released inputs only",
+                "scope": (
+                    "this audit bundle, its declared released inputs, and the "
+                    "version-locked shared skill rules"
+                ),
                 "accepted_host_mechanisms": sorted(ISOLATION_MECHANISMS),
                 "boundary": (
-                    "The validator can prove bundle identity, context separation, and "
-                    "receipt consistency. The execution host must enforce scoped access; "
-                    "a self-declared context ID alone is not isolation evidence."
+                    "The validator proves bundle identity, distinct context identities, "
+                    "and receipt-field consistency. The receipt is traceability metadata; "
+                    "only the execution host can enforce scoped access."
                 ),
             },
         }

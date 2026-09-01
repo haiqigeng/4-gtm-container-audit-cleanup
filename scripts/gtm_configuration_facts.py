@@ -181,7 +181,7 @@ def build_consumers(
                 }
             )
 
-    for layer in ("tag", "variable", "client", "gtagConfig", "transformation"):
+    for layer in ("tag", "variable", "gtagConfig"):
         for index, obj in enumerate(as_list(cv.get(layer))):
             for template_id in custom_template_ids(obj, template_type_index):
                 consumers[f"template-id:{template_id}"].append(
@@ -247,10 +247,8 @@ def logic_anchors(facts: list[dict[str, Any]]) -> list[str]:
         ".triggerId",
         ".variableId",
         ".templateId",
-        ".clientId",
         ".zoneId",
         ".gtagConfigId",
-        ".transformationId",
         ".name",
     )
     return [fact["json_path"] for fact in facts if not fact["json_path"].endswith(ignored_suffixes)]

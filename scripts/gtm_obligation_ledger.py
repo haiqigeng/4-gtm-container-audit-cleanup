@@ -198,8 +198,6 @@ def _configuration_area(obj: dict[str, Any], obligation: dict[str, Any]) -> str:
         return "AREA-21"
     if obj.get("layer") == "variable":
         return "AREA-14"
-    if obj.get("layer") == "transformation":
-        return "AREA-20"
     if obj.get("layer") == "customTemplate" or as_list(obj.get("code_line_facts")):
         return "AREA-22"
     if str(obj.get("object_type") or "") in GOOGLE_TYPES:
@@ -225,7 +223,7 @@ def _object_area_rows(obj: dict[str, Any]) -> list[tuple[str, str, list[str]]]:
         ("AREA-04", "object_lifecycle", []),
         ("AREA-24", "object_organisation", []),
     ]
-    if layer in {"tag", "customTemplate", "client", "gtagConfig"}:
+    if layer in {"tag", "customTemplate", "gtagConfig"}:
         rows.append(("AREA-06", "object_configuration", []))
     if layer in {"tag", "trigger"}:
         rows.append(("AREA-07", "execution_topology", []))
@@ -235,8 +233,6 @@ def _object_area_rows(obj: dict[str, Any]) -> list[tuple[str, str, list[str]]]:
         rows.append(("AREA-19", "vendor_tag_contract", ["paid_media_change"]))
     if layer == "variable":
         rows.append(("AREA-14", "variable_source_contract", []))
-    if layer == "transformation":
-        rows.append(("AREA-20", "transformation_contract", []))
     if layer in {"zone", "gtagConfig"}:
         rows.append(("AREA-23", "portability_and_environment", []))
     if object_type in GOOGLE_TYPES or layer == "gtagConfig":

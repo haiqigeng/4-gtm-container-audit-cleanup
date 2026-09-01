@@ -18,6 +18,16 @@ $env:CODEX_NODE = '<bundled node executable returned by the dependency loader>'
 $env:CODEX_ARTIFACT_NODE_MODULES = '<bundled node_modules returned by the dependency loader>'
 ```
 
+Before package creation, verify the exact workbook implementation that will be
+used at delivery:
+
+```powershell
+& $env:CODEX_NODE scripts/gtm_workbook_build.mjs --preflight
+```
+
+If this fails, stop before semantic work. Do not use another Node.js runtime or
+XLSX library.
+
 ## Build The Evidence Package
 
 ```powershell
@@ -64,7 +74,10 @@ The output directory must be new or empty. Package creation verifies the runtime
 identity, builds the scan and obligation ledger, runs independent raw-source
 assurance, and creates separate allowlisted Audit A/B bundles. Before completing
 either checkpoint, the execution host must scope that context to its own bundle
-and issue the required isolation receipt; otherwise block.
+plus the version-locked shared skill rules, keep peer and downstream judgment
+artifacts inaccessible, and issue the required isolation receipt; otherwise
+block. The receipt records that host action for traceability; it does not itself
+prove access isolation.
 
 ## Complete And Seal Source Audits
 

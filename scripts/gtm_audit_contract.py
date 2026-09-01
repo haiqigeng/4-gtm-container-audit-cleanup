@@ -170,7 +170,7 @@ AUDIT_AREAS: tuple[dict[str, Any], ...] = (
     },
     {
         "area_id": "AREA-20",
-        "title": "Transformations and source-to-destination semantics",
+        "title": "Source-to-destination value semantics",
         "phase": "semantic",
         "method": "cross_level",
     },
@@ -212,7 +212,7 @@ AUDIT_AREAS: tuple[dict[str, Any], ...] = (
     },
     {
         "area_id": "AREA-27",
-        "title": "Exact operations and fixed-point cleanup",
+        "title": "Exact operations and fixed-point optimization",
         "phase": "post_reconciliation",
         "method": "post_reconciliation_proof",
     },

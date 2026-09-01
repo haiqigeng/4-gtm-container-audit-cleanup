@@ -29,7 +29,8 @@ schemas or filenames.
   direct/server branches, inconsistent client-side handoffs, and the explicit
   downstream server-container evidence boundary;
 - semantics: GA4 recommended/custom events, ecommerce arrays and money fields,
-  Ads/Floodlight/vendor IDs, transformations, identity/PII, Zones/environments;
+  Ads/Floodlight/vendor IDs, source-to-destination value mappings, identity/PII,
+  Zones/environments;
 - custom code: line segmentation, parser unavailable/partial/failed states,
   duplicate code with different consumers, listeners/timers/storage/requests,
   opaque code, and valid native/template replacement candidates;

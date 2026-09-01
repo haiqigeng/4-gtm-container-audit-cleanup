@@ -64,7 +64,7 @@ than adding an arbitrary suffix as the preferred final name.
 
 | Layer | Pattern | Examples |
 | --- | --- | --- |
-| Tags | `Vendor - Event - Scope` | `GA4 - Purchase - All`, `GADS - AddToCart - IGGI`, `PA - PageView - All`, `TD - Purchase - FR` |
+| Tags | `Vendor - Event - Scope` | `GA4 - purchase - All`, `GADS - purchase - IGGI`, `PA - page.display - All`, `Meta - PageView - All` |
 | Custom Event triggers | `CE - event_name` | `CE - view_item`, `CE - add_to_cart`, `CE - purchase` |
 | Pageview / URL triggers | `PV - Condition Scope` | `PV - Hostname FR`, `PV - Homepage DE`, `PV - Contact Form CH` |
 | Click triggers | `LC - Description Scope` | `LC - Homeslide`, `LC - Distributor CTA FR` |
@@ -125,13 +125,18 @@ Variable type acronyms:
 
 ## Case Rules
 
-- Preserve official event casing and technical keys, such as `page.display`,
-  `click.action`, `add_to_cart`, `ViewContent`, or `Purchase`.
+- When an object name contains a configured event literal, copy that literal
+  exactly instead of humanising it. GA4 event literals therefore remain
+  lowercase, such as `purchase` or `add_to_cart`; vendor literals retain their
+  official casing, such as Meta `PageView`, `ViewContent`, or `Purchase`; and
+  dotted events such as Piano `page.display` remain unchanged.
+- Preserve every technical key exactly.
 - Keep acronyms uppercase, such as `PA`, `GA4`, `GADS`, `CMP`, `DLV`, `URL`,
   and `JS`. Use `CJS` for Custom JavaScript variables when following the
   integrated default.
-- Use one readable case for human labels, such as `Analytics consent denied` or
-  `Newsletter CTA`.
+- Use sentence case for human-authored role, reason, and scope labels, such as
+  `Analytics consent denied` or `Newsletter CTA`; this rule never changes an
+  event literal.
 - Do not mix `Page Display`, `page Display`, `PAGE DISPLAY`, and
   `page_display` for the same concept unless the destination's official event
   name requires it.
@@ -148,9 +153,9 @@ Use an object ID suffix only as a temporary audit placeholder when the real
 business distinction is unknown. Mark the row as blocked for owner
 clarification; do not treat the ID-suffixed name as a preferred final name.
 
-Do not invent meanings for internal tokens. Ask whether unclear labels are
-product ranges, campaigns, markets, agency codes, audiences, legacy labels, or
-something else.
+Do not invent meanings for internal tokens. If a meaning cannot be inferred and
+changes the safe rename, retain it as an owner decision and let the agent ask for
+the smallest necessary clarification in context.
 
 ## Rename QA
 

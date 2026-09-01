@@ -314,8 +314,6 @@ def source_model_counts(
         "variables": len(layer_items["variable"]),
         "folders": len(layer_items["folder"]),
         "customTemplates": len(layer_items["customTemplate"]),
-        "clients": len(layer_items["client"]),
-        "transformations": len(layer_items["transformation"]),
         "zones": len(layer_items["zone"]),
         "gtagConfigs": len(layer_items["gtagConfig"]),
         "builtInVariables": len(layer_items["builtInVariable"]),
@@ -384,14 +382,9 @@ def build_model(path: Path) -> dict[str, Any]:
                 object_summary(obj, "customTemplate")
                 for obj in layer_items["customTemplate"]
             ],
-            "clients": [object_summary(obj, "client") for obj in layer_items["client"]],
             "zones": [object_summary(obj, "zone") for obj in layer_items["zone"]],
             "gtagConfigs": [
                 object_summary(obj, "gtagConfig") for obj in layer_items["gtagConfig"]
-            ],
-            "transformations": [
-                object_summary(obj, "transformation")
-                for obj in layer_items["transformation"]
             ],
         },
         "field_edges": field_edges,

@@ -103,21 +103,28 @@ def behavior_bearing_vendor_text(
     else:
         payload = obj
 
-    def project(value: Any, parent_key: str = "") -> Any:
+    def project(value: Any) -> Any:
         if isinstance(value, dict):
-            return {
-                key: project(child, key)
-                for key, child in value.items()
-                if key not in VENDOR_NEUTRAL_FIELDS
-            }
+            parameter_key = str(value.get("key") or "").casefold()
+            projected = {}
+            for key, child in value.items():
+                if key in VENDOR_NEUTRAL_FIELDS:
+                    continue
+                is_parameter_code = (
+                    key == "value"
+                    and parameter_key in {"html", "javascript"}
+                    and isinstance(child, str)
+                )
+                if is_parameter_code or (
+                    key in {"html", "javascript", "executable_code"}
+                    and isinstance(child, str)
+                ):
+                    projected[key] = strip_code_comments(child)
+                else:
+                    projected[key] = project(child)
+            return projected
         if isinstance(value, list):
-            return [project(child, parent_key) for child in value]
-        if isinstance(value, str) and parent_key.lower() in {
-            "html",
-            "javascript",
-            "executable_code",
-        }:
-            return strip_code_comments(value)
+            return [project(child) for child in value]
         return value
 
     return json.dumps(project(payload), ensure_ascii=False, sort_keys=True)

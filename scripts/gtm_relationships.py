@@ -199,23 +199,7 @@ DIMENSIONS_BY_LAYER = {
         "output_payload",
         "consent_sequence",
     ],
-    "client": [
-        "purpose",
-        "configuration",
-        "execution_scope",
-        "consumers",
-        "output_payload",
-        "consent_sequence",
-    ],
     "gtagConfig": [
-        "purpose",
-        "configuration",
-        "execution_scope",
-        "consumers",
-        "output_payload",
-        "consent_sequence",
-    ],
-    "transformation": [
         "purpose",
         "configuration",
         "execution_scope",
@@ -303,10 +287,8 @@ def logic_anchors(obj: dict[str, Any], source_path: str) -> list[str]:
             "triggerId",
             "variableId",
             "templateId",
-            "clientId",
             "zoneId",
             "gtagConfigId",
-            "transformationId",
             "name",
         )
     )
@@ -1203,7 +1185,7 @@ def add_shared_business_input_candidates(
             "shared_business_event_input",
             group,
             f"Tags delivering business event family {json.loads(event_key)!r} read shared "
-            f"GTM input {reference!r}; compare source ownership, transformations, and output use.",
+            f"GTM input {reference!r}; compare source ownership, value mappings, and output use.",
             0.8,
         )
 

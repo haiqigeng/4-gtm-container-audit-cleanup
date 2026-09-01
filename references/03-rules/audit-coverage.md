@@ -89,8 +89,8 @@ downstream server-container enforcement is outside this audit.”
 ### 3. Dependency And Reference Graph
 
 - Recursively resolve variables, firing and blocking triggers, trigger groups,
-  setup/teardown, folders, templates, Zones, settings, destinations, clients, and
-  transformations; identify consumers, cycles, and missing references.
+  setup/teardown, folders, templates, Zones, settings, destinations, and every
+  web-container value path; identify consumers, cycles, and missing references.
 - Require exact consumer remaps before retirement and no unresolved target cycle.
 
 ### 4. Lifecycle, Reachability, And Usage
@@ -123,8 +123,10 @@ downstream server-container enforcement is outside this audit.”
 - Read Custom Event identity from the paired `_event` condition operands and keep
   one independently assured trigger inventory; a generic `value` field must not
   make the configured event literal disappear.
-- Prove occurrence and data availability; flag weak selectors, impossible logic,
-  subsumed routes, and trigger groups that do not express a real lifecycle AND.
+- Assess whether the configured trigger-occurrence and data-availability
+  contracts are coherent; flag weak selectors, impossible logic, subsumed
+  routes, and trigger groups that do not express a real lifecycle AND. Do not
+  claim that an event occurs or that a value is populated at runtime.
 
 ### 8. Firing Options, Priority, Scheduling, And Sequencing
 
@@ -151,6 +153,12 @@ downstream server-container enforcement is outside this audit.”
 - Except confirmed Advanced Mode and pure transporters, require a consent-free
   positive trigger plus one reusable denial blocker with exact token boundaries
   and fail-closed unknown state.
+- For a page-load route, assess whether the configured CMP lifecycle/update
+  opportunity can re-evaluate the blocker after a later grant, or whether an
+  approved reload dependency is explicit. If neither is established from locked
+  evidence and current CMP documentation, keep the target as an owner decision
+  or evidence limit; never move the granted-state condition into the positive
+  trigger.
 
 ### 11. Advanced Consent Mode
 
@@ -246,17 +254,17 @@ downstream server-container enforcement is outside this audit.”
 - Compare with current official vendor/template contracts; research unknown
   integrations before a definitive verdict.
 
-### 20. Transformations And Source-To-Destination Semantics
+### 20. Source-To-Destination Value Semantics
 
-- Trace material values through variables, transformations, settings, overrides,
-  payload fields, and destinations, including type/cardinality and null/empty/
-  zero/false/array/object handling.
+- Trace material values through variables, lookup or code-based mappings,
+  settings, overrides, payload fields, and destinations, including
+  type/cardinality and null/empty/zero/false/array/object handling.
 - Preserve meaning; do not flatten, coerce, select, or default without an evidenced
-  contract. Fix the real source instead of retaining compensating transforms when
+  contract. Fix the real source instead of retaining compensating mappings when
   possible.
 - This area is applicable to any behavior-bearing tag, variable, settings owner,
-  transformation, custom template, or executable-code segment; it does not become
-  inapplicable merely because the export has no Transformation object.
+  custom template, or executable-code segment. It audits only value semantics
+  visible in the web container, never a server-container Transformation object.
 
 ### 21. First-Party Data, Identity, And Privacy-Sensitive Fields
 
@@ -312,7 +320,7 @@ downstream server-container enforcement is outside this audit.”
   blocked, then define what a senior analyst would build from empty for the same
   proven needs.
 
-### 27. Exact Operations And Fixed-Point Cleanup
+### 27. Exact Operations And Fixed-Point Optimization
 
 - Compile creates, additions, changes, named-field removals, remaps, renames,
   pauses, deletions, and dependencies; project the complete target and rescan

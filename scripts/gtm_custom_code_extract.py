@@ -1301,7 +1301,7 @@ def technical_exact_action(
     if has_finding(review, "literal secret-like credential candidate"):
         actions.append(
             "Remove the embedded credential, rotate it at the owning service, and replace "
-            "the integration with an approved server-side or restricted public credential route."
+            "the integration with an approved restricted external credential service."
         )
     if has_finding(review, "literal API-key candidate"):
         actions.append(
@@ -1468,7 +1468,7 @@ def technical_qa_steps(layer: str, row: dict[str, Any], action: str) -> str:
         "rebuild the dependency graph and confirm every reference and consumer remains valid",
     ]
     if layer == "variable":
-        steps.append("recheck terminal sources, transformations, and declared return types")
+        steps.append("recheck terminal sources, value mappings, and declared return types")
     if row.get("dataLayer_pushes_or_writes"):
         steps.append("compare the configured dataLayer event name and written fields")
     if row.get("external_scripts_loaded") or row.get("network_calls"):

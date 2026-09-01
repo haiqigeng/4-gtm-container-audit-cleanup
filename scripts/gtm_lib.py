@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared dependency-free helpers for GTM cleanup scripts."""
+"""Shared dependency-free helpers for GTM optimization scripts."""
 
 from __future__ import annotations
 
@@ -20,9 +20,7 @@ ID_KEYS = {
     "builtInVariable": "name",
     "zone": "zoneId",
     "customTemplate": "templateId",
-    "client": "clientId",
     "gtagConfig": "gtagConfigId",
-    "transformation": "transformationId",
 }
 
 OBJECT_LAYERS = tuple(ID_KEYS)
@@ -33,9 +31,7 @@ SEMANTIC_LAYERS = (
     "variable",
     "zone",
     "customTemplate",
-    "client",
     "gtagConfig",
-    "transformation",
 )
 
 IGNORED_FIELDS = {"path", "fingerprint"}
@@ -65,13 +61,12 @@ REF_RE = re.compile(r"\{\{([^{}]+)\}\}")
 CUSTOM_TEMPLATE_RE = re.compile(r"^cvt_\d+_(\d+)$")
 SYSTEM_TRIGGER_RE = re.compile(r"^2147479\d{3}$")
 CUSTOM_TEMPLATE_SECTION_RE = re.compile(r"(?m)^___([A-Z0-9_]+)___\s*$")
-CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS = (
-    "SANDBOXED_JS_FOR_WEB_TEMPLATE",
-    "SANDBOXED_JS_FOR_SERVER_TEMPLATE",
-)
+CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS = ("SANDBOXED_JS_FOR_WEB_TEMPLATE",)
 CUSTOM_TEMPLATE_BEHAVIOR_SECTIONS = CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS + (
     "WEB_PERMISSIONS",
-    "SERVER_PERMISSIONS",
+)
+UNSUPPORTED_SERVER_TEMPLATE_SECTIONS = frozenset(
+    {"SANDBOXED_JS_FOR_SERVER_TEMPLATE", "SERVER_PERMISSIONS"}
 )
 
 SYSTEM_VARIABLE_REFERENCES = {
@@ -435,6 +430,26 @@ def source_integrity_findings(data: dict[str, Any]) -> list[dict[str, Any]]:
                 )
                 continue
             findings.extend(nested_parameter_shape_findings(item, item_path, layer))
+            if layer == "customTemplate":
+                unsupported_sections = sorted(
+                    set(custom_template_sections(item.get("templateData")))
+                    & UNSUPPORTED_SERVER_TEMPLATE_SECTIONS
+                )
+                if unsupported_sections:
+                    findings.append(
+                        {
+                            "finding_type": "unsupported_server_template_section",
+                            "source_path": f"{item_path}.templateData",
+                            "layer": layer,
+                            "object_index": index,
+                            "sections": unsupported_sections,
+                            "details": (
+                                "A WEB-container audit cannot model server-template "
+                                "executable or permission sections."
+                            ),
+                            "blocking": True,
+                        }
+                    )
             raw_id = item.get(id_key)
             entity_id = "" if raw_id is None else str(raw_id).strip()
             if not entity_id:

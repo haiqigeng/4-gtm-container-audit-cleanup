@@ -1,6 +1,6 @@
 # Product Purpose
 
-`gtm-container-audit-cleanup` performs a static, container-only expert audit of
+`gtm-container-audit-optimize` performs a static, web-container-only expert audit of
 one complete Google Tag Manager web container. It identifies defects,
 materially non-optimal configurations, justified design, owner decisions, and
 evidence limits; proves a coherent greenfield-quality target; and delivers one

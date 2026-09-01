@@ -1,9 +1,9 @@
 ---
-name: gtm-container-audit-cleanup
-description: Audit and optimize one complete Google Tag Manager web container from locked JSON or equivalent read-only evidence, using an independently assured canonical scan, two host-scoped complete semantic audits, neutral reconciliation, deterministic fixed-point target validation, and one human analyst workbook. Use for web-container defects, duplicates, configuration, consent/routing, client-side server transport, Google settings inheritance, trigger/blocker architecture, firing priority, custom code, naming, consolidation, and greenfield-quality target design. Do not use for a server-container audit, GTM Preview or browser/runtime QA, tracking-plan design, legal decisions, GTM mutation/import/version/publication, execution approval, change logs, or audit deltas.
+name: gtm-container-audit-optimize
+description: Audit and optimize one complete Google Tag Manager web container from user-supplied locked JSON or equivalent read-only evidence, using an independently assured canonical scan, two host-scoped complete semantic audits, neutral reconciliation, deterministic fixed-point target validation, and one human analyst workbook. Use for web-container defects, duplicates, configuration, consent/routing, web-side client-to-server transport, Google settings inheritance, trigger/blocker architecture, firing priority, custom code, naming, consolidation, and greenfield-quality target design. Do not use for server-container exports or objects, GTM Preview or browser/runtime QA, tracking-plan design, legal decisions, GTM mutation/import/version/publication, execution approval, change logs, or audit deltas.
 ---
 
-# GTM Container Audit And Cleanup
+# GTM Container Audit And Optimize
 
 ## Outcome
 
@@ -42,6 +42,30 @@ cookie/CMP UI behaviour, GA4 property settings, legal compliance, runtime
 performance, or unseen server enforcement. Use the exact static evidence boundary
 in every affected conclusion.
 
+## User Interaction
+
+The user must explicitly supply or identify exactly one authoritative source file.
+Never search the workspace for a likely export, infer a source file, or choose
+among multiple supplied sources. If the user has not explicitly identified
+exactly one file, send exactly:
+
+`Please provide or identify the exact GTM web-container export file you want me to audit. I will not search for or infer a source file.`
+
+Then stop and wait for the user. After the user identifies the file, validate it
+without asking for facts already present in that source. Ask for other information
+only when it cannot be inferred and its absence prevents a safe conclusion;
+otherwise retain the gap as an owner decision or container evidence limit.
+Wording for every non-source question and every blocked outcome is left to the
+agent.
+
+After, and only after, the workbook passes every completion gate, begin the final
+response with exactly:
+
+`Audit complete: [x] recommended operations, [y] owner decisions and [z] evidence limits. No GTM changes were made.`
+
+Replace `[x]`, `[y]`, and `[z]` with the workbook’s canonical counts. Wording
+after that sentence is left to the agent.
+
 ## Required Workflow
 
 Follow one workflow only. There is no three-run, one-audit, reduced-depth,
@@ -49,14 +73,20 @@ same-context, legacy-workbook, or alternate-XLSX fallback.
 
 ### 1. Lock Evidence
 
-Resolve one complete unambiguous ContainerVersion export or equivalent read-only
-evidence. Confirm only when source or outcome is ambiguous. Lock source, context,
-runtime skill identity, audit contract, vendor registry, and optional approved
+Validate the one complete unambiguous ContainerVersion export or equivalent
+read-only evidence explicitly selected by the user. Lock source, context, runtime
+skill identity, audit contract, vendor registry, and optional approved
 requirements. Respect exact `do_not_touch` object keys.
 
+Before package creation, load the existing workspace spreadsheet dependency
+paths and run `scripts/gtm_workbook_build.mjs --preflight` with that bundled Node
+runtime. If the check fails, block before semantic work. Do not substitute another
+Node.js runtime or XLSX library.
+
 Accept one web-container source only. Do not accept or request a server-container
-export. Audit client-side transporter configuration and consent forwarding, then
-state downstream server-container processing as outside this skill's evidence.
+export and do not model server-container Clients, Transformations, or templates.
+Audit the web-container side of client-to-server transport and consent forwarding,
+then state downstream server-container processing as outside this skill's evidence.
 
 Build a new package with `scripts/gtm_audit_package_build.py`. Package creation
 must pass runtime identity and independent raw-source scan assurance before any
@@ -86,10 +116,13 @@ semantic audits, and area 27 through synthesis and fixed-point proof.
 
 Run Audit A and Audit B concurrently in separate fresh contexts over separate
 allowlisted bundles created by `scripts/gtm_cleanroom_audit.py`. The execution
-host must make the peer bundle and prohibited downstream artifacts inaccessible
-and issue the receipt bound to the exact bundle manifest. The validator proves
-receipt consistency, bundle integrity, and context separation; it cannot replace
-host access control. The orchestrator coordinates but authors neither audit.
+host must allow each context to read its own bundle and the version-locked shared
+skill rules, while making the peer bundle and prohibited downstream artifacts
+inaccessible. It issues the receipt bound to the exact bundle manifest. The
+validator proves receipt-field consistency, bundle integrity, and distinct
+context identities. The receipt is traceability metadata; neither it nor the
+validator proves host access control. The orchestrator coordinates but authors
+neither audit.
 
 Audit A traverses object/chain first; Audit B traverses family/target first. Both
 complete every applicable semantic obligation in areas 2–26 and close object,
@@ -202,6 +235,12 @@ reusable denial blocker. A page-load tag may use a documented CMP timing event;
 a later action keeps its business event. Do not configure consent in both the
 positive route and blocker, and do not use Additional Consent Checks as the gate.
 Built-In Consent Checks remain intrinsic metadata.
+
+For each direct page-load route, assess whether the configured CMP
+lifecycle/update opportunity can re-evaluate eligibility after a later grant, or
+whether locked context explicitly approves a reload dependency. If neither is
+established, keep the target as an owner decision or evidence limit. Never solve
+that uncertainty by moving granted-state consent into the positive trigger.
 
 Confirm Advanced Consent Mode only from a locked
 `advanced_consent_mode_approvals` row with exact destination ID, direct-browser

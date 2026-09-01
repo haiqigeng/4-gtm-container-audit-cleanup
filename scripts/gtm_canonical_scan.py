@@ -439,7 +439,6 @@ def _area_source_counts(
     variables = len(as_list(cv.get("variable")))
     templates = len(as_list(cv.get("customTemplate")))
     gtag_configs = len(as_list(cv.get("gtagConfig")))
-    transformations = len(as_list(cv.get("transformation")))
     total = sum(_source_layer_counts(cv).values())
     operational_candidates = len(as_list(operational.get("candidates")))
     relationships = len(as_list(architecture.get("relationships")))
@@ -514,7 +513,6 @@ def _area_source_counts(
         "AREA-20": (
             tags
             + variables
-            + transformations
             + gtag_configs
             + templates
             + code_rows

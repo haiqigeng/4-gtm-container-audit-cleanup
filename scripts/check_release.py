@@ -63,7 +63,7 @@ ALLOWED_ROOT_ENTRIES = {
     "README.md",
     "SKILL.md",
     "agents",
-    "gtm-container-audit-cleanup-evolution.md",
+    "gtm-container-audit-optimize-evolution.md",
     "pyproject.toml",
     "references",
     "scripts",
@@ -324,8 +324,8 @@ def parse_frontmatter(skill_path: Path) -> tuple[dict[str, str], list[str]]:
     keys = list(values)
     if keys != ["name", "description"]:
         errors.append(f"Frontmatter keys must be name, description; found {keys}")
-    if values.get("name") != "gtm-container-audit-cleanup":
-        errors.append("Skill name must be gtm-container-audit-cleanup")
+    if values.get("name") != "gtm-container-audit-optimize":
+        errors.append("Skill name must be gtm-container-audit-optimize")
     if not values.get("description"):
         errors.append("Skill description is empty")
     return values, errors

@@ -72,9 +72,7 @@ VENDOR_CONTRACT_LAYERS = {
     "variable",
     "zone",
     "customTemplate",
-    "client",
     "gtagConfig",
-    "transformation",
 }
 VALID_DISPOSITIONS = {
     "keep",
@@ -959,10 +957,8 @@ def field_evidence_paths(shared: dict[str, Any]) -> dict[str, list[str]]:
                 ".triggerid",
                 ".variableid",
                 ".templateid",
-                ".clientid",
                 ".zoneid",
                 ".gtagconfigid",
-                ".transformationid",
                 ".name",
             )
         )
@@ -1045,9 +1041,9 @@ def vendor_contexts_for_objects(
         transport_hosts = set(server_route_hosts(obj))
         hosts = sorted(
             {
-                urlparse(match).netloc.lower()
+                (urlparse(match).hostname or "").casefold()
                 for match in re.findall(r"https?://[^\s\"'<>\\)]+", serialized, re.I)
-                if urlparse(match).netloc
+                if (urlparse(match).hostname or "")
             }
         )
         unmatched_hosts = [
@@ -1521,10 +1517,6 @@ def required_contract_topics(
             topics = list(context["platform_topics"])
         elif layer == "customTemplate":
             topics = ["template_behavior_and_permissions", "vendor_contract_surface"]
-        elif layer == "client":
-            topics = ["request_claiming_and_routing", "payload_and_consent_handling"]
-        elif layer == "transformation":
-            topics = ["transformation_scope", "field_allowlist_or_redaction"]
         elif layer == "variable":
             topics = ["consumer_value_shape_and_type", "availability_at_consumer_event"]
             if re.search(r"consent|storage|ad_user_data|personalization", json.dumps(obj), re.I):
@@ -1775,10 +1767,8 @@ def required_configuration_obligations(
             "triggerId",
             "variableId",
             "templateId",
-            "clientId",
             "zoneId",
             "gtagConfigId",
-            "transformationId",
             "name",
         )
     )

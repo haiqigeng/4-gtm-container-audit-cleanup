@@ -273,8 +273,6 @@ def rich_export() -> dict:
             "customTemplate": [],
             "zone": [],
             "gtagConfig": [],
-            "client": [],
-            "transformation": [],
         },
     }
 
@@ -472,6 +470,170 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
             <= check_ids
         )
 
+    def test_real_world_assurance_contracts_remain_equivalent(self) -> None:
+        payload = rich_export()
+        cv = payload["containerVersion"]
+        cv["variable"].append(
+            {
+                "variableId": "107",
+                "name": "Shared Vendor Value",
+                "type": "c",
+                "notes": (
+                    "Documentation only: {{Event}} and "
+                    "{{init: pixel.init, send: pixel.send, exec: pixel.exec}}"
+                ),
+                "parameter": [
+                    {"type": "TEMPLATE", "key": "value", "value": "shared"}
+                ],
+            }
+        )
+        cv["trigger"][0] = event_trigger(
+            "201", "OneTrust page timing", "OneTrustLoaded"
+        )
+        cv["trigger"][1] = event_trigger(
+            "202",
+            "Block when vendor is not enabled",
+            "OneTrustLoaded",
+            [
+                {
+                    "type": "DOES_NOT_CONTAIN",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "arg0",
+                            "value": "{{didomiVendorsEnabled}}",
+                        },
+                        {
+                            "type": "TEMPLATE",
+                            "key": "arg1",
+                            "value": "vendor-42",
+                        },
+                    ],
+                }
+            ],
+        )
+        cv["tag"].extend(
+            [
+                {
+                    "tagId": "199",
+                    "name": "Metadata says Google Ads",
+                    "type": "html",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "html",
+                            "value": (
+                                "// Google Ads https://googleads.g.doubleclick.net\n"
+                                "window.metaEndpoint = "
+                                "'https://connect.facebook.net/en_US/fbevents.js';\n"
+                                "window.shared = '{{Shared Vendor Value}}';"
+                            ),
+                        }
+                    ],
+                    "firingTriggerId": ["201"],
+                },
+                {
+                    "tagId": "198",
+                    "name": "Community template consumer",
+                    "type": "cvt_EDGE-TEMPLATE",
+                    "parameter": [],
+                    "firingTriggerId": ["201"],
+                    "blockingTriggerId": ["202"],
+                },
+            ]
+        )
+        cv["tag"] = list(reversed(cv["tag"]))
+        cv["folder"] = [
+            {
+                "folderId": "901",
+                "name": "Google Ads and Microsoft Ads documentation",
+            }
+        ]
+        cv["customTemplate"] = [
+            {
+                "accountId": "10",
+                "templateId": "901",
+                "name": "Template documentation mentions Google Ads {{Event}}",
+                "galleryReference": {"galleryTemplateId": "EDGE-TEMPLATE"},
+                "templateData": (
+                    "___INFO___\n"
+                    "Google Ads documentation {{Event}}\n"
+                    "___SANDBOXED_JS_FOR_WEB_TEMPLATE___\n"
+                    "// Microsoft Ads documentation only\n"
+                    "const injectScript = require('injectScript');\n"
+                    "injectScript('https://connect.facebook.net/en_US/fbevents.js');\n"
+                    "injectScript('https://edge-unknown.example/pixel.js');\n"
+                    "___WEB_PERMISSIONS___\n[]"
+                ),
+            }
+        ]
+
+        export = self.root / "real-world-assurance-edges.json"
+        export.write_text(json.dumps(payload), encoding="utf-8")
+        scan = build_canonical_scan(export)["canonical_scan"]
+        assurance = assure_scan(
+            export,
+            scan,
+            vendor_registry_path=self.registry,
+        )
+        self.assertEqual(
+            [],
+            [row for row in assurance["checks"] if row["status"] != "pass"],
+        )
+
+        timing = next(
+            row
+            for row in scan["optimization_facts"]["trigger_control_facts"]
+            if row["trigger_id"] == "201"
+        )
+        blocker = next(
+            row
+            for row in scan["optimization_facts"]["trigger_control_facts"]
+            if row["trigger_id"] == "202"
+        )
+        self.assertEqual(["OneTrustLoaded"], timing["event_names"])
+        self.assertFalse(timing["contains_consent_condition"])
+        self.assertTrue(blocker["contains_consent_condition"])
+
+        evidence_by_key = {
+            row["object_key"]: row
+            for row in scan["configuration_evidence"]["objects"]
+        }
+        tag_vendors = {
+            context["vendor"]
+            for context in evidence_by_key["tag:199"]["vendor_contexts"]
+        }
+        variable_vendors = {
+            context["vendor"]
+            for context in evidence_by_key["variable:107"]["vendor_contexts"]
+        }
+        self.assertIn("Meta", tag_vendors)
+        self.assertNotIn("Google Ads", tag_vendors)
+        self.assertIn("Meta", variable_vendors)
+        self.assertNotIn("folder:901", evidence_by_key)
+
+        tampered = copy.deepcopy(scan)
+        tampered_tag = next(
+            row
+            for row in tampered["configuration_evidence"]["objects"]
+            if row["object_key"] == "tag:199"
+        )
+        tampered_tag["vendor_contexts"].append(
+            {"vendor": "TikTok", "category": "advertising"}
+        )
+        tampered_assurance = assure_scan(
+            export,
+            tampered,
+            vendor_registry_path=self.registry,
+        )
+        vendor_check = next(
+            row
+            for row in tampered_assurance["checks"]
+            if row["check_id"] == "vendor_classification_and_research_ownership"
+        )
+        self.assertEqual("mismatch", vendor_check["status"])
+        self.assertIn(("tag:199", "TikTok"), vendor_check["unexpected_matched_pairs"])
+
     def test_effective_settings_priority_and_consent_topology_are_neutral_facts(self) -> None:
         self.assertFalse(_consent_metadata({"parameter": []})["contains_consent_value"])
         optimization = self.scan["optimization_facts"]
@@ -537,7 +699,6 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         cv["variable"] = []
         cv["gtagConfig"] = []
         cv["customTemplate"] = []
-        cv["transformation"] = []
         cv["zone"] = []
         export_path = self.root / "behavior-only-cross-level.json"
         export_path.write_text(json.dumps(export), encoding="utf-8")
@@ -841,7 +1002,6 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
             "variable",
             "customTemplate",
             "gtagConfig",
-            "transformation",
         ):
             cv[layer] = []
         export_path = self.root / "non-ecommerce-google-tag.json"
@@ -911,15 +1071,21 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         )
         self.assertEqual("mismatch", check["status"])
 
-    def test_context_contract_has_no_legacy_unresolved_question_channel(self) -> None:
+    def test_context_contract_has_no_generated_question_channel(self) -> None:
         model = build_context_model(self.export)
-        self.assertIn("intake_questions", model)
-        self.assertIn("intake_status", model)
+        self.assertEqual(2, model["schema_version"])
+        self.assertNotIn("intake_questions", model)
+        self.assertNotIn("intake_status", model)
         self.assertNotIn("unresolved_questions", model)
         with self.assertRaisesRegex(ValueError, "unsupported fields"):
             build_context_model(
                 self.export,
                 provided_context={"unresolved_questions": ["legacy question"]},
+            )
+        with self.assertRaisesRegex(ValueError, "unsupported fields"):
+            build_context_model(
+                self.export,
+                provided_context={"container_type": "server"},
             )
 
     def test_server_consent_owner_is_unconfirmed_until_exact_host_is_approved(self) -> None:

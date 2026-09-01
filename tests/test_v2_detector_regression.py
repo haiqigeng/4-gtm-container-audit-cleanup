@@ -205,6 +205,38 @@ class V2DetectorRegressionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "WEB container"):
                 build_canonical_scan(source)
 
+        for layer in ("client", "transformation"):
+            with self.subTest(server_layer=layer):
+                web_with_server_object = detector_fixture()
+                web_with_server_object["containerVersion"][layer] = []
+                findings = source_integrity_findings(web_with_server_object)
+                self.assertTrue(
+                    any(
+                        row["finding_type"] == "unmodelled_entity_layer"
+                        and row.get("layer") == layer
+                        for row in findings
+                    )
+                )
+
+        web_with_server_template = detector_fixture()
+        web_with_server_template["containerVersion"]["customTemplate"] = [
+            {
+                "templateId": "99",
+                "name": "Server template",
+                "templateData": (
+                    "___SANDBOXED_JS_FOR_SERVER_TEMPLATE___\n"
+                    "return data.gtmOnSuccess();"
+                ),
+            }
+        ]
+        findings = source_integrity_findings(web_with_server_template)
+        self.assertTrue(
+            any(
+                row["finding_type"] == "unsupported_server_template_section"
+                for row in findings
+            )
+        )
+
     def test_custom_code_detectors_preserve_exactness_and_safe_neighbors(self) -> None:
         self.assertNotEqual(code_hash("return 'a  b';"), code_hash("return 'a b';"))
         self.assertEqual(code_hash("return 1;\r\n"), code_hash("return 1;\n"))

@@ -103,6 +103,7 @@ CMP_EVENT_NAMES = {
     "didomi-consent": "Didomi",
     "didomi-ready": "Didomi",
     "didomi-consent-changed": "Didomi",
+    "OneTrustLoaded": "OneTrust",
     "OneTrustGroupsUpdated": "OneTrust",
     "OTConsentApplied": "OneTrust",
 }
@@ -619,35 +620,47 @@ def _destination_setting_candidates(
 
 
 def _trigger_event_values(trigger: dict[str, Any]) -> list[str]:
+    """Return exact configured event literals without normalising their case.
+
+    GTM event names are case-sensitive.  Relationship-normalised condition text
+    is useful for grouping, but it is not an identity source because it
+    lowercases values and can mistake operator/modifier fragments for events.
+    """
+
     values: list[str] = []
-    conditions = trigger_conditions(trigger)
-    for condition in conditions:
-        if "_event" not in condition and "event" not in condition.casefold():
+
+    pending: list[Any] = [trigger]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            pending.extend(reversed(node))
             continue
-        parts = condition.split("|", 3)
-        left = parts[1].strip() if len(parts) >= 2 else ""
+        if not isinstance(node, dict):
+            continue
+
+        parameters = {
+            str(parameter.get("key") or ""): _scalar(parameter)
+            for parameter in _parameters(node)
+            if str(parameter.get("key") or "")
+        }
+        left = str(parameters.get("arg0") or "").strip()
         reference = re.fullmatch(r"\{\{([^{}]+)\}\}", left)
         normalized_left = (
             reference.group(1).strip().casefold()
             if reference
             else left.casefold()
         )
-        if len(parts) >= 3 and normalized_left in {"_event", "event"}:
-            configured_event = parts[2].strip()
-            if configured_event:
-                values.append(configured_event)
-            continue
-        quoted = re.findall(
-            r"(?:==|equals?|contains?|matches?)[^A-Za-z0-9_-]*([A-Za-z0-9_.:-]+)",
-            condition,
-            re.I,
-        )
-        values.extend(value for value in quoted if value.casefold() != "_event")
-    for parameter in _parameters(trigger):
-        key = str(parameter.get("key") or "").casefold()
-        value = _scalar(parameter).strip()
-        if value and key in {"eventname", "customeventname"}:
-            values.append(value)
+        right = str(parameters.get("arg1") or "").strip()
+        if normalized_left in {"_event", "event"} and right:
+            values.append(right)
+
+        for key, configured in parameters.items():
+            normalized_key = re.sub(r"[^a-z0-9]", "", key.casefold())
+            rendered = str(configured or "").strip()
+            if normalized_key in {"eventname", "customeventname"} and rendered:
+                values.append(rendered)
+
+        pending.extend(reversed(list(node.values())))
     return [value for value in dict.fromkeys(values) if value.casefold() != "_event"]
 
 

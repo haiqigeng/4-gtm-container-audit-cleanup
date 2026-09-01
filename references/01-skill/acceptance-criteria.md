@@ -122,8 +122,9 @@
   inventory, file count, tree hash, clean-state flag, and full source Git commit
   exactly match both the actual package bytes and the expected clean source
   checkout.
-- Every visible sheet is rendered and inspected; privacy and formula-injection
-  scans pass.
+- Every visible sheet is rendered and inspected; the declared bounded privacy
+  patterns and formula-injection scans pass. This does not certify the absence of
+  every possible form of personal data.
 
 ## Automatic Failure
 

@@ -138,3 +138,10 @@ Apply presentation-only corrections through a new editorial artifact and rebuild
 Start a semantic successor only for a canonical completeness or fidelity defect. Render and
 inspect every visible sheet, then pass formula-injection and privacy checks before
 sealing delivery. Workbook completion is not GTM mutation approval.
+
+The automated privacy check is deliberately bounded. It covers configured
+sensitive-key indicators, email-like values, local user paths, secret/token-like
+assignments, workbook comment redaction, and formula-injection safety. A pass does
+not certify the absence of every possible form of personal data. Preserve the
+separate semantic audit of identity and privacy-sensitive fields and do not turn
+the delivery check into a generic DLP system.

@@ -69,7 +69,8 @@ the scanner's corresponding derived logic:
 - matched/unmatched vendor identities and one canonical research owner;
 - relationship candidate identity, members, type, coordinates, and owner; and
 - exact 27-area coverage membership plus raw-evidence applicability for
-  ecommerce, sensitive data, transformations, and portability.
+  ecommerce, sensitive data, source-to-destination value semantics, and
+  portability.
 
 Any mismatch blocks semantic review. A mechanism may be inapplicable only with a
 source-counted zero; it is never silently skipped. Assurance is intentionally a
@@ -101,9 +102,11 @@ rewrite checkpointed discovery.
 Before reconciliation:
 
 - each audit receives a separate allowlisted bundle and context ID;
-- the execution host enforces a scope in which the peer bundle and prohibited
-  downstream artifacts are inaccessible, then issues a receipt bound to the
-  exact bundle manifest;
+- both may read the same version-locked shared skill rules without sharing
+  judgments;
+- the execution host otherwise enforces a scope in which the peer bundle and
+  prohibited downstream artifacts are inaccessible, then issues a receipt bound
+  to the exact bundle manifest;
 - neither can read the other's verdicts, scratch, discoveries, rationales, or
   target proposals;
 - the orchestrator coordinates but authors neither result;
@@ -119,9 +122,10 @@ Before reconciliation:
   destinations, identity, and architecture; and
 - each complete audit is coverage-validated and immutably sealed.
 
-The artifact validator proves bundle integrity, receipt binding, distinct context
-IDs, coverage, and seals; it does not claim that self-authored JSON can prove host
-access control. If the host cannot enforce both scoped contexts, block. An
+The artifact validator proves bundle integrity, receipt-field binding, distinct
+context IDs, coverage, and seals. A receipt records host isolation for
+traceability; neither a receipt nor self-authored JSON proves host access control.
+If the host cannot enforce both scoped contexts, block. An
 amendment uses a fresh context bound to the prior seal and archives the previous
 artifact and seal in append-only history.
 Its audit artifact and fresh host receipt both cite the current prior audit-seal

@@ -19,6 +19,19 @@ from gtm_skill_identity import declared_identity_errors, write_manifest  # noqa:
 
 
 class ReleaseHealthTests(unittest.TestCase):
+    def test_user_facing_start_and_completion_wording_is_frozen_once(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        start = (
+            "Please provide or identify the exact GTM web-container export file "
+            "you want me to audit. I will not search for or infer a source file."
+        )
+        completion = (
+            "Audit complete: [x] recommended operations, [y] owner decisions and "
+            "[z] evidence limits. No GTM changes were made."
+        )
+        self.assertEqual(1, skill.count(start))
+        self.assertEqual(1, skill.count(completion))
+
     def test_declared_runtime_rejects_dirty_build_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

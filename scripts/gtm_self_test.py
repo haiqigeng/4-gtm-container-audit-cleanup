@@ -99,15 +99,8 @@ def main() -> int:
                 "artifact_runtime",
                 [
                     str(artifact_node),
-                    "--input-type=module",
-                    "-e",
-                    (
-                        "import p from 'node:path';"
-                        "import {pathToFileURL} from 'node:url';"
-                        "await import(pathToFileURL(p.join("
-                        "process.env.CODEX_ARTIFACT_NODE_MODULES,'@oai',"
-                        "'artifact-tool','dist','artifact_tool.mjs')).href);"
-                    ),
+                    "scripts/gtm_workbook_build.mjs",
+                    "--preflight",
                 ],
                 env=child_env,
             )

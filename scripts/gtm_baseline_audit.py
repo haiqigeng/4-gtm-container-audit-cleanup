@@ -1242,7 +1242,7 @@ def build_execution_reachability(cv: dict[str, Any]) -> dict[str, Any]:
 
     configured_roots = {
         f"{layer}:{object_id(obj, layer)}"
-        for layer in ("zone", "client", "gtagConfig", "transformation")
+        for layer in ("zone", "gtagConfig")
         for obj in records[layer]
     }
     active_tag_roots = {
@@ -1307,9 +1307,7 @@ def build_lifecycle_matrix(
         ("zone", as_list(cv.get("zone"))),
         ("customTemplate", as_list(cv.get("customTemplate"))),
         ("folder", as_list(cv.get("folder"))),
-        ("client", as_list(cv.get("client"))),
         ("gtagConfig", as_list(cv.get("gtagConfig"))),
-        ("transformation", as_list(cv.get("transformation"))),
     )
     template_consumers: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     folder_consumers: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
@@ -1430,7 +1428,7 @@ def build_lifecycle_matrix(
 
 def build_folder_topology(cv: dict[str, Any]) -> dict[str, Any]:
     folders = as_list(cv.get("folder"))
-    layers = ("tag", "trigger", "variable", "client", "transformation")
+    layers = ("tag", "trigger", "variable")
     contents: dict[str, list[str]] = collections.defaultdict(list)
     unfiled: list[dict[str, str]] = []
     for layer in layers:
@@ -1935,9 +1933,7 @@ def add_missing_reference_findings(
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     zones = as_list(cv.get("zone"))
-    clients = as_list(cv.get("client"))
     gtag_configs = as_list(cv.get("gtagConfig"))
-    transformations = as_list(cv.get("transformation"))
     template_type_index = custom_template_type_index(templates)
 
     builder.add_module(
@@ -1948,9 +1944,7 @@ def add_missing_reference_findings(
         + len(folders)
         + len(templates)
         + len(zones)
-        + len(clients)
-        + len(gtag_configs)
-        + len(transformations),
+        + len(gtag_configs),
     )
 
     variable_objects = [
@@ -2116,9 +2110,7 @@ def add_missing_reference_findings(
         ("trigger", triggers),
         ("variable", variables),
         ("zone", zones),
-        ("client", clients),
         ("gtagConfig", gtag_configs),
-        ("transformation", transformations),
     ):
         for item in items:
             folder_id = item.get("parentFolderId")
@@ -2140,9 +2132,7 @@ def add_missing_reference_findings(
     for layer, items in (
         ("tag", tags),
         ("variable", variables),
-        ("client", clients),
         ("gtagConfig", gtag_configs),
-        ("transformation", transformations),
     ):
         for item in items:
             for template_id in custom_template_ids(item, template_type_index):
@@ -2213,9 +2203,7 @@ def add_unused_findings(
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     tags = as_list(cv.get("tag"))
-    clients = as_list(cv.get("client"))
     gtag_configs = as_list(cv.get("gtagConfig"))
-    transformations = as_list(cv.get("transformation"))
     lifecycle_by_key = {
         str(row.get("object_key") or ""): row for row in lifecycle
     }
@@ -2282,7 +2270,7 @@ def add_unused_findings(
     template_type_index = custom_template_type_index(templates)
     used_template_ids = {
         template_id
-        for item in tags + variables + clients + gtag_configs + transformations
+        for item in tags + variables + gtag_configs
         for template_id in custom_template_ids(item, template_type_index)
     }
     for template in templates:
@@ -2306,7 +2294,7 @@ def add_unused_findings(
     builder.add_module("unused_folders", len(folders))
     used_folder_ids = {
         str(item.get("parentFolderId"))
-        for item in tags + triggers + variables + clients + transformations
+        for item in tags + triggers + variables
         if item.get("parentFolderId")
     }
     for folder in folders:
@@ -3173,9 +3161,7 @@ def add_name_hygiene_findings(
         "folder",
         "zone",
         "customTemplate",
-        "client",
         "gtagConfig",
-        "transformation",
     ):
         items.extend((layer, item) for item in as_list(cv.get(layer)))
     builder.add_module("name_hygiene", len(items))
@@ -3732,9 +3718,7 @@ def audit_export(path: Path) -> dict[str, Any]:
     templates = as_list(cv.get("customTemplate"))
     builtins = as_list(cv.get("builtInVariable"))
     zones = as_list(cv.get("zone"))
-    clients = as_list(cv.get("client"))
     gtag_configs = as_list(cv.get("gtagConfig"))
-    transformations = as_list(cv.get("transformation"))
 
     variable_consumers, trigger_consumers, tag_consumers = build_consumers(cv)
     system_refs = recognized_system_references(variable_consumers, trigger_consumers)
@@ -3759,9 +3743,7 @@ def audit_export(path: Path) -> dict[str, Any]:
         + len(templates)
         + len(builtins)
         + len(zones)
-        + len(clients)
-        + len(gtag_configs)
-        + len(transformations),
+        + len(gtag_configs),
     )
     builder.add_module("destination_inventory", len(destination_matrix))
     builder.add_module(
@@ -3785,13 +3767,6 @@ def audit_export(path: Path) -> dict[str, Any]:
         "duplicate_custom_template_names",
         "customTemplate",
         templates,
-    )
-    add_duplicate_name_findings(builder, "duplicate_client_names", "client", clients)
-    add_duplicate_name_findings(
-        builder,
-        "duplicate_transformation_names",
-        "transformation",
-        transformations,
     )
     add_signature_findings(
         builder,
@@ -3846,24 +3821,6 @@ def audit_export(path: Path) -> dict[str, Any]:
         gtag_configs,
         COMMON_IGNORED | {"gtagConfigId"},
         "Compare destination, transport, consent, and inherited event behavior before consolidation.",
-    )
-    add_signature_findings(
-        builder,
-        "duplicate_client_configurations",
-        "duplicate_configuration",
-        "client",
-        clients,
-        COMMON_IGNORED | {"clientId", "name"},
-        "Consolidate duplicate server clients only after request-claiming and event-output QA.",
-    )
-    add_signature_findings(
-        builder,
-        "duplicate_transformation_configurations",
-        "duplicate_configuration",
-        "transformation",
-        transformations,
-        COMMON_IGNORED | {"transformationId", "name"},
-        "Consolidate duplicate transformations only after affected-tag and event-data QA.",
     )
     add_signature_findings(
         builder,
@@ -3933,9 +3890,7 @@ def audit_export(path: Path) -> dict[str, Any]:
             "customTemplates": len(templates),
             "builtInVariables": len(builtins),
             "zones": len(zones),
-            "clients": len(clients),
             "gtagConfigs": len(gtag_configs),
-            "transformations": len(transformations),
         },
         "recognized_system_references": system_refs,
         "naming_policy": naming_policy,

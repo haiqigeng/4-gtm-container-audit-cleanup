@@ -430,6 +430,56 @@ class ReleaseToolTrustBoundaryTests(unittest.TestCase):
         self.assertEqual("artifact_runtime", report["checks"][0]["name"])
         self.assertEqual(2, report["checks"][0]["return_code"])
 
+    def test_release_complete_self_test_reuses_workbook_preflight(self) -> None:
+        stdout = StringIO()
+        commands: dict[str, list[str]] = {}
+
+        def passing_check(
+            _root: Path, name: str, command: list[str], **_kwargs: object
+        ) -> dict[str, object]:
+            commands[name] = command
+            return {
+                "name": name,
+                "status": "pass",
+                "return_code": 0,
+                "stdout": "",
+                "stderr": "",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary)
+            node = runtime / "node.exe"
+            node.write_bytes(b"")
+            modules = runtime / "node_modules"
+            package = modules / "@oai" / "artifact-tool" / "package.json"
+            package.parent.mkdir(parents=True)
+            package.write_text("{}\n", encoding="utf-8")
+            with (
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "gtm_self_test.py",
+                        "--artifact-node",
+                        str(node),
+                        "--artifact-node-modules",
+                        str(modules),
+                    ],
+                ),
+                mock.patch.object(gtm_self_test, "run", side_effect=passing_check),
+                mock.patch.object(
+                    gtm_self_test.importlib.util, "find_spec", return_value=None
+                ),
+                redirect_stdout(stdout),
+            ):
+                status = gtm_self_test.main()
+
+        self.assertEqual(0, status)
+        self.assertEqual(
+            [str(node), "scripts/gtm_workbook_build.mjs", "--preflight"],
+            commands["artifact_runtime"],
+        )
+
 
 class StrictOnlineVendorGateTests(unittest.TestCase):
     def write_registry(self, root: Path, docs: tuple[str, ...]) -> Path:

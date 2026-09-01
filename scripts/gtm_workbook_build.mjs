@@ -545,8 +545,16 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
 
 async function main() {
   const [packageArg, outputArg, commentAuthorArg] = process.argv.slice(2);
+  if (packageArg === "--preflight") {
+    process.stdout.write(
+      `${JSON.stringify({ status: "pass", runtime: "workspace_spreadsheet_artifact" })}\n`,
+    );
+    return;
+  }
   if (!packageArg) {
-    throw new Error("Usage: gtm_workbook_build.mjs <package-dir> [output.xlsx] [comment-author]");
+    throw new Error(
+      "Usage: gtm_workbook_build.mjs --preflight | <package-dir> [output.xlsx] [comment-author]",
+    );
   }
   const packageDir = path.resolve(packageArg);
   await assertSafePackageRoot(packageDir);

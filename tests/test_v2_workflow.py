@@ -119,8 +119,6 @@ def minimal_export() -> dict:
             "customTemplate": [],
             "zone": [],
             "gtagConfig": [],
-            "client": [],
-            "transformation": [],
         },
     }
 
@@ -703,6 +701,23 @@ class V2WorkflowTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_audit_isolation_scope_shares_rules_but_not_peer_judgments(self) -> None:
+        build_package(self.export, self.package)
+        for audit_id in ("audit-a", "audit-b"):
+            manifest = json.loads(
+                (
+                    self.package
+                    / "audit-bundles"
+                    / audit_id
+                    / cleanroom_audit.BUNDLE_MANIFEST_FILE
+                ).read_text(encoding="utf-8")
+            )
+            contract = manifest["isolation_contract"]
+            self.assertIn("version-locked shared skill rules", contract["scope"])
+            self.assertIn("only the execution host", contract["boundary"])
+            self.assertIn("the other audit bundle or output", manifest["prohibited_inputs"])
+            self.assertIn("reconciliation output", manifest["prohibited_inputs"])
 
     def test_protected_tree_enumeration_never_crosses_redirects(self) -> None:
         tree = self.root / "protected-tree"

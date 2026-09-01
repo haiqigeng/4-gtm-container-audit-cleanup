@@ -604,10 +604,6 @@ def family_key(record: dict[str, Any]) -> str:
         return "route:" + ",".join(triggers)
     contract = tag_contract(record)
     vendor = str(contract.get("vendor") or "unclassified")
-    if record["layer"] == "client":
-        return "server-client:" + vendor + ":" + record["object_type"]
-    if record["layer"] == "transformation":
-        return "server-transformation:" + vendor + ":" + record["object_type"]
     if record["layer"] == "zone":
         return "zone:" + record["object_id"]
     if record["layer"] == "gtagConfig":
@@ -819,8 +815,6 @@ def scaffold_families(
     records = object_records(cv, root_path)
     roots = (
         records.get("tag", [])
-        + records.get("client", [])
-        + records.get("transformation", [])
         + records.get("zone", [])
         + records.get("gtagConfig", [])
     )

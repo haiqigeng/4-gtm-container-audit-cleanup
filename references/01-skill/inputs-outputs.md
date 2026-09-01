@@ -3,10 +3,12 @@
 ## Required Input
 
 One complete, unambiguous GTM web ContainerVersion JSON export or equivalent
-read-only GTM evidence with resolvable account, container, version/workspace, and
-WEB container-type identity. A standard GTM export envelope proves omitted
-supported web layers empty; equivalent read-only evidence must enumerate them.
-Server-container exports are not accepted in this version.
+read-only GTM evidence explicitly supplied or selected by the user, with
+resolvable account, container, version/workspace, and WEB container-type identity.
+Never discover, infer, or choose the source from workspace files. A standard GTM
+export envelope proves omitted supported web layers empty; equivalent read-only
+evidence must enumerate them. Server-container exports and server-container
+objects are not accepted.
 
 ## Optional Locked Input
 
