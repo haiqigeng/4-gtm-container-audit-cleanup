@@ -101,8 +101,10 @@ per vendor/purpose/category. Unknown and absent state fail closed.
 Do not use Additional Consent Checks as the configurable gate in this selected
 architecture. Record Built-In Consent Checks as intrinsic template behaviour;
 they cannot be disabled and do not prove Advanced Consent Mode. Confirm Advanced
-Mode only from explicit approved context and coherent visible default/update
-writers and consent types.
+Mode only when a closed locked approval row matches the exact destination and
+direct-browser/client-to-server route (including the route host where applicable),
+carries concrete approval evidence, and the source visibly contains coherent
+default/update writers, consent types, and Consent Initialization timing.
 
 For Didomi resolve documented `didomi-ready`, `didomi-consent`, and
 `didomi-consent-changed` timing plus exact `didomiVendorsEnabled` token matching.

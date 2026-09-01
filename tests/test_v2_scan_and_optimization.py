@@ -279,6 +279,60 @@ def rich_export() -> dict:
 
 
 class V2ScanAndOptimizationTests(unittest.TestCase):
+    def advanced_mode_export(self, *, server_routed: bool) -> dict:
+        payload = rich_export()
+        cv = payload["containerVersion"]
+        configuration_rows = [
+            ("consent_state", "{{Consent State}}"),
+            ("language", "en"),
+        ]
+        if server_routed:
+            configuration_rows.insert(
+                0, ("transport_url", "https://collect.example.test")
+            )
+        cv["variable"][0]["parameter"] = [
+            table_parameter("configSettingsTable", configuration_rows)
+        ]
+        cv["tag"].extend(
+            [
+                {
+                    "tagId": "305",
+                    "name": "Consent defaults",
+                    "type": "html",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "html",
+                            "value": (
+                                "<script>gtag('consent','default', {"
+                                "'analytics_storage':'denied',"
+                                "'ad_storage':'denied'});</script>"
+                            ),
+                        }
+                    ],
+                    "firingTriggerId": ["2147479593"],
+                },
+                {
+                    "tagId": "306",
+                    "name": "Consent updates",
+                    "type": "html",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "html",
+                            "value": (
+                                "<script>gtag('consent','update', {"
+                                "'analytics_storage':'granted',"
+                                "'ad_storage':'granted'});</script>"
+                            ),
+                        }
+                    ],
+                    "firingTriggerId": ["201"],
+                },
+            ]
+        )
+        return payload
+
     def test_neutral_fact_projection_rejects_unknown_judgment_shaped_fields(self) -> None:
         self.assertEqual(
             [
@@ -516,6 +570,190 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
             [],
             approved_route["unconfirmed_server_consent_gating_hosts"],
         )
+
+    def test_advanced_mode_requires_typed_scoped_approval_and_visible_writers(self) -> None:
+        for server_routed, transport_scope, route_host in (
+            (False, "direct_browser", ""),
+            (True, "client_to_server", "collect.example.test"),
+        ):
+            with self.subTest(server_routed=server_routed):
+                export = self.root / f"advanced-{server_routed}.json"
+                export.write_text(
+                    json.dumps(self.advanced_mode_export(server_routed=server_routed)),
+                    encoding="utf-8",
+                )
+                scan = build_canonical_scan(
+                    export,
+                    provided_context={
+                        "advanced_consent_mode_approvals": [
+                            {
+                                "destination_id": "G-TEST",
+                                "transport_scope": transport_scope,
+                                "route_host": route_host,
+                                "approval_status": "approved",
+                                "evidence": "Owner approval ticket CMP-42",
+                            }
+                        ]
+                    },
+                )["canonical_scan"]
+                topology = {
+                    row["object_key"]: row
+                    for row in scan["optimization_facts"]["tag_control_topology"]
+                }
+                evidence = topology["tag:301"][
+                    "advanced_consent_mode_evidence"
+                ]
+                self.assertTrue(evidence["scoped_approval_complete"])
+                self.assertTrue(evidence["source_visible_defaults_present"])
+                self.assertTrue(evidence["source_visible_updates_present"])
+                self.assertTrue(
+                    evidence["source_visible_default_update_coherence"]
+                )
+                self.assertTrue(
+                    evidence["confirmed_advanced_mode_evidence_complete"]
+                )
+                self.assertEqual(
+                    route_host,
+                    evidence["required_approval_scopes"][0]["route_host"],
+                )
+
+        incomplete = self.advanced_mode_export(server_routed=False)
+        incomplete["containerVersion"]["tag"] = [
+            row
+            for row in incomplete["containerVersion"]["tag"]
+            if row.get("tagId") != "306"
+        ]
+        incomplete_path = self.root / "advanced-missing-update.json"
+        incomplete_path.write_text(json.dumps(incomplete), encoding="utf-8")
+        scan = build_canonical_scan(
+            incomplete_path,
+            provided_context={
+                "advanced_consent_mode_approvals": [
+                    {
+                        "destination_id": "G-TEST",
+                        "transport_scope": "direct_browser",
+                        "route_host": "",
+                        "approval_status": "approved",
+                        "evidence": "Owner approval ticket CMP-42",
+                    }
+                ]
+            },
+        )["canonical_scan"]
+        tag = next(
+            row
+            for row in scan["optimization_facts"]["tag_control_topology"]
+            if row["object_key"] == "tag:301"
+        )
+        self.assertFalse(
+            tag["advanced_consent_mode_evidence"][
+                "confirmed_advanced_mode_evidence_complete"
+            ]
+        )
+
+        incomplete_ads = self.advanced_mode_export(server_routed=False)
+        google_tag = next(
+            row
+            for row in incomplete_ads["containerVersion"]["tag"]
+            if row.get("tagId") == "301"
+        )
+        next(
+            parameter
+            for parameter in google_tag["parameter"]
+            if parameter.get("key") == "tagId"
+        )["value"] = "AW-123456"
+        ads_path = self.root / "advanced-incomplete-ads-types.json"
+        ads_path.write_text(json.dumps(incomplete_ads), encoding="utf-8")
+        ads_scan = build_canonical_scan(
+            ads_path,
+            provided_context={
+                "advanced_consent_mode_approvals": [
+                    {
+                        "destination_id": "AW-123456",
+                        "transport_scope": "direct_browser",
+                        "route_host": "",
+                        "approval_status": "approved",
+                        "evidence": "Owner approval ticket CMP-84",
+                    }
+                ]
+            },
+        )["canonical_scan"]
+        ads_evidence = next(
+            row
+            for row in ads_scan["optimization_facts"]["tag_control_topology"]
+            if row["object_key"] == "tag:301"
+        )["advanced_consent_mode_evidence"]
+        self.assertFalse(ads_evidence["required_consent_types_visible"])
+        self.assertFalse(
+            ads_evidence["confirmed_advanced_mode_evidence_complete"]
+        )
+
+        with self.assertRaisesRegex(ValueError, "closed approval schema"):
+            build_canonical_scan(
+                incomplete_path,
+                provided_context={
+                    "advanced_consent_mode_approvals": [
+                        {
+                            "destination_id": "G-TEST",
+                            "transport_scope": "direct_browser",
+                            "route_host": "",
+                            "approval_status": "approved",
+                            "evidence": "Owner approval ticket CMP-42",
+                            "foreign_context": "advanced",
+                        }
+                    ]
+                },
+            )
+
+    def test_consent_area_applicability_and_vendor_topology_are_route_exact(self) -> None:
+        payload = rich_export()
+        cv = payload["containerVersion"]
+        cv["variable"][0]["parameter"] = [
+            table_parameter(
+                "configSettingsTable",
+                [("consent_state", "{{Consent State}}"), ("language", "en")],
+            )
+        ]
+        vendor_tag = next(row for row in cv["tag"] if row["tagId"] == "304")
+        vendor_tag["parameter"][0]["value"] = (
+            "<script>fbq('track', 'PageView');</script>"
+        )
+        export = self.root / "direct-consent-topology.json"
+        export.write_text(json.dumps(payload), encoding="utf-8")
+        scan = build_canonical_scan(export)["canonical_scan"]
+        topology = {
+            row["object_key"]: row
+            for row in scan["optimization_facts"]["tag_control_topology"]
+        }
+        self.assertIn("Meta", topology["tag:304"]["direct_vendor_signals"])
+        self.assertTrue(
+            topology["tag:304"]["consent_applicability"][
+                "direct_non_advanced_browser_vendor"
+            ]
+        )
+        self.assertFalse(
+            topology["tag:304"]["consent_applicability"][
+                "client_to_server_transport"
+            ]
+        )
+        coverage = {row["area_id"]: row for row in scan["coverage_ledger"]}
+        self.assertEqual("applicable", coverage["AREA-09"]["applicability"])
+        self.assertEqual("applicable", coverage["AREA-10"]["applicability"])
+        self.assertEqual("applicable", coverage["AREA-11"]["applicability"])
+        self.assertEqual(
+            "source_counted_zero", coverage["AREA-12"]["applicability"]
+        )
+        assurance = assure_scan(
+            export,
+            scan,
+            vendor_registry_path=self.registry,
+        )
+        ledger = build_obligation_ledger(scan, assurance)
+        routed_area_12 = [
+            row
+            for row in ledger["obligations"]
+            if row["area_id"] == "AREA-12" and row["subject_keys"]
+        ]
+        self.assertEqual([], routed_area_12)
 
     def test_destination_linked_gtag_config_route_is_effective_and_assured(self) -> None:
         inherited = rich_export()

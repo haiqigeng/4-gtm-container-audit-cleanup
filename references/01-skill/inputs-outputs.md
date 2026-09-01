@@ -10,9 +10,13 @@ Server-container exports are not accepted in this version.
 
 ## Optional Locked Input
 
-- analyst-confirmed context such as CMP, route intent, Advanced Consent Mode,
-  exact server route hosts approved to own downstream consent gating, naming
-  rules, exclusions, and exact `do_not_touch` object keys;
+- analyst-confirmed context such as CMP, route intent, exact server route hosts
+  approved to own downstream consent gating, naming rules, exclusions, and exact
+  `do_not_touch` object keys. Advanced Consent Mode approval is never a global
+  boolean: each `advanced_consent_mode_approvals` row must contain exactly
+  `destination_id`, `transport_scope` (`direct_browser` or `client_to_server`),
+  `route_host` (empty only for direct browser), `approval_status: approved`, and
+  concrete `evidence`;
 - an analyst-approved tracking plan or requirement artifact. It is withheld from
   each audit until that audit seals its source-only checkpoint.
 - for a post-canonical semantic repair only: the sealed predecessor

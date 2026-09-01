@@ -203,7 +203,7 @@ def _object_area_rows(obj: dict[str, Any]) -> list[tuple[str, str, list[str]]]:
         {
             "source_facts": obj.get("source_facts", []),
             "source_absence_facts": obj.get("source_absence_facts", []),
-            "consent_route": obj.get("effective_consent_route_facts", {}),
+            "consent_route": obj.get("effective_consent_route", {}),
             "code_lines": obj.get("code_line_facts", []),
         },
         ensure_ascii=False,
@@ -238,28 +238,45 @@ def _object_area_rows(obj: dict[str, Any]) -> list[tuple[str, str, list[str]]]:
         rows.append(("AREA-21", "identity_and_sensitive_fields", ["identity_change"]))
     if layer == "customTemplate" or as_list(obj.get("code_line_facts")):
         rows.append(("AREA-22", "custom_code_or_template", ["custom_code_replacement"]))
-    consent_route = obj.get("effective_consent_route_facts") or {}
-    has_consent_surface = bool(
-        CONSENT_RE.search(source_text)
-        and (
-            as_list(consent_route.get("blocking_trigger_ids"))
-            or as_list(consent_route.get("consent_source_values"))
-            or str(consent_route.get("consent_status") or "")
-            not in {"", "not_configured", "NOT_SET"}
-            or any(
-                CONSENT_RE.search(str(fact.get("json_path") or ""))
-                for fact in as_list(obj.get("source_facts"))
-            )
-        )
+    consent_route = obj.get("effective_consent_route") or {}
+    server_routes = as_list(consent_route.get("server_routing_hosts"))
+    vendor_categories = {
+        str(value)
+        for value in as_list(consent_route.get("detected_vendor_categories"))
+    }
+    consent_controls_visible = bool(
+        as_list(consent_route.get("blocking_trigger_ids"))
+        or as_list(consent_route.get("consent_source_values"))
+        or as_list(consent_route.get("consent_variable_references"))
     )
-    if has_consent_surface:
-        rows.extend(
-            [
-                ("AREA-09", "consent_infrastructure", ["consent_architecture"]),
-                ("AREA-10", "direct_consent_architecture", ["consent_architecture"]),
-                ("AREA-11", "advanced_consent_mode", ["consent_architecture"]),
-                ("AREA-12", "client_server_consent_route", ["client_server_transport"]),
-            ]
+    if "cmp" in vendor_categories:
+        rows.append(
+            ("AREA-09", "consent_infrastructure", ["consent_architecture"])
+        )
+    if (
+        layer == "tag"
+        and not server_routes
+        and "cmp" not in vendor_categories
+        and (
+            as_list(consent_route.get("detected_vendors"))
+            or consent_controls_visible
+            or object_type in GOOGLE_TYPES
+        )
+    ):
+        rows.append(
+            ("AREA-10", "direct_consent_architecture", ["consent_architecture"])
+        )
+    if layer == "tag" and object_type in GOOGLE_TYPES:
+        rows.append(
+            ("AREA-11", "advanced_consent_mode", ["consent_architecture"])
+        )
+    if layer == "tag" and server_routes:
+        rows.append(
+            (
+                "AREA-12",
+                "client_server_consent_route",
+                ["client_server_transport"],
+            )
         )
     deduplicated = []
     seen: set[tuple[str, str, tuple[str, ...]]] = set()
@@ -422,8 +439,16 @@ def build_obligation_ledger(
             "source_json_path": obj.get("source_json_path"),
             "source_facts": obj.get("source_facts", []),
             "source_absence_facts": obj.get("source_absence_facts", []),
-            "detected_vendor": obj.get("detected_vendor"),
-            "vendor_category": obj.get("vendor_category"),
+            "detected_vendors": as_list(
+                (obj.get("effective_consent_route") or {}).get(
+                    "detected_vendors"
+                )
+            ),
+            "detected_vendor_categories": as_list(
+                (obj.get("effective_consent_route") or {}).get(
+                    "detected_vendor_categories"
+                )
+            ),
         }
         for area_id, fact_kind, triggers in _object_area_rows(obj):
             rows.append(
@@ -593,23 +618,25 @@ def build_obligation_ledger(
                 subject_keys=[key],
             )
         )
-        has_direct_consent_surface = bool(
-            topology.get("positive_route_contains_consent")
-            or topology.get("blocker_contains_consent")
-            or (topology.get("consent_metadata") or {}).get("contains_consent_value")
-            or as_list(topology.get("cmp_lifecycle_event_candidates"))
-            or as_list(topology.get("direct_vendor_signals"))
-        )
-        has_transporter_surface = bool(
-            as_list(topology.get("server_route_hosts"))
-            or as_list(topology.get("consent_forwarding_settings"))
-        )
-        if has_direct_consent_surface:
-            for area_id, fact_kind, verification in (
-                ("AREA-09", "cmp_and_consent_infrastructure", "consent_architecture"),
-                ("AREA-10", "direct_client_consent_architecture", "consent_architecture"),
-                ("AREA-11", "advanced_consent_classification", "consent_architecture"),
-            ):
+        applicability = topology.get("consent_applicability") or {}
+        for area_id, fact_kind, applies in (
+            (
+                "AREA-09",
+                "cmp_and_consent_infrastructure",
+                applicability.get("consent_infrastructure"),
+            ),
+            (
+                "AREA-10",
+                "direct_client_consent_architecture",
+                applicability.get("direct_non_advanced_browser_vendor"),
+            ),
+            (
+                "AREA-11",
+                "advanced_consent_classification",
+                applicability.get("advanced_google_destination_review"),
+            ),
+        ):
+            if applies:
                 rows.append(
                     _obligation(
                         area_id,
@@ -618,10 +645,10 @@ def build_obligation_ledger(
                         fact_kind,
                         topology,
                         subject_keys=[key],
-                        material_verification_triggers=[verification],
+                        material_verification_triggers=["consent_architecture"],
                     )
                 )
-        if has_transporter_surface:
+        if applicability.get("client_to_server_transport"):
             for area_id, fact_kind in (
                 ("AREA-12", "transporter_classification"),
                 ("AREA-13", "client_side_server_handoff_boundary"),
@@ -637,6 +664,23 @@ def build_obligation_ledger(
                         material_verification_triggers=["client_server_transport"],
                     )
                 )
+
+    consent_infrastructure = (
+        scan.get("optimization_facts") or {}
+    ).get("consent_infrastructure_summary") or {}
+    if as_list(consent_infrastructure.get("context_cmp")) or as_list(
+        consent_infrastructure.get("writer_facts")
+    ):
+        rows.append(
+            _obligation(
+                "AREA-09",
+                "container",
+                "consent_infrastructure_review",
+                "source_visible_default_update_architecture",
+                consent_infrastructure,
+                material_verification_triggers=["consent_architecture"],
+            )
+        )
 
     # Source-derived families and deterministic relationship candidates.
     architecture = scan.get("architecture_evidence") or {}

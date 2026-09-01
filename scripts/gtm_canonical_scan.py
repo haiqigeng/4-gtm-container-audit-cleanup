@@ -413,17 +413,39 @@ def _area_source_counts(
     relationships = len(as_list(architecture.get("relationships")))
     families = len(as_list(architecture.get("families")))
     code_rows = len(as_list(technical.get("rows")))
-    consent_tags = sum(
-        1
+    topology = [
+        row
         for row in as_list(optimization.get("tag_control_topology"))
-        if row.get("positive_route_contains_consent")
-        or row.get("blocker_contains_consent")
-        or (row.get("consent_metadata") or {}).get("contains_consent_value")
+        if isinstance(row, dict)
+    ]
+    consent_infrastructure = optimization.get("consent_infrastructure_summary") or {}
+    consent_infrastructure_tags = sum(
+        1
+        for row in topology
+        if (row.get("consent_applicability") or {}).get(
+            "consent_infrastructure"
+        )
+    )
+    direct_non_advanced_tags = sum(
+        1
+        for row in topology
+        if (row.get("consent_applicability") or {}).get(
+            "direct_non_advanced_browser_vendor"
+        )
+    )
+    advanced_google_tags = sum(
+        1
+        for row in topology
+        if (row.get("consent_applicability") or {}).get(
+            "advanced_google_destination_review"
+        )
     )
     server_route_tags = sum(
         1
-        for row in as_list(optimization.get("tag_control_topology"))
-        if as_list(row.get("server_route_hosts"))
+        for row in topology
+        if (row.get("consent_applicability") or {}).get(
+            "client_to_server_transport"
+        )
     )
     google_surfaces = len(as_list(optimization.get("effective_google_settings")))
     destinations = sum(
@@ -455,9 +477,10 @@ def _area_source_counts(
         "AREA-06": tags + templates,
         "AREA-07": tags + triggers,
         "AREA-08": tags,
-        "AREA-09": consent_tags,
-        "AREA-10": consent_tags,
-        "AREA-11": consent_tags,
+        "AREA-09": consent_infrastructure_tags
+        + int(bool(as_list(consent_infrastructure.get("context_cmp")))),
+        "AREA-10": direct_non_advanced_tags,
+        "AREA-11": advanced_google_tags,
         "AREA-12": server_route_tags,
         "AREA-13": server_route_tags,
         "AREA-14": variables,

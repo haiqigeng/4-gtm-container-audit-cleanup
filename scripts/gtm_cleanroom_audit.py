@@ -25,6 +25,8 @@ from gtm_audit_work_units import (
     WORK_UNIT_MANIFEST,
     build_work_units,
     declared_work_unit_files,
+    discovery_schema_errors,
+    semantic_audit_decision_schema_errors,
     work_unit_completion_errors,
     work_unit_identity_hash,
 )
@@ -889,6 +891,7 @@ def _discovery_errors(
         if not isinstance(discovery, dict):
             errors.append(f"{label}: row is malformed")
             continue
+        errors.extend(discovery_schema_errors(discovery, label))
         discovery_id = str(discovery.get("discovery_id") or "")
         if not re.fullmatch(rf"{audit_id.upper()}-DISC-[A-Z0-9_-]+", discovery_id):
             errors.append(f"{label}: discovery_id is invalid")
@@ -1330,6 +1333,7 @@ def validate_audit(
         if not decision:
             continue
         label = f"decision {decision.get('decision_id') or obligation_id}"
+        errors.extend(semantic_audit_decision_schema_errors(decision, label))
         if decision.get("decision_id") != f"{audit_id.upper()}-{obligation_id}":
             errors.append(f"{label}: decision_id is not deterministic")
         for field, expected in _locked_decision_fields(obligation).items():

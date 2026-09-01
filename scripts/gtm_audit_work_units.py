@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from gtm_audit_contract import CANONICAL_DECISION_FIELDS, OPERATION_ACTION_FIELDS
 from gtm_lib import as_list, stable_hash, write_json
 
 WORK_UNIT_DIRECTORY = "work-units"
@@ -70,6 +71,229 @@ COMPLETED_UNIT_FIELDS = {
     "work_unit_id",
     "completed_work_unit_sha256",
 }
+WORKLOAD_ESTIMATE_FIELDS = {
+    "object_count",
+    "obligation_count",
+    "relationship_count",
+    "custom_code_segment_count",
+    "shared_dependency_count",
+    "estimated_authored_tokens",
+    "schema_ceiling",
+}
+SCHEMA_CEILING_FIELDS = {
+    "single_obligations",
+    "single_estimated_tokens",
+    "family_obligations",
+}
+SEMANTIC_AUDIT_DECISION_FIELDS = {
+    "decision_id",
+    "obligation_id",
+    "obligation_sha256",
+    "area_id",
+    "scope_level",
+    "audit_mechanism",
+    "fact_kind",
+    "subject_keys",
+    "family_ids",
+    "candidate_id",
+    "source_coordinates",
+    "applicability",
+    "material_verification_triggers",
+    "semantic_repair_records",
+    "status",
+    *CANONICAL_DECISION_FIELDS,
+    "operation_proposal",
+    "evidence_citations",
+}
+DISCOVERY_FIELDS = {
+    "discovery_id",
+    "area_id",
+    "scope_level",
+    "subject_keys",
+    "family_ids",
+    "source_coordinates",
+    "decision",
+}
+DISCOVERY_DECISION_FIELDS = {
+    "decision_id",
+    *CANONICAL_DECISION_FIELDS,
+    "operation_proposal",
+    "evidence_citations",
+}
+OPERATION_PROPOSAL_FIELDS = {
+    "operation_id",
+    "source_decision_id",
+    "operation_family",
+    "exact_target_state",
+    "preconditions",
+    "static_verification",
+    "rollback",
+    "depends_on",
+    *OPERATION_ACTION_FIELDS,
+}
+OPERATION_ACTION_ROW_FIELDS = {
+    "creations": {"layer", "object"},
+    "additions": {"object_key", "json_path", "value"},
+    "changes": {"object_key", "json_path", "before", "after"},
+    "removals": {"object_key", "json_path", "before"},
+    "remaps": {"from_object_key", "to_object_key", "consumer_object_keys"},
+    "renames": {"object_key", "before", "after"},
+    "pauses": {"object_key", "before", "after"},
+    "deletions": {"object_key"},
+}
+
+
+def _closed_object_list_errors(
+    value: Any,
+    fields: set[str],
+    label: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    errors: list[str] = []
+    if not isinstance(value, list):
+        return [], [f"{label} must be an exact object list"]
+    rows: list[dict[str, Any]] = []
+    for index, row in enumerate(value, start=1):
+        if not isinstance(row, dict):
+            errors.append(f"{label} row {index} is not an object")
+            continue
+        if set(row) != fields:
+            errors.append(f"{label} row {index} fields differ from their closed schema")
+        rows.append(row)
+    return rows, errors
+
+
+def operation_proposal_schema_errors(
+    proposal: Any,
+    label: str,
+) -> list[str]:
+    if proposal == {}:
+        return []
+    if not isinstance(proposal, dict):
+        return [f"{label}: operation_proposal must be an object"]
+    errors: list[str] = []
+    if set(proposal) != OPERATION_PROPOSAL_FIELDS:
+        errors.append(f"{label}: operation_proposal fields differ from its closed schema")
+    if not isinstance(proposal.get("depends_on"), list) or any(
+        not isinstance(value, str) for value in as_list(proposal.get("depends_on"))
+    ):
+        errors.append(f"{label}: operation depends_on must be a string list")
+    for field, fields in OPERATION_ACTION_ROW_FIELDS.items():
+        _rows, row_errors = _closed_object_list_errors(
+            proposal.get(field), fields, f"{label}: operation {field}"
+        )
+        errors.extend(row_errors)
+    return errors
+
+
+def semantic_audit_decision_schema_errors(
+    decision: Any,
+    label: str,
+) -> list[str]:
+    if not isinstance(decision, dict):
+        return [f"{label}: decision is not an object"]
+    errors: list[str] = []
+    if set(decision) != SEMANTIC_AUDIT_DECISION_FIELDS:
+        errors.append(f"{label}: decision fields differ from its closed schema")
+    for field in (
+        "subject_keys",
+        "family_ids",
+        "source_coordinates",
+        "material_verification_triggers",
+        "evidence_citations",
+    ):
+        if not isinstance(decision.get(field), list) or any(
+            not isinstance(value, str) for value in as_list(decision.get(field))
+        ):
+            errors.append(f"{label}: {field} must be a string list")
+    repairs = decision.get("semantic_repair_records")
+    if not isinstance(repairs, list) or any(
+        not isinstance(row, dict) for row in as_list(repairs)
+    ):
+        errors.append(f"{label}: semantic_repair_records must be an object list")
+    errors.extend(
+        operation_proposal_schema_errors(decision.get("operation_proposal"), label)
+    )
+    return errors
+
+
+def discovery_schema_errors(discovery: Any, label: str) -> list[str]:
+    if not isinstance(discovery, dict):
+        return [f"{label}: discovery is not an object"]
+    errors: list[str] = []
+    if set(discovery) != DISCOVERY_FIELDS:
+        errors.append(f"{label}: discovery fields differ from its closed schema")
+    for field in ("subject_keys", "family_ids", "source_coordinates"):
+        if not isinstance(discovery.get(field), list) or any(
+            not isinstance(value, str) for value in as_list(discovery.get(field))
+        ):
+            errors.append(f"{label}: {field} must be a string list")
+    decision = discovery.get("decision")
+    if not isinstance(decision, dict):
+        errors.append(f"{label}: semantic decision must be an object")
+    else:
+        if set(decision) != DISCOVERY_DECISION_FIELDS:
+            errors.append(
+                f"{label}: discovery decision fields differ from its closed schema"
+            )
+        if not isinstance(decision.get("evidence_citations"), list) or any(
+            not isinstance(value, str)
+            for value in as_list(decision.get("evidence_citations"))
+        ):
+            errors.append(f"{label}: discovery evidence_citations must be a string list")
+        errors.extend(
+            operation_proposal_schema_errors(
+                decision.get("operation_proposal"), f"{label}: discovery decision"
+            )
+        )
+    return errors
+
+
+def workload_estimate_schema_errors(estimate: Any) -> list[str]:
+    if not isinstance(estimate, dict):
+        return ["workload estimate must be an object"]
+    errors: list[str] = []
+    if set(estimate) != WORKLOAD_ESTIMATE_FIELDS:
+        errors.append("workload estimate fields differ from its closed schema")
+    for field in WORKLOAD_ESTIMATE_FIELDS - {"schema_ceiling"}:
+        value = estimate.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            errors.append(f"workload estimate {field} must be a non-negative integer")
+    ceiling = estimate.get("schema_ceiling")
+    if not isinstance(ceiling, dict):
+        errors.append("workload estimate schema_ceiling must be an object")
+    else:
+        if set(ceiling) != SCHEMA_CEILING_FIELDS:
+            errors.append("workload schema ceiling fields differ from its closed schema")
+        for field in SCHEMA_CEILING_FIELDS:
+            value = ceiling.get(field)
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                errors.append(f"workload schema ceiling {field} must be a positive integer")
+    return errors
+
+
+def deterministic_workload_errors(
+    manifest: dict[str, Any],
+    scan: dict[str, Any],
+    assurance: dict[str, Any],
+    audit: dict[str, Any],
+) -> list[str]:
+    errors = workload_estimate_schema_errors(manifest.get("workload_estimate"))
+    if not errors:
+        reconstructed = workload_estimate(scan, assurance, audit)
+        if manifest.get("workload_estimate") != reconstructed:
+            errors.append(
+                "workload estimate is not the exact deterministic reconstruction"
+            )
+        expected_strategy = (
+            "family_sharded"
+            if reconstructed["obligation_count"] > MAX_SINGLE_OBLIGATIONS
+            or reconstructed["estimated_authored_tokens"]
+            > MAX_SINGLE_ESTIMATED_TOKENS
+            else "single_file"
+        )
+        if manifest.get("strategy") != expected_strategy:
+            errors.append("work-unit strategy differs from deterministic workload")
+    return errors
 
 
 def workload_estimate(
@@ -177,7 +401,13 @@ def declared_work_unit_files(
     errors: list[str] = []
     if set(manifest) != WORK_UNIT_MANIFEST_FIELDS:
         errors.append("work-unit manifest fields differ from its closed schema")
-    records = as_list(manifest.get("work_units"))
+    errors.extend(workload_estimate_schema_errors(manifest.get("workload_estimate")))
+    raw_records = manifest.get("work_units")
+    if not isinstance(raw_records, list):
+        records: list[Any] = []
+        errors.append("work-unit manifest work_units must be an exact object list")
+    else:
+        records = raw_records
     strategy = manifest.get("strategy")
     if strategy == "single_file":
         if records:
@@ -187,12 +417,25 @@ def declared_work_unit_files(
         return expected, ["work-unit manifest strategy is invalid"]
     if not records:
         errors.append("family-sharded manifest declares no work units")
+    seen_work_unit_ids: set[str] = set()
+    seen_filenames: set[str] = set()
     for record in records:
         if not isinstance(record, dict):
             errors.append("work-unit manifest record is malformed")
             continue
         if set(record) != WORK_UNIT_RECORD_FIELDS:
             errors.append("work-unit manifest record fields differ from their schema")
+        work_unit_id = str(record.get("work_unit_id") or "")
+        if not work_unit_id or work_unit_id in seen_work_unit_ids:
+            errors.append("work-unit manifest work_unit_id is blank or duplicated")
+        seen_work_unit_ids.add(work_unit_id)
+        obligation_ids = record.get("obligation_ids")
+        if not isinstance(obligation_ids, list) or any(
+            not isinstance(value, str) or not value for value in as_list(obligation_ids)
+        ):
+            errors.append("work-unit manifest obligation_ids must be a non-blank string list")
+        elif len(set(obligation_ids)) != len(obligation_ids):
+            errors.append("work-unit manifest obligation_ids contain duplicates")
         filename = str(record.get("filename") or "")
         relative = Path(filename)
         if (
@@ -201,9 +444,11 @@ def declared_work_unit_files(
             or len(relative.parts) != 1
             or relative.as_posix() != filename
             or filename in expected
+            or filename in seen_filenames
         ):
             errors.append("work-unit manifest filename is invalid or duplicated")
             continue
+        seen_filenames.add(filename)
         expected.add(filename)
     return expected, errors
 
@@ -252,6 +497,12 @@ def work_unit_contract_errors(
         decisions = []
     else:
         decisions = raw_decisions
+        for index, decision in enumerate(decisions, start=1):
+            errors.extend(
+                semantic_audit_decision_schema_errors(
+                    decision, f"work-unit decision {index}"
+                )
+            )
     if [str(row.get("obligation_id") or "") for row in decisions] != (
         declared_obligations
     ):
@@ -265,6 +516,11 @@ def work_unit_contract_errors(
         not isinstance(row, dict) for row in raw_discoveries
     ):
         errors.append("open discoveries must be a declared-only object list")
+    else:
+        for index, discovery in enumerate(raw_discoveries, start=1):
+            errors.extend(
+                discovery_schema_errors(discovery, f"work-unit discovery {index}")
+            )
     embedded_identity = str(unit.get("work_unit_identity_sha256") or "")
     if embedded_identity != str(record.get("work_unit_identity_sha256") or ""):
         errors.append("embedded identity differs from its manifest")
@@ -359,8 +615,15 @@ def merge_work_units(bundle: Path) -> dict[str, Any]:
     directory = bundle / WORK_UNIT_DIRECTORY
     manifest_path = directory / WORK_UNIT_MANIFEST
     audit_path = bundle / "audit.json"
-    if not manifest_path.is_file() or not audit_path.is_file():
-        raise ValueError("work-unit manifest or bundle-local audit is missing")
+    scan_path = bundle / "canonical-scan.json"
+    assurance_path = bundle / "scan-assurance.json"
+    if not all(
+        path.is_file()
+        for path in (manifest_path, audit_path, scan_path, assurance_path)
+    ):
+        raise ValueError(
+            "work-unit manifest, audit, canonical scan, or scan assurance is missing"
+        )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("work_unit_manifest_sha256") != work_unit_identity_hash(manifest):
         raise ValueError("work-unit manifest identity changed")
@@ -370,6 +633,13 @@ def merge_work_units(bundle: Path) -> dict[str, Any]:
     if declared_file_errors:
         raise ValueError("; ".join(declared_file_errors))
     base = json.loads(audit_path.read_text(encoding="utf-8"))
+    scan = json.loads(scan_path.read_text(encoding="utf-8"))
+    assurance = json.loads(assurance_path.read_text(encoding="utf-8"))
+    workload_errors = deterministic_workload_errors(
+        manifest, scan, assurance, base
+    )
+    if workload_errors:
+        raise ValueError("; ".join(workload_errors))
     expected = {
         str(row.get("obligation_id") or "")
         for row in as_list(base.get("decisions"))
@@ -442,14 +712,29 @@ def work_unit_completion_errors(
 ) -> list[str]:
     """Prove a sharded audit was merged from every closed declared unit."""
 
+    errors: list[str] = []
+    scan_path = bundle / "canonical-scan.json"
+    assurance_path = bundle / "scan-assurance.json"
+    if not scan_path.is_file() or not assurance_path.is_file():
+        errors.append("deterministic workload source artifacts are missing")
+    else:
+        try:
+            scan = json.loads(scan_path.read_text(encoding="utf-8"))
+            assurance = json.loads(assurance_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            errors.append("deterministic workload source artifacts are malformed")
+        else:
+            errors.extend(
+                deterministic_workload_errors(manifest, scan, assurance, audit)
+            )
     if manifest.get("strategy") != "family_sharded":
-        return [] if not audit.get("work_unit_completion") else [
-            "single-file audit cannot claim sharded work-unit completion"
-        ]
+        if audit.get("work_unit_completion"):
+            errors.append("single-file audit cannot claim sharded work-unit completion")
+        return errors
     completion = audit.get("work_unit_completion")
     if not isinstance(completion, dict):
-        return ["family-sharded audit must be merged before validation"]
-    errors = []
+        errors.append("family-sharded audit must be merged before validation")
+        return errors
     if set(completion) != WORK_UNIT_COMPLETION_FIELDS:
         errors.append("work-unit completion fields differ from their closed schema")
     unsigned = {

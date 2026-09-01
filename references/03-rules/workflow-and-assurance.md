@@ -101,6 +101,12 @@ Before reconciliation:
 - the orchestrator coordinates but authors neither result;
 - sharding is allowed only by complete implementation family plus one shared-
   infrastructure unit;
+- workload counts and the sharding decision are deterministically reconstructed
+  from the locked scan, assurance, and audit before merge and again at final
+  validation;
+- manifests, records, units, decisions, discoveries, proposals, and structured
+  action rows use recursively closed declared schemas; unknown or malformed
+  nested authoring context blocks before merge;
 - each audit performs global closure over shared configuration, consent, routing,
   destinations, identity, and architecture; and
 - each complete audit is coverage-validated and immutably sealed.

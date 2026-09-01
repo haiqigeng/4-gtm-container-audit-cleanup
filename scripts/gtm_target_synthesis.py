@@ -70,8 +70,6 @@ def server_consent_gate_regression_errors(
     for tag_id, source_tag in _tags_by_id(source_cv).items():
         object_key = f"tag:{tag_id}"
         source_hosts = set(as_list(source_routes.get(object_key)))
-        if not source_hosts:
-            continue
         source_gate = client_consent_gate_facts(source_tag, source_triggers)
         if not source_gate["client_consent_gate_visible"]:
             continue
@@ -87,6 +85,11 @@ def server_consent_gate_regression_errors(
             continue
 
         projected_hosts = set(as_list(projected_routes.get(object_key)))
+        # A route can be introduced by the same operation packet that removes
+        # the client gate.  Scope the fence to any source or projected server
+        # route, then judge ownership against the complete projected topology.
+        if not source_hosts and not projected_hosts:
+            continue
         unapproved_hosts = projected_hosts - approved_hosts
         if projected_hosts and not unapproved_hosts:
             continue

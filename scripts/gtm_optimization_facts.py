@@ -16,16 +16,26 @@ from typing import Any
 
 from gtm_audit_contract import CONSENT_ROUTE_CLASSES
 from gtm_configuration_facts import build_consumers, object_consumers
-from gtm_consent_model import server_route_hosts
+from gtm_consent_model import CONSENT_PURPOSES, server_route_hosts
 from gtm_lib import (
     as_list,
     container_root_path,
     container_version,
+    custom_template_executable_code,
+    custom_template_ids,
+    custom_template_type_index,
     refs,
     source_descriptor,
     stable_hash,
 )
-from gtm_relationships import object_records, trigger_conditions
+from gtm_relationships import (
+    configured_destinations,
+    consent_writer_command,
+    custom_code,
+    object_records,
+    strip_nonbehavior_comments,
+    trigger_conditions,
+)
 
 GOOGLE_TAG_TYPES = frozenset({"googtag", "gaawe", "gaawc", "gclidw", "flc", "fls"})
 GOOGLE_CONFIGURATION_TYPES = frozenset({"googtag", "gaawc"})
@@ -76,6 +86,17 @@ CMP_EVENT_NAMES = {
     "OneTrustGroupsUpdated": "OneTrust",
     "OTConsentApplied": "OneTrust",
 }
+CONSENT_INITIALIZATION_TRIGGER_ID = "2147479593"
+DEFAULT_CONSENT_CALL_RE = re.compile(
+    r"\bsetDefaultConsentState\s*\(|"
+    r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"]default['\"]",
+    re.I,
+)
+UPDATE_CONSENT_CALL_RE = re.compile(
+    r"\bupdateConsentState\s*\(|"
+    r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"]update['\"]",
+    re.I,
+)
 
 
 def _parameters(obj: dict[str, Any]) -> list[dict[str, Any]]:
@@ -449,6 +470,155 @@ def trigger_control_fact(trigger: dict[str, Any], path: str = "$") -> dict[str, 
     }
 
 
+def _consent_initialization_trigger_ids(cv: dict[str, Any]) -> set[str]:
+    trigger_ids = {CONSENT_INITIALIZATION_TRIGGER_ID}
+    for trigger in as_list(cv.get("trigger")):
+        if not isinstance(trigger, dict):
+            continue
+        trigger_type = re.sub(
+            r"[^A-Z0-9]+", "_", str(trigger.get("type") or "").upper()
+        ).strip("_")
+        if trigger_type in {"CONSENT_INIT", "CONSENT_INITIALIZATION"}:
+            trigger_id = str(trigger.get("triggerId") or "").strip()
+            if trigger_id:
+                trigger_ids.add(trigger_id)
+    return trigger_ids
+
+
+def _consent_writer_facts(
+    cv: dict[str, Any],
+    root_path: str,
+    records: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Return source-visible default/update writers without inferring approval."""
+
+    initialization_ids = _consent_initialization_trigger_ids(cv)
+    custom_templates = [
+        row for row in as_list(cv.get("customTemplate")) if isinstance(row, dict)
+    ]
+    template_index = custom_template_type_index(custom_templates)
+    templates_by_id = {
+        str(row.get("templateId") or ""): row
+        for row in custom_templates
+        if str(row.get("templateId") or "")
+    }
+    trigger_facts = {
+        str(row.get("triggerId") or ""): trigger_control_fact(
+            row, f"{root_path}.trigger[{index}]"
+        )
+        for index, row in enumerate(as_list(cv.get("trigger")))
+        if isinstance(row, dict) and str(row.get("triggerId") or "")
+    }
+    rows: list[dict[str, Any]] = []
+    for record in records.get("tag", []):
+        tag = record["object"]
+        template_code = ""
+        template_ids = custom_template_ids(tag, template_index)
+        if len(template_ids) == 1 and template_ids[0] in templates_by_id:
+            template_code = custom_template_executable_code(
+                templates_by_id[template_ids[0]].get("templateData")
+            )
+        source_code = strip_nonbehavior_comments(
+            "\n".join(value for value in (custom_code(tag), template_code) if value)
+        )
+        commands = set()
+        configured_command = consent_writer_command(record)
+        if configured_command in {"default", "update"}:
+            commands.add(configured_command)
+        if DEFAULT_CONSENT_CALL_RE.search(source_code):
+            commands.add("default")
+        if UPDATE_CONSENT_CALL_RE.search(source_code):
+            commands.add("update")
+        if not commands:
+            continue
+        serialized = json.dumps(tag.get("parameter", []), ensure_ascii=False)
+        consent_types = sorted(
+            purpose
+            for purpose in CONSENT_PURPOSES
+            if purpose in f"{serialized}\n{source_code}".casefold()
+        )
+        firing_ids = sorted(
+            str(value) for value in as_list(tag.get("firingTriggerId"))
+        )
+        firing = [
+            trigger_facts[trigger_id]
+            for trigger_id in firing_ids
+            if trigger_id in trigger_facts
+        ]
+        rows.append(
+            {
+                "object_key": str(record.get("object_key") or ""),
+                "object_name": str(record.get("object_name") or ""),
+                "source_json_path": str(record.get("source_json_path") or ""),
+                "commands": sorted(commands),
+                "consent_types": consent_types,
+                "firing_trigger_ids": firing_ids,
+                "firing_trigger_types": sorted(
+                    {str(row.get("trigger_type") or "") for row in firing}
+                ),
+                "firing_event_names": sorted(
+                    {
+                        str(event)
+                        for row in firing
+                        for event in as_list(row.get("event_names"))
+                        if str(event)
+                    }
+                ),
+                "default_uses_consent_initialization": (
+                    "default" not in commands
+                    or bool(set(firing_ids) & initialization_ids)
+                ),
+                "source_visible_command_evidence": True,
+            }
+        )
+    return sorted(rows, key=lambda row: row["object_key"])
+
+
+def _consent_infrastructure_summary(
+    writers: list[dict[str, Any]],
+    shared_facts: dict[str, Any],
+) -> dict[str, Any]:
+    defaults = [row for row in writers if "default" in row["commands"]]
+    updates = [row for row in writers if "update" in row["commands"]]
+    default_types = sorted(
+        {value for row in defaults for value in row["consent_types"]}
+    )
+    update_types = sorted(
+        {value for row in updates for value in row["consent_types"]}
+    )
+    context_cmp = sorted(
+        str(value)
+        for value in as_list((shared_facts.get("audit_context") or {}).get("cmp"))
+        if str(value)
+    )
+    defaults_visible = bool(defaults)
+    updates_visible = bool(updates)
+    default_timing_coherent = defaults_visible and all(
+        bool(row["default_uses_consent_initialization"]) for row in defaults
+    )
+    consent_types_coherent = bool(default_types) and set(default_types) <= set(
+        update_types
+    )
+    return {
+        "context_cmp": context_cmp,
+        "writer_facts": writers,
+        "default_writer_object_keys": [row["object_key"] for row in defaults],
+        "update_writer_object_keys": [row["object_key"] for row in updates],
+        "default_consent_types": default_types,
+        "update_consent_types": update_types,
+        "source_visible_defaults_present": defaults_visible,
+        "source_visible_updates_present": updates_visible,
+        "default_timing_coherent": default_timing_coherent,
+        "consent_type_sets_coherent": consent_types_coherent,
+        "source_visible_default_update_coherence": bool(
+            defaults_visible
+            and updates_visible
+            and default_timing_coherent
+            and consent_types_coherent
+        ),
+    }
+
+
 def _explicit_priority(tag: dict[str, Any]) -> tuple[bool, int | None, str]:
     if "tagFiringPriority" not in tag:
         return False, None, ""
@@ -521,11 +691,133 @@ def client_consent_gate_facts(
     }
 
 
+def _advanced_consent_mode_evidence(
+    destinations: list[str],
+    route_hosts: list[str],
+    approvals: list[dict[str, Any]],
+    infrastructure: dict[str, Any],
+    *,
+    native_google_tag: bool,
+    approval_context_provided: bool,
+) -> dict[str, Any]:
+    normalized_destinations = sorted(
+        {str(value).strip().upper() for value in destinations if str(value).strip()}
+    )
+    normalized_hosts = sorted(
+        {str(value).strip().lower() for value in route_hosts if str(value).strip()}
+    )
+    required_scopes = [
+        {
+            "destination_id": destination,
+            "transport_scope": (
+                "client_to_server" if normalized_hosts else "direct_browser"
+            ),
+            "route_host": host,
+        }
+        for destination in normalized_destinations
+        for host in (normalized_hosts or [""])
+    ]
+    approvals_by_scope = {
+        (
+            str(row.get("destination_id") or "").strip().upper(),
+            str(row.get("transport_scope") or ""),
+            str(row.get("route_host") or "").strip().lower(),
+        ): row
+        for row in approvals
+        if isinstance(row, dict) and row.get("approval_status") == "approved"
+    }
+    matched = [
+        approvals_by_scope[
+            (
+                row["destination_id"],
+                row["transport_scope"],
+                row["route_host"],
+            )
+        ]
+        for row in required_scopes
+        if (
+            row["destination_id"],
+            row["transport_scope"],
+            row["route_host"],
+        )
+        in approvals_by_scope
+    ]
+    approval_complete = bool(required_scopes) and len(matched) == len(
+        required_scopes
+    )
+    visible_coherence = bool(
+        infrastructure.get("source_visible_default_update_coherence")
+    )
+    required_consent_types = sorted(
+        {
+            purpose
+            for destination in normalized_destinations
+            for purpose in (
+                (
+                    "ad_storage",
+                    "ad_user_data",
+                    "ad_personalization",
+                )
+                if destination.startswith(("AW-", "DC-"))
+                else (
+                    ("analytics_storage",)
+                    if destination.startswith(("G-", "UA-"))
+                    else (
+                        "analytics_storage",
+                        "ad_storage",
+                        "ad_user_data",
+                        "ad_personalization",
+                    )
+                )
+            )
+        }
+    )
+    required_types_visible = bool(required_consent_types) and set(
+        required_consent_types
+    ) <= set(infrastructure.get("default_consent_types") or []) and set(
+        required_consent_types
+    ) <= set(infrastructure.get("update_consent_types") or [])
+    return {
+        "native_google_tag": native_google_tag,
+        "destination_ids": normalized_destinations,
+        "required_approval_scopes": required_scopes,
+        "matching_approvals": matched,
+        "approval_context_provided": approval_context_provided,
+        "scoped_approval_complete": approval_complete,
+        "source_visible_defaults_present": infrastructure.get(
+            "source_visible_defaults_present", False
+        ),
+        "source_visible_updates_present": infrastructure.get(
+            "source_visible_updates_present", False
+        ),
+        "default_timing_coherent": infrastructure.get(
+            "default_timing_coherent", False
+        ),
+        "consent_type_sets_coherent": infrastructure.get(
+            "consent_type_sets_coherent", False
+        ),
+        "source_visible_default_update_coherence": visible_coherence,
+        "required_consent_types": required_consent_types,
+        "required_consent_types_visible": required_types_visible,
+        "confirmed_advanced_mode_evidence_complete": bool(
+            native_google_tag
+            and approval_complete
+            and visible_coherence
+            and required_types_visible
+        ),
+    }
+
+
 def _control_topology(
     cv: dict[str, Any],
     root_path: str,
     shared_objects: dict[str, dict[str, Any]],
     effective_settings_by_tag: dict[str, list[dict[str, Any]]],
+    destinations_by_tag: dict[str, list[str]],
+    writer_facts_by_tag: dict[str, dict[str, Any]],
+    consent_infrastructure: dict[str, Any],
+    advanced_approvals: list[dict[str, Any]],
+    approval_context_provided: bool,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     trigger_by_id = {
         str(trigger.get("triggerId") or ""): trigger_control_fact(
@@ -623,14 +915,44 @@ def _control_topology(
                 if event in CMP_EVENT_NAMES
             }
         )
+        route_consent = shared.get("effective_consent_route") or {}
+        vendor_contract = shared.get("vendor_event_contract") or {}
         direct_vendor_signals = sorted(
             {
-                value
-                for value in as_list(
-                    (shared.get("vendor_event_contract") or {}).get("vendors")
-                )
-                if str(value)
+                str(value)
+                for value in [
+                    vendor_contract.get("vendor"),
+                    *as_list(route_consent.get("detected_vendors")),
+                ]
+                if str(value or "").strip()
             }
+        )
+        vendor_categories = sorted(
+            {
+                str(value)
+                for value in as_list(
+                    route_consent.get("detected_vendor_categories")
+                )
+                if str(value or "").strip()
+            }
+        )
+        native_google_tag = str(tag.get("type") or "").lower() in GOOGLE_TAG_TYPES
+        advanced_evidence = _advanced_consent_mode_evidence(
+            destinations_by_tag.get(key, []),
+            route_hosts,
+            advanced_approvals,
+            consent_infrastructure,
+            native_google_tag=native_google_tag,
+            approval_context_provided=approval_context_provided,
+        )
+        consent_infrastructure_tag = bool(
+            key in writer_facts_by_tag or "cmp" in vendor_categories
+        )
+        direct_non_advanced = bool(
+            not route_hosts
+            and not consent_infrastructure_tag
+            and (direct_vendor_signals or native_google_tag)
+            and not advanced_evidence["confirmed_advanced_mode_evidence_complete"]
         )
         row = {
             "object_key": key,
@@ -663,6 +985,15 @@ def _control_topology(
             "consent_forwarding_settings": consent_forwarding_settings,
             "consent_metadata": consent,
             "direct_vendor_signals": direct_vendor_signals,
+            "detected_vendor_categories": vendor_categories,
+            "consent_writer_facts": writer_facts_by_tag.get(key, {}),
+            "advanced_consent_mode_evidence": advanced_evidence,
+            "consent_applicability": {
+                "consent_infrastructure": consent_infrastructure_tag,
+                "direct_non_advanced_browser_vendor": direct_non_advanced,
+                "advanced_google_destination_review": native_google_tag,
+                "client_to_server_transport": bool(route_hosts),
+            },
             "route_classification": {
                 "selected_class": "",
                 "allowed_classes": list(CONSENT_ROUTE_CLASSES),
@@ -695,6 +1026,13 @@ def build_optimization_facts(
     cv = container_version(data)
     root_path = container_root_path(data)
     records = object_records(cv, root_path)
+    writer_facts = _consent_writer_facts(cv, root_path, records)
+    writer_facts_by_tag = {
+        str(row.get("object_key") or ""): row for row in writer_facts
+    }
+    consent_infrastructure = _consent_infrastructure_summary(
+        writer_facts, shared_facts
+    )
     shared_by_key = {
         str(row.get("object_key") or ""): row
         for row in as_list(shared_facts.get("objects"))
@@ -704,6 +1042,22 @@ def build_optimization_facts(
         f"tag:{tag.get('tagId') or ''}": tag
         for tag in as_list(cv.get("tag"))
         if isinstance(tag, dict)
+    }
+    destinations_by_tag = {
+        str(record.get("object_key") or ""): configured_destinations(record)
+        for record in records.get("tag", [])
+    }
+    advanced_approvals = [
+        row
+        for row in as_list(
+            (shared_facts.get("audit_context") or {}).get(
+                "advanced_consent_mode_approvals"
+            )
+        )
+        if isinstance(row, dict)
+    ]
+    approval_context_provided = "advanced_consent_mode_approvals" in {
+        str(value) for value in as_list(shared_facts.get("provided_context_fields"))
     }
     effective_settings: list[dict[str, Any]] = []
     for index, tag in enumerate(as_list(cv.get("tag"))):
@@ -763,6 +1117,11 @@ def build_optimization_facts(
         root_path,
         shared_by_key,
         effective_settings_by_tag,
+        destinations_by_tag,
+        writer_facts_by_tag,
+        consent_infrastructure,
+        advanced_approvals,
+        approval_context_provided,
     )
     shared_candidates = _shared_setting_candidates(effective_settings, tags_by_key)
 
@@ -777,6 +1136,7 @@ def build_optimization_facts(
             effective_settings,
             key=lambda row: (row["object_key"], row["settings_scope"]),
         ),
+        "consent_infrastructure_summary": consent_infrastructure,
         "tag_control_topology": sorted(topology, key=lambda row: row["object_key"]),
         "optimization_candidates": sorted(
             all_candidates, key=lambda row: str(row["candidate_id"])

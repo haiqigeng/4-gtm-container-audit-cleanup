@@ -549,7 +549,7 @@ def consent_writer_command(record: dict[str, Any]) -> str:
     command = normalized_text(parameter_value(record["object"], "command"))
     if command in {"default", "update"}:
         return command
-    code = custom_code(record["object"])
+    code = strip_nonbehavior_comments(custom_code(record["object"]))
     if re.search(r"\bsetDefaultConsentState\b", code, re.I) or re.search(
         r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"]default['\"]", code, re.I
     ):

@@ -11,7 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from gtm_audit_contract import OPERATION_ACTION_FIELDS  # noqa: E402
+from gtm_audit_contract import (  # noqa: E402
+    CANONICAL_DECISION_FIELDS,
+    OPERATION_ACTION_FIELDS,
+)
 from gtm_audit_work_units import (  # noqa: E402
     MAX_SINGLE_OBLIGATIONS,
     build_work_units,
@@ -96,6 +99,29 @@ def operation_fixture() -> dict:
             "customTemplate": [],
             "gtagConfig": [],
         }
+    }
+
+
+def work_unit_decision(index: int) -> dict:
+    return {
+        "decision_id": f"AUDIT-A-OBL-{index:04d}",
+        "obligation_id": f"OBL-{index:04d}",
+        "obligation_sha256": f"obligation-{index:04d}",
+        "area_id": "AREA-01",
+        "scope_level": "coverage",
+        "audit_mechanism": "source_counted_coverage",
+        "fact_kind": "coverage_attestation",
+        "subject_keys": [],
+        "family_ids": [],
+        "candidate_id": "",
+        "source_coordinates": [],
+        "applicability": "applicable",
+        "material_verification_triggers": [],
+        "semantic_repair_records": [],
+        "status": "pending",
+        **{field: "" for field in CANONICAL_DECISION_FIELDS},
+        "operation_proposal": {},
+        "evidence_citations": [],
     }
 
 
@@ -340,6 +366,87 @@ class V2OperationSafetyTests(unittest.TestCase):
             ),
         )
 
+    def test_same_packet_route_addition_and_gate_removal_requires_owner(self) -> None:
+        source = operation_fixture()
+        cv = container_version(source)
+        cv["tag"][0]["blockingTriggerId"] = ["12"]
+        cv["trigger"].append(
+            {
+                "triggerId": "12",
+                "name": "Block without vendor consent",
+                "type": "CUSTOM_EVENT",
+                "filter": [
+                    {
+                        "type": "DOES_NOT_CONTAIN",
+                        "parameter": [
+                            {
+                                "key": "arg0",
+                                "type": "TEMPLATE",
+                                "value": "{{didomiVendorsEnabled}}",
+                            },
+                            {
+                                "key": "arg1",
+                                "type": "TEMPLATE",
+                                "value": "vendor-42",
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+        route_and_remove = operation(
+            "OP-ADD-ROUTE-REMOVE-GATE",
+            creations=[
+                {
+                    "layer": "gtagConfig",
+                    "object": {
+                        "gtagConfigId": "30",
+                        "name": "Destination-linked server route",
+                        "type": "googtag",
+                        "parameter": [
+                            {"key": "tagId", "type": "TEMPLATE", "value": "G-OLD"},
+                            {
+                                "key": "transport_url",
+                                "type": "TEMPLATE",
+                                "value": "https://collect.example.test",
+                            },
+                        ],
+                    },
+                }
+            ],
+            removals=[
+                {
+                    "object_key": "tag:1",
+                    "json_path": "$.blockingTriggerId",
+                    "before": ["12"],
+                }
+            ],
+        )
+        self.assertEqual([], validate_operations(source, [route_and_remove]))
+        projected = apply_operations(source, [route_and_remove])
+        errors = server_consent_gate_regression_errors(
+            source,
+            projected,
+            {"context": {"server_consent_gating_hosts": []}},
+        )
+        self.assertTrue(
+            any("collect.example.test" in error for error in errors), errors
+        )
+        self.assertEqual(
+            [],
+            server_consent_gate_regression_errors(
+                source,
+                projected,
+                {
+                    "context": {
+                        "server_consent_gating_hosts": [
+                            "https://collect.example.test"
+                        ]
+                    }
+                },
+            ),
+        )
+
     def test_deletion_does_not_materialize_absent_layers(self) -> None:
         source = operation_fixture()
         projected = apply_operations(
@@ -385,13 +492,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             bundle = Path(temporary)
             decisions = [
-                {
-                    "decision_id": f"AUDIT-A-OBL-{index:04d}",
-                    "obligation_id": f"OBL-{index:04d}",
-                    "scope_level": "coverage",
-                    "family_ids": [],
-                    "subject_keys": [],
-                }
+                work_unit_decision(index)
                 for index in range(MAX_SINGLE_OBLIGATIONS + 1)
             ]
             audit = {
@@ -410,6 +511,12 @@ class V2OperationSafetyTests(unittest.TestCase):
                 "architecture_evidence": {"families": []},
             }
             assurance = {"recomputed_invariants": {"custom_code_segments": []}}
+            (bundle / "canonical-scan.json").write_text(
+                json.dumps(scan, indent=2) + "\n", encoding="utf-8"
+            )
+            (bundle / "scan-assurance.json").write_text(
+                json.dumps(assurance, indent=2) + "\n", encoding="utf-8"
+            )
             manifest = build_work_units(bundle, audit, scan, assurance)
             self.assertEqual("family_sharded", manifest["strategy"])
             self.assertIn(
@@ -432,6 +539,19 @@ class V2OperationSafetyTests(unittest.TestCase):
                 json.dumps(manifest, indent=2) + "\n",
                 encoding="utf-8",
             )
+            forged_workload = copy.deepcopy(manifest)
+            forged_workload["workload_estimate"]["object_count"] += 1
+            forged_workload["work_unit_manifest_sha256"] = work_unit_identity_hash(
+                forged_workload
+            )
+            manifest_path.write_text(
+                json.dumps(forged_workload, indent=2) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "deterministic reconstruction"):
+                merge_work_units(bundle)
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+            )
             forged_unknown = copy.deepcopy(unit)
             forged_unknown["undeclared_context"] = "foreign audit verdict"
             forged_unknown["unit_closure"] = "Forged unit presented as complete."
@@ -440,6 +560,66 @@ class V2OperationSafetyTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "closed schema"):
+                merge_work_units(bundle)
+            forged_nested_decision = copy.deepcopy(unit)
+            forged_nested_decision["decisions"][0][
+                "undeclared_judgment_context"
+            ] = "foreign verdict"
+            forged_nested_decision["unit_closure"] = "Forged nested decision."
+            unit_path.write_text(
+                json.dumps(forged_nested_decision, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "decision fields.*closed schema"):
+                merge_work_units(bundle)
+            forged_discovery = copy.deepcopy(unit)
+            forged_discovery["open_discoveries"] = [
+                {
+                    "discovery_id": "AUDIT-A-DISC-FOREIGN",
+                    "area_id": "AREA-10",
+                    "scope_level": "relationship",
+                    "subject_keys": ["tag:1"],
+                    "family_ids": [],
+                    "source_coordinates": ["$.containerVersion.tag[0]"],
+                    "decision": {
+                        "decision_id": "AUDIT-A-DISC-FOREIGN",
+                        **{field: "" for field in CANONICAL_DECISION_FIELDS},
+                        "operation_proposal": {},
+                        "evidence_citations": [],
+                        "undeclared_judgment_context": "foreign verdict",
+                    },
+                }
+            ]
+            forged_discovery["unit_closure"] = "Forged nested discovery."
+            unit_path.write_text(
+                json.dumps(forged_discovery, indent=2) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                ValueError, "discovery decision fields.*closed schema"
+            ):
+                merge_work_units(bundle)
+            forged_action = copy.deepcopy(unit)
+            forged_action["decisions"][0]["operation_proposal"] = {
+                "operation_id": "OP-NESTED-SCHEMA",
+                "source_decision_id": forged_action["decisions"][0]["decision_id"],
+                "operation_family": "consent_control",
+                "exact_target_state": "One exact target state is retained.",
+                "preconditions": "The locked source remains unchanged.",
+                "static_verification": "The exact structured action is replayed.",
+                "rollback": "Restore the exact prior source field.",
+                "depends_on": [],
+                **{field: [] for field in OPERATION_ACTION_FIELDS},
+            }
+            forged_action["decisions"][0]["operation_proposal"]["deletions"] = [
+                {"object_key": "tag:1", "foreign_context": "delete it"}
+            ]
+            forged_action["unit_closure"] = "Forged nested action."
+            unit_path.write_text(
+                json.dumps(forged_action, indent=2) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                ValueError, "operation deletions.*closed schema"
+            ):
                 merge_work_units(bundle)
             for field, forged_value, recompute_identity in (
                 ("audit_id", "audit-b", False),

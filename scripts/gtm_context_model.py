@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from gtm_baseline_audit import build_execution_reachability
-from gtm_consent_model import server_route_hosts
+from gtm_consent_model import normalized_context_hosts, server_route_hosts
 from gtm_lib import (
     ID_KEYS,
     SEMANTIC_LAYERS,
@@ -66,6 +66,7 @@ INTAKE_FIELDS = (
     "markets",
     "server_routing_hosts",
     "server_consent_gating_hosts",
+    "advanced_consent_mode_approvals",
     "spa",
     "canonical_ids",
     "staging_hosts",
@@ -81,6 +82,9 @@ INFERENCE_EVIDENCE = {
     "markets": "domain ccTLD, container prefix, or Zone scope",
     "server_routing_hosts": "recognized route fields on reachable tags and Google configurations",
     "server_consent_gating_hosts": "analyst-approved downstream consent-gating ownership by exact route host",
+    "advanced_consent_mode_approvals": (
+        "analyst-approved destination and browser/server route scope with explicit evidence"
+    ),
     "spa": "reachable History Change trigger configuration",
     "canonical_ids": "analyst-owned canonical destination or object decision",
     "staging_hosts": "behavior-bearing development/staging/QA endpoint",
@@ -93,6 +97,74 @@ STAGING_HOST_RE = re.compile(
     r"(?:dev|development|stage|staging|qa|uat|sandbox|preprod)(?:[-.].+))$",
     re.I,
 )
+ADVANCED_CONSENT_MODE_APPROVAL_FIELDS = {
+    "destination_id",
+    "transport_scope",
+    "route_host",
+    "approval_status",
+    "evidence",
+}
+ADVANCED_CONSENT_MODE_TRANSPORT_SCOPES = {
+    "direct_browser",
+    "client_to_server",
+}
+DESTINATION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,80}$")
+
+
+def normalize_advanced_consent_mode_approvals(value: Any) -> list[dict[str, str]]:
+    """Validate explicit Advanced Mode approval at destination and route grain."""
+
+    if not isinstance(value, list):
+        raise ValueError("advanced_consent_mode_approvals must be a list")
+    normalized: list[dict[str, str]] = []
+    identities: set[tuple[str, str, str]] = set()
+    for index, raw in enumerate(value, start=1):
+        label = f"advanced_consent_mode_approvals[{index}]"
+        if not isinstance(raw, dict) or set(raw) != ADVANCED_CONSENT_MODE_APPROVAL_FIELDS:
+            raise ValueError(f"{label} fields differ from the closed approval schema")
+        destination_id = str(raw.get("destination_id") or "").strip().upper()
+        transport_scope = str(raw.get("transport_scope") or "").strip()
+        route_host_raw = str(raw.get("route_host") or "").strip()
+        approval_status = str(raw.get("approval_status") or "").strip()
+        evidence = str(raw.get("evidence") or "").strip()
+        if not DESTINATION_ID_RE.fullmatch(destination_id):
+            raise ValueError(f"{label}.destination_id is invalid")
+        if transport_scope not in ADVANCED_CONSENT_MODE_TRANSPORT_SCOPES:
+            raise ValueError(f"{label}.transport_scope is invalid")
+        if approval_status != "approved":
+            raise ValueError(f"{label}.approval_status must be approved")
+        if len(evidence.split()) < 3:
+            raise ValueError(f"{label}.evidence must identify a concrete approval basis")
+        route_host = ""
+        if transport_scope == "direct_browser":
+            if route_host_raw:
+                raise ValueError(f"{label}.route_host must be empty for direct_browser")
+        else:
+            normalized_hosts = normalized_context_hosts([route_host_raw])
+            if len(normalized_hosts) != 1:
+                raise ValueError(f"{label}.route_host must identify one exact host")
+            route_host = normalized_hosts[0]
+        identity = (destination_id.casefold(), transport_scope, route_host)
+        if identity in identities:
+            raise ValueError(f"{label} duplicates another scoped approval")
+        identities.add(identity)
+        normalized.append(
+            {
+                "destination_id": destination_id,
+                "transport_scope": transport_scope,
+                "route_host": route_host,
+                "approval_status": approval_status,
+                "evidence": evidence,
+            }
+        )
+    return sorted(
+        normalized,
+        key=lambda row: (
+            row["destination_id"].casefold(),
+            row["transport_scope"],
+            row["route_host"],
+        ),
+    )
 
 
 def load_provided(path: Path | None) -> dict[str, Any]:
@@ -213,6 +285,7 @@ def context_value_present(field: str, value: Any, provided: bool = False) -> boo
         "markets",
         "server_routing_hosts",
         "server_consent_gating_hosts",
+        "advanced_consent_mode_approvals",
         "canonical_ids",
         "staging_hosts",
         "do_not_touch",
@@ -325,6 +398,12 @@ def build_context_model(
         )
     cv = container_version(data)
     provided = dict(provided_context or load_provided(provided_path))
+    if "advanced_consent_mode_approvals" in provided:
+        provided["advanced_consent_mode_approvals"] = (
+            normalize_advanced_consent_mode_approvals(
+                provided["advanced_consent_mode_approvals"]
+            )
+        )
     behavior_cv = behavior_projection(cv)
     reachability = build_execution_reachability(cv)
     active_keys = set(reachability.get("active_object_keys") or [])
@@ -376,6 +455,7 @@ def build_context_model(
         ),
         "server_routing_hosts": route_hosts,
         "server_consent_gating_hosts": [],
+        "advanced_consent_mode_approvals": [],
         "spa": "yes" if active_history_triggers else "unknown",
         "canonical_ids": [],
         "staging_hosts": detected_staging_hosts,

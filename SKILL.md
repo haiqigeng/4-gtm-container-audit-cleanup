@@ -193,6 +193,13 @@ a later action keeps its business event. Do not configure consent in both the
 positive route and blocker, and do not use Additional Consent Checks as the gate.
 Built-In Consent Checks remain intrinsic metadata.
 
+Confirm Advanced Consent Mode only from a locked
+`advanced_consent_mode_approvals` row with exact destination ID, direct-browser
+or client-to-server scope, exact route host where applicable, approved status,
+and concrete approval evidence. The matching source must also expose coherent
+default and update writers, consent types, and Consent Initialization timing;
+native Google capability or an unscoped approval is insufficient.
+
 A pure client-to-server transporter has firing triggers only, no client consent
 gate, and one complete canonical consent value configured once and inherited by
 every transported event. Classify and remediate a route as pure only when locked
@@ -222,7 +229,9 @@ own self-contained regular-file snapshot, never against later live shard edits.
 Recompute each unit's explicit immutable audit, source, ledger, family, and
 membership identity, and deterministically reconstruct the audit decisions and
 discoveries from those units; do not trust embedded digests or self-rehashed
-merged-audit claims. Reject undeclared manifest, record, or unit fields. Do not
+merged-audit claims. Reconstruct the workload estimate from the locked scan,
+assurance, and audit, and reject undeclared fields in workload, manifest, record,
+unit, decision, discovery, operation proposal, or structured action rows. Do not
 filter malformed or duplicate nested evidence: the completion proof must equal
 one deterministically reconstructed closed object. Do not follow links,
 junctions, or reparse points at the package, seal, history, snapshot, bundle, or

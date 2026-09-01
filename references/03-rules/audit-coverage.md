@@ -54,8 +54,12 @@ absent, unknown, or denied state. Consent must not also be encoded in the positi
 trigger or Additional Consent Checks. A Built-In Consent Check is intrinsic
 template metadata, not a substitute for the selected control owner.
 
-Advanced Consent Mode requires explicit approved context plus coherent visible
-defaults and updates; native Google capability alone is insufficient. A pure
+Advanced Consent Mode requires a typed locked approval matching every exact
+Google destination and direct-browser/client-to-server route scope, including
+the exact route host where applicable and concrete approval evidence, plus
+coherent visible defaults, updates, consent types, and default timing. Native
+Google capability, an unscoped approval, or approval without source-visible
+writers is insufficient. A pure
 transporter must have no direct browser-vendor branch, must inherit one complete
 shared consent value, and must have locked approved context naming every route
 host as owned by downstream server consent gating. Without that ownership proof,
@@ -162,6 +166,9 @@ downstream server-container enforcement is outside this audit.”
   every route host. Report missing, multiple, inconsistent, partial, inline,
   blocked, mixed, or ownership-unconfirmed implementations. Never remove a client
   consent gate from ownership-unconfirmed evidence.
+- Area 12 is applicable only to tags with an effective direct, settings-inherited,
+  or destination-owner server route. Consent metadata, blockers, CMP events, or a
+  missing consent status alone must not create transporter topology.
 
 ### 13. Client-Side Server Handoff And Evidence Boundary
 

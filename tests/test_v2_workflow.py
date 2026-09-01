@@ -195,7 +195,7 @@ def complete_semantic_decision(row: dict) -> None:
                 "Confirm this projected source surface matches the locked configuration except for separately approved operations."
             ),
             "rollback": "No operation is proposed, so no rollback action is required.",
-            "operation_proposal": None,
+            "operation_proposal": {},
             "evidence_citations": list(row.get("source_coordinates") or []),
         }
     )
@@ -1113,17 +1113,21 @@ class V2WorkflowTests(unittest.TestCase):
         self,
     ) -> None:
         build_package(self.export, self.package)
-        with mock.patch("gtm_audit_work_units.MAX_SINGLE_OBLIGATIONS", 0):
-            complete_checkpoint(
-                self.package,
-                "audit-a",
-                "sharded-amendment-source-a-context",
-            )
-            complete_checkpoint(
-                self.package,
-                "audit-b",
-                "sharded-amendment-source-b-context",
-            )
+        ceiling_patch = mock.patch(
+            "gtm_audit_work_units.MAX_SINGLE_OBLIGATIONS", 1
+        )
+        ceiling_patch.start()
+        self.addCleanup(ceiling_patch.stop)
+        complete_checkpoint(
+            self.package,
+            "audit-a",
+            "sharded-amendment-source-a-context",
+        )
+        complete_checkpoint(
+            self.package,
+            "audit-b",
+            "sharded-amendment-source-b-context",
+        )
         for audit_id in ("audit-a", "audit-b"):
             complete_sharded_work_units(self.package, audit_id)
             finalize_audit(self.package, audit_id)
