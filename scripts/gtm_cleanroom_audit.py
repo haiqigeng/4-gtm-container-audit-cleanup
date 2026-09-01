@@ -815,8 +815,13 @@ def operation_proposal_errors(
         action_count += len(value)
     if not action_count:
         errors.append(f"{label}: actionable operation contains no structured action")
+    operation_family = str(proposal.get("operation_family") or "")
+    if "_" in operation_family or not _specific_text(operation_family, 2):
+        errors.append(
+            f"{label}: operation operation_family must be a human-readable phrase "
+            "of at least two words, not an underscore token"
+        )
     for field in (
-        "operation_family",
         "exact_target_state",
         "preconditions",
         "static_verification",

@@ -134,6 +134,15 @@ Each audit seals its source-only checkpoint before approved requirement evidence
 is released. Audit B is also generated-candidate-blind before its checkpoint.
 Later inputs may add work but may not rewrite checkpointed discovery.
 
+A pending checkpoint is the assigned audit agent's work queue, not a blocker.
+The agent must populate the checkpoint from its locked evidence before running
+the checkpoint command. For repetitive JSON authoring, it may use a one-off
+programmatic edit kept inside its own audit scratch directory, provided the edit
+implements that agent's evidence-based judgments and never substitutes one
+generic conclusion for object-, family-, relationship-, or obligation-specific
+review. Such an edit is an audit-local authoring aid, not a skill dependency or
+shared semantic result, and must never read the peer audit.
+
 Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B
 must use distinct agent and context labels.

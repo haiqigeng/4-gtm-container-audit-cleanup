@@ -1,7 +1,7 @@
 # GTM Container Audit & Optimize
 
 A reusable Codex skill for static Google Tag Manager web-container audit and
-optimization. Version 2.2.0 is the current release. It uses one deterministic
+optimization. Version 2.2.1 is the current release. It uses one deterministic
 canonical scan, fresh-agent scan assurance, two complete independent semantic
 audits, fresh-agent reconciliation, deterministic target closure, and one
 analyst workbook.

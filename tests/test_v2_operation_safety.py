@@ -27,6 +27,7 @@ from gtm_audit_work_units import (  # noqa: E402
     work_unit_identity_hash,
     workload_estimate_schema_errors,
 )
+from gtm_cleanroom_audit import operation_proposal_errors  # noqa: E402
 from gtm_fixed_point import MAX_CYCLES, _block_non_convergent  # noqa: E402
 from gtm_lib import container_version, stable_hash  # noqa: E402
 from gtm_operation_model import (  # noqa: E402
@@ -131,6 +132,29 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_operation_family_requires_a_human_readable_phrase(self) -> None:
+        decision = {"decision_id": "AUDIT-A-DECISION-1"}
+        proposal = {
+            "operation_id": "OP-TEST-FAMILY",
+            "source_decision_id": decision["decision_id"],
+            "operation_family": "remove_priority",
+            "exact_target_state": "The redundant priority field is absent.",
+            "preconditions": "The locked source still contains that field.",
+            "static_verification": "Replay confirms the field remains absent.",
+            "rollback": "Restore the exact original priority field value.",
+            "depends_on": [],
+            **{field: [] for field in OPERATION_ACTION_FIELDS},
+            "field_removals": [
+                {"object_key": "tag:1", "field_path": "tagFiringPriority"}
+            ],
+        }
+        errors = operation_proposal_errors(proposal, decision, set(), "decision")
+        self.assertIn(
+            "decision: operation operation_family must be a human-readable phrase "
+            "of at least two words, not an underscore token",
+            errors,
+        )
+
     def test_recursive_work_unit_schema_type_failures_are_explicit(self) -> None:
         self.assertTrue(workload_estimate_schema_errors(None))
         malformed_workload = {

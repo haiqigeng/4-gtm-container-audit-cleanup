@@ -91,7 +91,7 @@ Measure:
 
 ## Release Decision
 
-Release only when the current v2.2.0 implementation is equal or better for every
+Release only when the current v2.2.1 implementation is equal or better for every
 retained capability, detects the new optimisation and consent/routing classes,
 preserves all seeded intentional distinctions, has no unsupported optimisation
 advice increase, blocks missing required fresh-agent separation, premature peer-

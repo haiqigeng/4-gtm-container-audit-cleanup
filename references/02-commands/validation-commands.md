@@ -93,6 +93,21 @@ Each audit must run in a distinct fresh agent context over its locked bundle.
 Record its agent/context labels and locked input hash in its provenance, complete
 its `source-checkpoint.json`, then seal the checkpoint:
 
+`pending` means the fresh audit agent must author the scaffold from the locked
+evidence; it is not a blocked outcome. The agent may use a one-off programmatic
+edit inside its own audit scratch directory to apply repetitive evidence-based
+judgments, but may not use generic blanket text or inspect the peer audit. Review
+the completed checkpoint itself before invoking the command below.
+
+When using an audit-local authoring aid, pass the assigned package, bundle, and
+scratch paths as explicit absolute values, create the exact scratch directory
+before the first write, and fail its preflight if any required parent is absent.
+Do not derive paths by counting parents. Do not add optional shell inspection
+pipelines or guess artifact filenames; the documented validators are the gates.
+For actionable decisions, write `operation_family` as a human-readable phrase of
+at least two words, such as `Remove redundant priority`, never as an underscore
+token such as `remove_priority`.
+
 ```powershell
 python -B scripts/gtm_cleanroom_audit.py checkpoint audit-package audit-a
 python -B scripts/gtm_cleanroom_audit.py checkpoint audit-package audit-b

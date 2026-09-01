@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gtm-container-audit-optimize"
-version = "2.2.0"
+version = "2.2.1"
 description = "Independently verified GTM container audit and optimization tooling"
 readme = {text = "Static GTM web-container audit and optimization tooling.", content-type = "text/plain"}
 license = "MIT"
