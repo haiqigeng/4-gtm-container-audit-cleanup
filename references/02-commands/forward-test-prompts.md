@@ -56,6 +56,8 @@ Measure:
 - correct neutral handling of conflicts, one-sided findings, and material risk,
   including hash-bound host receipts and rejection of every reused source,
   peer-neutral, projection-review, or prior-cycle identity;
+- workflow-wide rejection when a projection review, editorial pass, fidelity
+  reviewer, or workbook-only reader reuses any earlier context or receipt ID;
 - exact operation validity, dependency safety, target coherence, and fixed-point
   convergence/non-convergence blocking, with byte-identical rollback after a
   failed candidate cycle;

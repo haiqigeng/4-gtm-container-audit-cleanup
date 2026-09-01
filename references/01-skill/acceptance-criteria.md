@@ -75,6 +75,9 @@
   navigation text, and dimensions; imported comment text, location, and count
   also match.
 - Independent fidelity and workbook-only reader reviews pass.
+- One ownership-aware registry proves that no different source, neutral,
+  projection, editorial, fidelity, or reader review owner reused a reasoning
+  context or host-isolation receipt anywhere in the workflow.
 - Every visible sheet is rendered and inspected; privacy and formula-injection
   scans pass.
 

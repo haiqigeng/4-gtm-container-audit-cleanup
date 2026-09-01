@@ -125,6 +125,12 @@ Then run two host-scoped checks with separate allowlisted inputs:
   previews only, and rejects unclear, non-standalone, repetitive, machine-oriented,
   illegible, or poorly navigable output.
 
+The editorial pass, fidelity reviewer, and workbook-only reader each require a
+workflow-globally unused reasoning-context ID. Fidelity and reader also require
+workflow-globally unused host-receipt IDs. Check them against source checkpoints,
+source audits and history, every neutral and projection review, prior editorial
+versions, and prior workbook builds—not merely against the other delivery checks.
+
 Apply presentation-only corrections through a new editorial artifact and rebuild.
 Start a semantic successor only for a canonical completeness or fidelity defect. Render and
 inspect every visible sheet, then pass formula-injection and privacy checks before

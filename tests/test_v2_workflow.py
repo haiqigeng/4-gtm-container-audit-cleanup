@@ -369,6 +369,8 @@ def complete_projection_cycle(
     neutral_context_override: str | None = None,
     *,
     force_neutral: bool = False,
+    review_context_override: str | None = None,
+    review_receipt_override: str | None = None,
 ) -> None:
     cycle_dir = package / "fixed-point" / f"cycle-{cycle:02d}"
     for review_id, context_id in (
@@ -379,10 +381,18 @@ def complete_projection_cycle(
         payload = json.loads(path.read_text(encoding="utf-8"))
         manifest = json.loads((path.parent / "bundle-manifest.json").read_text(encoding="utf-8"))
         payload["status"] = "complete"
-        payload["independent_context_id"] = context_id
+        payload["independent_context_id"] = (
+            review_context_override
+            if review_id == "review-a" and review_context_override
+            else context_id
+        )
         payload["host_isolation_receipt"] = {
             "status": "enforced",
-            "receipt_id": f"fixture-projection-receipt-{review_id}-{cycle:02d}",
+            "receipt_id": (
+                review_receipt_override
+                if review_id == "review-a" and review_receipt_override
+                else f"fixture-projection-receipt-{review_id}-{cycle:02d}"
+            ),
             "mechanism": "orchestrator_scoped_context",
             "allowed_bundle_manifest_sha256": manifest["bundle_manifest_sha256"],
             "peer_review_accessible": False,
@@ -691,6 +701,77 @@ class V2WorkflowTests(unittest.TestCase):
                 force_neutral=True,
             )
 
+    def _assert_projection_review_rejects_base_neutral_identity(
+        self, identity_kind: str
+    ) -> None:
+        package = self.root / f"projection-{identity_kind}-reuse"
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, package)
+        complete_checkpoint(package, "audit-a", f"{identity_kind}-source-a-context")
+        complete_checkpoint(package, "audit-b", f"{identity_kind}-source-b-context")
+        complete_audit(package, "audit-a", actionable_priority=True)
+        complete_audit(package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(package)
+        neutral = json.loads(
+            (package / "neutral-verification.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(neutral["verifications"])
+        prior = neutral["verifications"][0]
+        compile_operation_packet(package)
+        result = start_fixed_point(package)
+        self.assertEqual("awaiting_projection_reviews", result["status"])
+        kwargs = {
+            "review_context_override": prior["independent_context_id"]
+            if identity_kind == "context"
+            else None,
+            "review_receipt_override": prior["host_isolation_receipt"]["receipt_id"]
+            if identity_kind == "receipt"
+            else None,
+        }
+        expected = (
+            "reasoning context identity is already used"
+            if identity_kind == "context"
+            else "host isolation receipt identity is already used"
+        )
+        with self.assertRaisesRegex(ValueError, expected):
+            complete_projection_cycle(
+                package,
+                int(result["cycle"]),
+                **kwargs,
+            )
+
+    def test_projection_review_cannot_reuse_base_neutral_context(self) -> None:
+        self._assert_projection_review_rejects_base_neutral_identity("context")
+
+    def test_projection_review_cannot_reuse_base_neutral_receipt(self) -> None:
+        self._assert_projection_review_rejects_base_neutral_identity("receipt")
+
+    def test_editorial_amendment_cannot_reuse_source_audit_context(self) -> None:
+        self.run_actionable_to_editorial()
+        editorial_path = self.package / "delivery" / "editorial.json"
+        editorial = json.loads(editorial_path.read_text(encoding="utf-8"))
+        source_seal = json.loads(
+            (self.package / "audit-seals" / "audit-a.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        current_seal = json.loads(
+            (self.package / "delivery" / "editorial-seal.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        editorial["independent_context_id"] = source_seal["independent_context_id"]
+        editorial_path.write_text(
+            json.dumps(editorial, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "reasoning context identity is already used"
+        ):
+            seal_editorial(
+                self.package,
+                amendment_of=current_seal["editorial_seal_sha256"],
+            )
+
     def test_next_cycle_failure_preserves_packet_and_projection_decisions(self) -> None:
         self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
         build_package(self.export, self.package)
@@ -933,6 +1014,39 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(all(row["status"] == "pass" for row in verification["comment_checks"]))
         scaffold_delivery_reviews(self.package)
         complete_delivery_reviews(self.package)
+        reader_path = (
+            self.package
+            / "delivery"
+            / current["build_path"]
+            / "reviews"
+            / "reader"
+            / "reader-review.json"
+        )
+        reader = json.loads(reader_path.read_text(encoding="utf-8"))
+        original_context = reader["independent_context_id"]
+        original_receipt = reader["host_isolation_receipt"]["receipt_id"]
+        source_seal = json.loads(
+            (self.package / "audit-seals" / "audit-a.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        reader["host_isolation_receipt"]["receipt_id"] = source_seal[
+            "host_isolation_receipt"
+        ]["receipt_id"]
+        reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            ValueError, "host isolation receipt identity is already used"
+        ):
+            seal_delivery(self.package)
+        reader["host_isolation_receipt"]["receipt_id"] = original_receipt
+        reader["independent_context_id"] = source_seal["independent_context_id"]
+        reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            ValueError, "reasoning context identity is already used"
+        ):
+            seal_delivery(self.package)
+        reader["independent_context_id"] = original_context
+        reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
         result = seal_delivery(self.package)
         self.assertEqual(result["status"], "pass")
         self.assertTrue(Path(result["workbook"]).is_file())

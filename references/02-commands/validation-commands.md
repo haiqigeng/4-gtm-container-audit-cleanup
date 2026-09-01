@@ -101,6 +101,11 @@ Before canonical sealing, an audit amendment uses a new context and binds
 successor-package command above. Never edit a sealed result in place or expose
 the other audit.
 
+Context and receipt identities are single-use across the complete workflow, not
+just within this stage. The initial checkpoint and seal of one source audit form
+one continuous owner; every other audit, neutral, projection, editorial, fidelity,
+or reader owner must use new IDs.
+
 ## Reconcile And Synthesize
 
 ```powershell
@@ -179,6 +184,9 @@ preview, then seal:
 python -B scripts/gtm_delivery_reviews.py scaffold audit-package
 python -B scripts/gtm_delivery_reviews.py seal audit-package
 ```
+
+Their context and receipt IDs must be fresh against the entire package, including
+source-audit and neutral identities and any prior workbook build.
 
 The final seal returns the one workbook path. If sealed semantic content is
 missing or wrong, start the same-source successor package described above. If

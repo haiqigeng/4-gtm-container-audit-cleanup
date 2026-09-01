@@ -60,6 +60,10 @@ contract without pretending JSON alone proves access control. A third full audit
 is replaced by neutral verification of disagreements,
 one-sided findings, and material-risk conclusions.
 
+One ownership-aware registry enforces context and host-receipt freshness across
+the complete workflow, including source audits, neutrals, projection reviews,
+editorial work, fidelity review, and workbook-only reader review.
+
 The workflow ends at workbook delivery. It does not mutate GTM, create/apply an
 import, create a version, publish, certify runtime behaviour, generate a change
 log, or treat workbook delivery as implementation approval.

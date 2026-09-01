@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved twelve issues:
+The repeated pre-release review found and resolved fourteen issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -476,6 +476,16 @@ The repeated pre-release review found and resolved twelve issues:
 12. A tagged release and runtime manifest could accept dirty build provenance.
     Tagged release checks and declared/installed runtime identity now fail unless
     the manifest records a clean source commit.
+13. Projection reviews checked context freshness against source audits and prior
+    projection reviews only, so a base-neutral context or receipt could be reused.
+    One shared ownership-aware registry now covers checkpoints, audit history,
+    every neutral, every projection review, editorial versions, and delivery
+    reviews; both context and receipt reuse block before sealing.
+14. Fidelity and workbook-only reader checks compared their identities only with
+    each other and the editorial context, so a source-audit identity could pass
+    the delivery gate. Delivery now checks both reviewers against the same
+    workflow-wide registry and the final seal independently rejects any cross-
+    owner collision.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

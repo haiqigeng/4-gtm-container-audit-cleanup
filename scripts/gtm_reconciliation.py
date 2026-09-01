@@ -17,6 +17,7 @@ from gtm_audit_contract import (
 )
 from gtm_cleanroom_audit import AUDIT_IDS, ISOLATION_MECHANISMS, sealed_audit_errors
 from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_reasoning_identity import used_reasoning_identities
 
 RECONCILIATION_FILE = "reconciliation.json"
 NEUTRAL_FILE = "neutral-verification.json"
@@ -98,28 +99,6 @@ def neutral_isolation_errors(
     if receipt.get("prohibited_artifacts_accessible") is not False:
         errors.append(f"{label}: prohibited artifacts must be inaccessible")
     return errors
-
-
-def _sealed_source_reasoning_identities(
-    package_dir: Path,
-) -> tuple[set[str], set[str]]:
-    contexts: set[str] = set()
-    receipts: set[str] = set()
-    paths = [
-        *(package_dir / "audit-seals").glob("**/*.json"),
-        *(package_dir / "audit-bundles").glob("*/source-checkpoint-seal.json"),
-    ]
-    for path in paths:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        context_id = str(data.get("independent_context_id") or "").strip()
-        receipt_id = str(
-            (data.get("host_isolation_receipt") or {}).get("receipt_id") or ""
-        ).strip()
-        if context_id:
-            contexts.add(context_id)
-        if receipt_id:
-            receipts.add(receipt_id)
-    return contexts, receipts
 
 
 def operation_action_payload(proposal: Any) -> dict[str, Any]:
@@ -486,7 +465,9 @@ def _neutral_errors(
     expected_status = "complete" if expected_rows else "not_required"
     if neutral.get("status") != expected_status:
         errors.append(f"neutral verification status must be {expected_status}")
-    contexts, receipts = _sealed_source_reasoning_identities(package_dir)
+    contexts, receipts = used_reasoning_identities(
+        package_dir, exclude_paths=(package_dir / NEUTRAL_FILE,)
+    )
     for verification_id, expected_row in expected_rows.items():
         row = supplied.get(verification_id)
         if not row:

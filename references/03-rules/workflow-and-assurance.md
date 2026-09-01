@@ -111,6 +111,14 @@ access control. If the host cannot enforce both scoped contexts, block. An
 amendment uses a fresh context bound to the prior seal and archives the previous
 artifact and seal in append-only history.
 
+One workflow-wide identity registry owns context IDs and host-receipt IDs across
+source checkpoints, current and historical source-audit seals, base neutrals,
+projection reviews, projection neutrals, editorial versions, fidelity reviews,
+and workbook-only reader reviews. An audit's initial checkpoint and seal are one
+continuous owner and may carry the same IDs. Every different owner must use new
+IDs. Stage-local pairwise uniqueness is insufficient; any cross-stage reuse
+blocks before the affected artifact can seal.
+
 ## Stage 5 — Reconciliation And Neutral Verification
 
 Compare atomic decisions by obligation, exact subject set, family, relationship,

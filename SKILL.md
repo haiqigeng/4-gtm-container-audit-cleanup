@@ -100,6 +100,14 @@ Each audit seals its source-only checkpoint before approved requirement evidence
 is released. Audit B is also generated-candidate-blind before its checkpoint.
 Later inputs may add work but may not rewrite checkpointed discovery.
 
+Treat every reasoning-context ID and host-isolation receipt ID as a workflow-wide
+single-use identity. The checkpoint and initial seal of one source audit may
+retain their shared identity because they are one continuous review owner; no
+different source audit, neutral verifier, projection review, editorial pass,
+fidelity review, or workbook-only reader may reuse either ID. Enforce this with
+the shared registry in `scripts/gtm_reasoning_identity.py`, including immutable
+history and prior workbook builds.
+
 Use deterministic family work units and one shared-infrastructure unit when the
 bundle requires sharding. Never reduce evidence or reviewer count for context
 size. Validate and immutably seal both audits. If host-enforced isolation is
@@ -155,6 +163,7 @@ Delivery may never patch a canonical field or overwrite the sealed predecessor.
 
 Run the editorial transformation in a fresh context. It may improve declared
 prose fields only and must preserve every technical identifier and locked meaning.
+Its context must also be fresh against every earlier workflow owner.
 
 Use the workspace spreadsheet artifact runtime and the bundled
 `scripts/gtm_workbook_build.mjs`; verify with
@@ -165,6 +174,8 @@ Code` only when source-applicable.
 
 Use `scripts/gtm_delivery_reviews.py` to create separately scoped fidelity and
 workbook-only reader checks. Render and visually inspect every visible sheet.
+Both checks require workflow-globally fresh contexts and host receipts, not only
+identities distinct from each other and the editorial pass.
 Pass exact row/field recovery, comments/navigation/dimensions, absence of
 unexpected formulas or renderer artifacts, privacy, formula injection, fidelity,
 readability, and layout checks before sealing delivery.

@@ -13,6 +13,12 @@ from gtm_canonical_record import canonical_record_seal_errors
 from gtm_cleanroom_audit import ISOLATION_MECHANISMS
 from gtm_delivery_mapper import DELIVERY_ROOT, editorial_seal_errors
 from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_reasoning_identity import (
+    collect_reasoning_identity_registry,
+    reasoning_identity_reuse_errors,
+    register_reasoning_identity,
+    workflow_reasoning_identity_errors,
+)
 
 REVIEW_ROOT = "reviews"
 FIDELITY_BUNDLE = "fidelity"
@@ -405,20 +411,36 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
         errors.append("cross-workbook reader issues remain open")
     if len(str(reader.get("completion_attestation") or "").split()) < 8:
         errors.append("reader completion attestation is incomplete")
-    editorial_context = str(
-        _load(package_dir / DELIVERY_ROOT / "editorial-seal.json").get("independent_context_id")
-        or ""
-    )
     fidelity_context = str(fidelity.get("independent_context_id") or "")
     reader_context = str(reader.get("independent_context_id") or "")
     if any(len(value) < 12 for value in (fidelity_context, reader_context)):
         errors.append("delivery review context identity is missing")
-    if len({editorial_context, fidelity_context, reader_context}) != 3:
-        errors.append("editorial, fidelity, and reader reviews must use distinct contexts")
     fidelity_receipt = str((fidelity.get("host_isolation_receipt") or {}).get("receipt_id") or "")
     reader_receipt = str((reader.get("host_isolation_receipt") or {}).get("receipt_id") or "")
-    if fidelity_receipt == reader_receipt:
-        errors.append("fidelity and reader reviews must use distinct host receipts")
+    registry = collect_reasoning_identity_registry(
+        package_dir, exclude_paths=(fidelity_path, reader_path)
+    )
+    build_owner = build_dir.relative_to(package_dir / DELIVERY_ROOT).as_posix()
+    for review_kind, context_id, receipt_id in (
+        ("fidelity", fidelity_context, fidelity_receipt),
+        ("reader", reader_context, reader_receipt),
+    ):
+        owner = f"delivery-review:{build_owner}:{review_kind}"
+        errors.extend(
+            reasoning_identity_reuse_errors(
+                registry,
+                owner=owner,
+                label=f"{review_kind} review",
+                context_id=context_id,
+                receipt_id=receipt_id,
+            )
+        )
+        register_reasoning_identity(
+            registry,
+            owner=owner,
+            context_id=context_id,
+            receipt_id=receipt_id,
+        )
     return errors
 
 
@@ -427,6 +449,7 @@ def seal_delivery(package_dir: Path) -> dict[str, Any]:
     errors.extend(canonical_record_seal_errors(package_dir))
     errors.extend(editorial_seal_errors(package_dir))
     errors.extend(_review_errors(package_dir, build_dir, manifest))
+    errors.extend(workflow_reasoning_identity_errors(package_dir))
     if errors:
         raise ValueError("final delivery gate failed: " + "; ".join(errors))
     technical_path = build_dir / "technical-verification.json"

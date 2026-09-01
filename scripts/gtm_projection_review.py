@@ -16,6 +16,11 @@ from gtm_audit_contract import (
 )
 from gtm_cleanroom_audit import ISOLATION_MECHANISMS, operation_proposal_errors
 from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_reasoning_identity import (
+    collect_reasoning_identity_registry,
+    reasoning_identity_reuse_errors,
+    used_reasoning_identities,
+)
 from gtm_reconciliation import (
     canonical_matches_allowed,
     comparison_classification,
@@ -307,18 +312,6 @@ def validate_projection_review(cycle_dir: Path, review_id: str) -> list[str]:
     return errors
 
 
-def _all_prior_context_ids(package_dir: Path) -> set[str]:
-    contexts: set[str] = set()
-    for path in (package_dir / "audit-seals").glob("*.json"):
-        data = json.loads(path.read_text(encoding="utf-8"))
-        contexts.add(str(data.get("independent_context_id") or ""))
-    for path in (package_dir / "fixed-point").glob("cycle-*/review-seals/*.json"):
-        data = json.loads(path.read_text(encoding="utf-8"))
-        contexts.add(str(data.get("independent_context_id") or ""))
-    contexts.discard("")
-    return contexts
-
-
 def seal_projection_review(package_dir: Path, cycle_number: int, review_id: str) -> dict[str, Any]:
     cycle_dir = package_dir / "fixed-point" / f"cycle-{cycle_number:02d}"
     errors = validate_projection_review(cycle_dir, review_id)
@@ -327,8 +320,18 @@ def seal_projection_review(package_dir: Path, cycle_number: int, review_id: str)
     source = cycle_dir / REVIEW_ROOT / review_id / REVIEW_FILE
     review = json.loads(source.read_text(encoding="utf-8"))
     context_id = str(review.get("independent_context_id") or "")
-    if context_id in _all_prior_context_ids(package_dir):
-        raise ValueError("projection review context identity was already used")
+    receipt_id = str(
+        (review.get("host_isolation_receipt") or {}).get("receipt_id") or ""
+    )
+    identity_errors = reasoning_identity_reuse_errors(
+        collect_reasoning_identity_registry(package_dir),
+        owner=f"projection-review:cycle-{cycle_number:02d}:{review_id}",
+        label="projection review",
+        context_id=context_id,
+        receipt_id=receipt_id,
+    )
+    if identity_errors:
+        raise ValueError("; ".join(identity_errors))
     seals = cycle_dir / REVIEW_SEAL_ROOT
     seals.mkdir(exist_ok=True)
     seal_path = seals / f"{review_id}.json"
@@ -496,50 +499,6 @@ def scaffold_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
     }
 
 
-def _prior_reasoning_identities(cycle_dir: Path) -> tuple[set[str], set[str]]:
-    package_dir = cycle_dir.parents[1]
-    contexts: set[str] = set()
-    receipts: set[str] = set()
-
-    def add_record(data: dict[str, Any]) -> None:
-        context_id = str(data.get("independent_context_id") or "").strip()
-        receipt_id = str(
-            (data.get("host_isolation_receipt") or {}).get("receipt_id") or ""
-        ).strip()
-        if context_id:
-            contexts.add(context_id)
-        if receipt_id:
-            receipts.add(receipt_id)
-
-    paths = [
-        *(package_dir / "audit-seals").glob("**/*.json"),
-        *(package_dir / "audit-bundles").glob("*/source-checkpoint-seal.json"),
-        *(cycle_dir / REVIEW_SEAL_ROOT).glob("review-?.json"),
-    ]
-    for path in paths:
-        add_record(json.loads(path.read_text(encoding="utf-8")))
-
-    base_neutral = package_dir / "neutral-verification.json"
-    if base_neutral.is_file():
-        data = json.loads(base_neutral.read_text(encoding="utf-8"))
-        for row in as_list(data.get("verifications")):
-            if isinstance(row, dict):
-                add_record(row)
-
-    current_cycle = int(cycle_dir.name.removeprefix("cycle-") or 0)
-    for path in (package_dir / "fixed-point").glob(
-        "cycle-*/projection-neutral-verification.json"
-    ):
-        prior_cycle = int(path.parent.name.removeprefix("cycle-") or 0)
-        if prior_cycle >= current_cycle:
-            continue
-        data = json.loads(path.read_text(encoding="utf-8"))
-        for row in as_list(data.get("verifications")):
-            if isinstance(row, dict):
-                add_record(row)
-    return contexts, receipts
-
-
 def _neutral_errors(
     cycle_dir: Path, neutral: dict[str, Any], expected: dict[str, Any]
 ) -> list[str]:
@@ -554,7 +513,10 @@ def _neutral_errors(
     expected_status = "complete" if expected_rows else "not_required"
     if neutral.get("status") != expected_status:
         errors.append(f"projection neutral status must be {expected_status}")
-    contexts, receipts = _prior_reasoning_identities(cycle_dir)
+    package_dir = cycle_dir.parents[1]
+    contexts, receipts = used_reasoning_identities(
+        package_dir, exclude_paths=(cycle_dir / NEUTRAL_FILE,)
+    )
     for verification_id, expected_row in expected_rows.items():
         row = supplied.get(verification_id)
         if not row:

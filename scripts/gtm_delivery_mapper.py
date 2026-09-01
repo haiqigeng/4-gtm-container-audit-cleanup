@@ -13,6 +13,10 @@ from gtm_audit_contract import HUMAN_DECISION_LABELS, HUMAN_DECISION_MEANINGS
 from gtm_canonical_record import canonical_record_seal_errors
 from gtm_lib import as_list, file_sha256, stable_hash, write_json
 from gtm_privacy import privacy_findings, redact_delivery_value
+from gtm_reasoning_identity import (
+    collect_reasoning_identity_registry,
+    reasoning_identity_reuse_errors,
+)
 
 DELIVERY_ROOT = "delivery"
 DELIVERY_MAP_FILE = "delivery-map.json"
@@ -782,6 +786,14 @@ def seal_editorial(
         raise ValueError("amendment_of was supplied but no editorial seal exists")
     editorial = _load(path)
     sequence = int(previous.get("amendment_sequence", 0)) + 1 if previous else 0
+    identity_errors = reasoning_identity_reuse_errors(
+        collect_reasoning_identity_registry(package_dir),
+        owner=f"editorial:{sequence:03d}",
+        label="editorial review",
+        context_id=editorial.get("independent_context_id"),
+    )
+    if identity_errors:
+        raise ValueError("; ".join(identity_errors))
     versions = root / "editorial-versions"
     versions.mkdir(exist_ok=True)
     version_path = versions / f"editorial-{sequence:03d}.json"

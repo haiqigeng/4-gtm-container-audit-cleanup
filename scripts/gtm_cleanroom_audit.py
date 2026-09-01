@@ -27,6 +27,11 @@ from gtm_audit_work_units import (
     work_unit_identity_hash,
 )
 from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_reasoning_identity import (
+    collect_reasoning_identity_registry,
+    reasoning_identity_reuse_errors,
+    workflow_reasoning_identity_errors,
+)
 
 AUDIT_IDS = ("audit-a", "audit-b")
 BUNDLE_DIRECTORY = "audit-bundles"
@@ -614,14 +619,18 @@ def checkpoint_audit(
         str(manifest.get("bundle_manifest_sha256") or ""),
     )
     context_id = str(checkpoint.get("independent_context_id") or "")
-    for other_id in AUDIT_IDS:
-        if other_id == audit_id:
-            continue
-        other_seal_path = package_dir / BUNDLE_DIRECTORY / other_id / CHECKPOINT_SEAL_FILE
-        if other_seal_path.is_file():
-            other_seal = json.loads(other_seal_path.read_text(encoding="utf-8"))
-            if other_seal.get("independent_context_id") == context_id:
-                errors.append("the two audits cannot reuse one reasoning-context identity")
+    receipt_id = str(
+        (checkpoint.get("host_isolation_receipt") or {}).get("receipt_id") or ""
+    )
+    errors.extend(
+        reasoning_identity_reuse_errors(
+            collect_reasoning_identity_registry(package_dir),
+            owner=f"source-audit:{audit_id}:0",
+            label=f"{audit_id} source checkpoint",
+            context_id=context_id,
+            receipt_id=receipt_id,
+        )
+    )
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -1006,6 +1015,19 @@ def seal_audit(
             raise ValueError("audit is already sealed; amendment_of must match its current seal")
         if previous.get("independent_context_id") == audit.get("independent_context_id"):
             raise ValueError("an audit amendment requires a fresh reasoning context")
+    elif amendment_of:
+        raise ValueError("amendment_of was supplied but no prior audit seal exists")
+    sequence = int(previous.get("amendment_sequence", 0)) + 1 if previous else 0
+    identity_errors = reasoning_identity_reuse_errors(
+        collect_reasoning_identity_registry(package_dir),
+        owner=f"source-audit:{audit_id}:{sequence}",
+        label=f"{audit_id} audit",
+        context_id=audit.get("independent_context_id"),
+        receipt_id=(audit.get("host_isolation_receipt") or {}).get("receipt_id"),
+    )
+    if identity_errors:
+        raise ValueError("; ".join(identity_errors))
+    if previous:
         history = seal_dir / HISTORY_DIRECTORY
         history.mkdir(exist_ok=True)
         previous_seal_hash = str(previous.get("audit_seal_sha256") or "")
@@ -1015,8 +1037,6 @@ def seal_audit(
             canonical_path,
             history / f"{audit_id}.{previous_audit_hash}.audit.json",
         )
-    elif amendment_of:
-        raise ValueError("amendment_of was supplied but no prior audit seal exists")
     shutil.copy2(audit_path, canonical_path)
     checkpoint_seal = json.loads((bundle / CHECKPOINT_SEAL_FILE).read_text(encoding="utf-8"))
     release = json.loads((bundle / RELEASE_MANIFEST_FILE).read_text(encoding="utf-8"))
@@ -1034,7 +1054,7 @@ def seal_audit(
         "independent_context_id": audit.get("independent_context_id"),
         "host_isolation_receipt": audit.get("host_isolation_receipt"),
         "validator_status": "pass",
-        "amendment_sequence": (int(previous.get("amendment_sequence", 0)) + 1 if previous else 0),
+        "amendment_sequence": sequence,
         "amendment_parent_seal_sha256": (
             str(previous.get("audit_seal_sha256") or "") if previous else ""
         ),
@@ -1070,6 +1090,7 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
         errors.append("the two sealed audits reuse one reasoning context")
     if len(receipt_ids) == 2 and len(set(receipt_ids)) != 2:
         errors.append("the two sealed audits reuse one host isolation receipt")
+    errors.extend(workflow_reasoning_identity_errors(package_dir))
     return errors
 
 
