@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved fifty-eight issues:
+The repeated pre-release review found and resolved fifty-nine issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -670,6 +670,11 @@ The repeated pre-release review found and resolved fifty-eight issues:
     exact-only object links, XLSX header discovery through the existing runtime
     contract, duplicate identity rejection, and CLI success/failure paths; the
     fail-closed per-module release floor is now 95%.
+59. Cookiebot's Zendesk-hosted GTM deployment article returned a repeatable HTTP
+    403 from GitHub Actions despite succeeding locally, making the strict release
+    gate environment-dependent. The registry now cites Cookiebot's equivalent
+    first-party GTM resource on its public product domain, retaining an official
+    source while making the same fail-closed check portable across release hosts.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

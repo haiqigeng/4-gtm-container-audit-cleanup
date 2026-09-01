@@ -121,7 +121,7 @@ contracts = [
 name = "Cookiebot"
 category = "cmp"
 patterns = ["cookiebot"]
-official_docs = ["https://support.cookiebot.com/hc/en-us/articles/360003793854-Google-Tag-Manager-deployment"]
+official_docs = ["https://www.cookiebot.com/en/google-tag-manager/"]
 
 [[vendors]]
 name = "Piano Analytics"
