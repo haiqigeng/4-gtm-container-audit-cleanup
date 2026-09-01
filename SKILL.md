@@ -120,6 +120,10 @@ subjects, family/relationship, and target. Expose agreements, complementary
 conclusions, one-sided findings, conflicts, and differing evidence boundaries.
 Never vote, average, or silently select an audit.
 
+Treat reconciliation scaffolds and neutral queues as deterministic views, never
+as authority. Finalisation reconstructs them from the two sealed audits and
+requires exact equality before it accepts authored dispositions.
+
 Send every disagreement, one-sided finding, and material-risk class listed in
 the workflow reference to a fresh neutral verifier. The neutral input excludes
 audit identity, rationale, vote count, and expected answer. It may confirm,
@@ -149,7 +153,10 @@ failure preserves the last committed packet and decisions and returns the blocke
 outcome; it may not leave a partial cycle.
 
 Replay a stable packet from the locked original and require the complete hash
-tuple to match. Then create the authoritative record with
+tuple to match. Reconstruct the operation packet, projected evidence, fixed-point
+proof, and canonical record from their sealed predecessors; reject any artifact
+that only makes its own hashes internally consistent. Then create the
+authoritative record with
 `scripts/gtm_canonical_record.py`.
 
 ### 6. Build One Human Workbook
@@ -160,6 +167,9 @@ semantic-successor package from the same locked source, bind it to the prior
 canonical record and one approved repair brief, and rerun the complete workflow.
 The repair becomes an obligation in both fresh audits and neutral reconciliation.
 Delivery may never patch a canonical field or overwrite the sealed predecessor.
+The delivery map must be an exact deterministic projection of the independently
+reconstructed canonical record; workbook fidelity is checked against that same
+authority, not against a mutable delivery artifact.
 
 Run the editorial transformation in a fresh context. It may improve declared
 prose fields only and must preserve every technical identifier and locked meaning.
@@ -233,10 +243,11 @@ merged-audit claims. Reconstruct the workload estimate from the locked scan,
 assurance, and audit, and reject undeclared fields in workload, manifest, record,
 unit, decision, discovery, operation proposal, or structured action rows. Do not
 filter malformed or duplicate nested evidence: the completion proof must equal
-one deterministically reconstructed closed object. Do not follow links,
-junctions, or reparse points at the package, seal, history, snapshot, bundle, or
-canonical-audit boundaries. Reject a redirected package root before package
-generation or any checkpoint, validation, seal, or amendment action. After
+one deterministically reconstructed closed object. Before any public workflow
+command reads or writes package data, enumerate the complete package tree without
+traversing redirects and reject every symlink, junction, or reparse point at the
+root or any descendant. Apply the same fail-closed rule to generated workbook
+outputs. After
 canonical sealing, a semantic or fidelity defect starts one
 immutable successor package bound to the predecessor record and same locked
 source, then reruns the whole workflow. Presentation-only defects create a new

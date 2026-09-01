@@ -64,6 +64,12 @@ One ownership-aware registry enforces context and host-receipt freshness across
 the complete workflow, including source audits, neutrals, projection reviews,
 editorial work, fidelity review, and workbook-only reader review.
 
+Every authority transition is independently reconstructed from sealed
+predecessors: reconciliation scaffolds, operation packet, projected replay,
+canonical record, and delivery map cannot be replaced by a merely self-consistent
+rehash. Every public workflow and workbook command also rejects redirects
+anywhere in the complete package tree before package I/O.
+
 The workflow ends at workbook delivery. It does not mutate GTM, create/apply an
 import, create a version, publish, certify runtime behaviour, generate a change
 log, or treat workbook delivery as implementation approval.

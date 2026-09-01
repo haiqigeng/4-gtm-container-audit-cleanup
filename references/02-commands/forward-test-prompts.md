@@ -70,8 +70,11 @@ Measure:
 - rejection of audit-history and ancestor seal-root junction escapes before any
   external write, plus rejection of malformed, duplicate, non-object, unknown,
   or self-rehashed nested completion evidence;
-- rejection of a package-root symlink, junction, or reparse point before package
-  generation and before every checkpoint, validation, seal, or amendment write;
+- rejection of any package-root or descendant symlink, junction, or reparse point
+  before every public Python or workbook command uses package evidence or writes;
+- rejection of self-rehashed reconciliation scaffolds, neutral queues, operation
+  packets, fixed-point state/proof, canonical records/manifests, and delivery maps
+  by independently reconstructing each from its sealed predecessors;
 - exact operation validity, dependency safety, target coherence, and fixed-point
   convergence/non-convergence blocking, with byte-identical rollback after a
   failed candidate cycle;
@@ -79,6 +82,8 @@ Measure:
   predecessor binding and complete successor-package reruns;
 - workbook row coverage, locked-field equality, claim fidelity, standalone reader
   comprehension, formula/privacy safety, and rendered layout; and
+- complete branch-aware measurement of every Python trust-boundary module plus a
+  strict fail-closed online check of every required official registry source; and
 - only after quality passes: wall-clock time, work-unit cost, amendment rate,
   conflict rate, projection cycles, and workbook build time.
 

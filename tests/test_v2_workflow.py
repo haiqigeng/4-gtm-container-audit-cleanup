@@ -783,6 +783,28 @@ class V2WorkflowTests(unittest.TestCase):
                     for error in sealed_audit_errors(guarded_package)
                 )
             )
+            if os.environ.get("CODEX_NODE") and os.environ.get(
+                "CODEX_ARTIFACT_NODE_MODULES"
+            ):
+                for workbook_script in (
+                    "gtm_workbook_build.mjs",
+                    "gtm_workbook_verify.mjs",
+                ):
+                    result = subprocess.run(
+                        [
+                            os.environ["CODEX_NODE"],
+                            str(SCRIPTS / workbook_script),
+                            str(guarded_package),
+                        ],
+                        cwd=ROOT,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(
+                        "link or reparse point", result.stdout + result.stderr
+                    )
             self.assertEqual(
                 before,
                 {

@@ -107,7 +107,8 @@ requires exact equality with the sealed audit and completion proof. Malformed,
 duplicate, unknown, or non-object nested rows block. The audit-seal, history,
 bundle, snapshot, and canonical-audit roots must remain direct regular package
 children and cannot be redirected. The package root itself must not be a symlink,
-junction, or reparse point.
+junction, or reparse point. Every public Python and workbook command performs the
+same non-traversing check over the complete package tree before package I/O.
 
 Before canonical sealing, an audit amendment uses a new context and binds
 `--amendment-of` to the current audit seal hash. After canonical sealing, use the
@@ -147,6 +148,9 @@ python -B scripts/gtm_reconciliation.py finalize audit-package
 python -B scripts/gtm_target_synthesis.py audit-package
 ```
 
+Finalisation first reconstructs the reconciliation scaffold and neutral queue
+from both sealed audits. The synthesizer then reconstructs the complete packet
+from sealed reconciliation; neither command accepts a self-rehashed substitute.
 The synthesizer accepts no new semantic choice. It validates operation identity,
 exact source values, dependencies, write conflicts, `do_not_touch`, and projected
 application.
@@ -176,6 +180,11 @@ After a pass:
 python -B scripts/gtm_canonical_record.py audit-package
 ```
 
+Fixed-point sealing independently replays the packet from the locked source and
+rebuilds projected evidence, obligations, decisions, state/history, proof, and
+seals. Canonical sealing independently reconstructs its exact closed record and
+manifest inventory from those predecessors.
+
 ## Build And Seal Delivery
 
 Create the deterministic map and editorial artifact:
@@ -183,6 +192,10 @@ Create the deterministic map and editorial artifact:
 ```powershell
 python -B scripts/gtm_delivery_mapper.py create audit-package --language English
 ```
+
+The mapper reconstructs the canonical record and exact delivery map before it
+writes. Rehashing a modified canonical record or delivery map does not authorise
+delivery.
 
 Complete only the declared prose fields in `delivery/editorial.json` using a fresh
 editorial context, then:

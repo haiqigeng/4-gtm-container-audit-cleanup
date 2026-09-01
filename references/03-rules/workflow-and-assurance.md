@@ -136,8 +136,10 @@ non-object and duplicate rows, and the complete proof must equal one exact
 reconstructed object. Seal, history, snapshot, bundle, and canonical-audit roots
 must remain direct regular children of the package; no ancestor junction may
 redirect reads or writes. The package root itself must also be a regular directory
-name, not a symlink, junction, or reparse point; reject it before generation or
-any workflow read/write. A
+name, not a symlink, junction, or reparse point. Before every public workflow
+read or write, enumerate the complete package tree without following redirects;
+any redirected descendant blocks the command before it can use package evidence
+or create output. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
 closes this amendment path; later semantic repair uses a successor package.
 Stage the new audit, new seal, immutable work-unit snapshot, and predecessor
@@ -186,6 +188,12 @@ fresh against source checkpoints, both source audits, all peer neutrals, both
 projection reviews, and every prior cycle; those prior contexts and prohibited
 artifacts must be inaccessible.
 
+Reconciliation scaffolds and the neutral-verification queue are reproducible
+projections of both sealed audits. Finalisation reconstructs both structures and
+requires exact equality, including closed nested rows, before authored
+dispositions can influence a canonical decision. A self-rehashed scaffold or an
+expected-answer hint is not evidence.
+
 ## Stage 6 — Exact Operations And Fixed Point
 
 Only reconciled and required-neutral-verified decisions enter target synthesis.
@@ -193,6 +201,9 @@ Operations support creates, additions, changes, named-field removals, remaps,
 renames, pauses, and deletions with stable IDs, dependencies, exact source-bound
 values, static
 verification, and rollback. The synthesiser cannot make a new semantic choice.
+The complete operation packet is a pure projection of sealed reconciliation;
+every downstream gate rebuilds it and requires exact semantic equality rather
+than trusting a locally consistent packet seal.
 
 Each projection cycle starts from the locked original and applies the complete
 current packet in dependency order. Rerun the global scan and independent
@@ -204,7 +215,12 @@ Record projected graph, scan, obligation, relationship, decision, and operation
 hashes. A cycle is stable only when no new or changed actionable obligation
 remains, prior operations still resolve their decisions, bounded outcomes remain
 explicit, and scan plus assurance pass. Replay the stable packet once from the
-locked original and require the complete hash tuple to match.
+locked original and require the complete hash tuple to match. Replay
+independently rebuilds projected container, scan, assurance, obligation ledger,
+decisions, operation packet, state history, and proof. Canonical sealing then
+reconstructs the complete record and exact closed manifest inventory from those
+verified predecessors. Self-rehashed replacement artifacts cannot become
+authority.
 
 Allow at most three cycles including the first. Return
 `non_convergent_target_state` when cycle three remains actionable, a prior hash
@@ -225,6 +241,11 @@ After fixed-point replay, seal one canonical record and transform it through the
 rules in `references/03-rules/workbook-delivery.md`. The delivery layer may change
 declared prose only. It cannot create a finding, target, operation, evidence
 boundary, priority, or confidence value.
+
+Reconstruct the delivery map exactly from the independently rebuilt canonical
+record and require its seal and closed inventory to match. Workbook fidelity
+compares visible delivery with that canonical projection, never with a mutable
+map treated as its own authority.
 
 A missing or incorrect canonical delivery field stops Stage 7. Create a new
 semantic-successor package from the same locked source, bind it to the sealed

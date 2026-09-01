@@ -109,11 +109,14 @@ carrier of meaning.
 
 ## Verification And Completion
 
-The deterministic builder must verify exact primary ownership and row coverage,
+The delivery mapper first independently reconstructs the canonical record and
+requires the exact closed delivery-map projection and seal. The deterministic
+builder must verify exact primary ownership and row coverage,
 locked-field equality, navigation text, absence of unexpected formulas or
 renderer artifacts, imported comment text/location/count, redaction,
 source/record hashes, and safe cell values.
-Rebuild from only the canonical record, manifest, and sealed editorial artifact;
+Rebuild from only that reconstructed canonical authority, its manifest, and the
+sealed editorial artifact;
 the normalized sheet/cell/navigation/comment/dimension model must match.
 
 Then run two host-scoped checks with separate allowlisted inputs:

@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved thirty issues:
+The repeated pre-release review found and resolved forty-four issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -559,6 +559,52 @@ The repeated pre-release review found and resolved thirty issues:
     Package generation, bundle preparation, checkpointing, audit validation,
     sealing, amendment commit, and final sealed validation now reject a root-level
     link or reparse point before any read or write.
+31. Root-only and selected-boundary checks left unrelated package descendants
+    outside the redirect threat model. One shared non-traversing guard now scans
+    the complete package tree before every public Python and workbook operation.
+32. Base reconciliation accepted a correctly rehashed but altered scaffold or
+    neutral queue. Finalisation now reconstructs both exact closed structures
+    directly from the two sealed audits before accepting authored dispositions.
+33. Projection reconciliation had the same mutable-scaffold weakness. Its
+    scaffold, neutral queue, decision set, reviews, and seal are now independently
+    regenerated from the sealed cycle evidence.
+34. An operation packet could be changed and rehashed after reconciliation.
+    Synthesis is now one pure deterministic projection, and every fixed-point
+    consumer reconstructs and exactly compares the complete packet.
+35. Fixed-point state and proof could be made internally consistent without a
+    genuinely independent replay. Sealing now rebuilds the projected container,
+    scan, assurance, ledger, decisions, packet, history, proof, and seals from the
+    locked source in an isolated replay workspace.
+36. A canonical record and manifest could be replaced by a self-rehashed
+    alternative. Canonical sealing now reconstructs the exact record and closed
+    manifest inventory from verified predecessors before comparing its seal.
+37. A rehashed delivery map could detach workbook semantics from canonical
+    authority. Mapping and fidelity validation now independently reconstruct the
+    canonical record and exact map, including its closed inventory and seal.
+38. Branch coverage measured only a selected correctness kernel, leaving public
+    trust-boundary modules unmeasured. The release gate now requires branch data
+    and declared per-module thresholds for all 37 Python runtime modules.
+39. Online vendor validation could report failed official sources while still
+    exiting successfully. The release mode is now strict and fails closed with
+    attempted, succeeded, and failed counts; tagged and manual CI releases run it.
+40. Consent-gate removal safety evaluated the current route but not a server-route
+    addition in the same packet. Target synthesis now evaluates the complete
+    projected topology and requires downstream ownership for every affected host.
+41. Nested work-unit strategy and workload structures could hide undeclared or
+    malformed fields, and derived workload claims could be rehashed. Recursive
+    schemas are closed, every error is preserved, and workload is reconstructed
+    from locked scan, assurance, and audit evidence.
+42. Advanced Consent Mode approval was previously too weakly typed. It now
+    requires destination, route scope, route host where applicable, approval
+    status, concrete evidence, coherent default/update writers, consent types,
+    and Consent Initialization timing visible in locked evidence.
+43. Consent applicability could be inferred from broad vendor or destination
+    presence rather than actual capability and route topology. Areas 9–12 now use
+    route-exact vendor capability, direct/server branch identity, and effective
+    destination ownership.
+44. One invalid work-unit strategy could stop validation before sibling schema
+    defects were reported. Validation now retains the complete deterministic
+    error set so malformed evidence cannot hide another obligation failure.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.
@@ -571,9 +617,9 @@ Release requires all of the following to pass from a clean final commit:
 - release structure and semantic-version checks;
 - declared runtime identity and clean package/installed-tree equality;
 - complete unit and end-to-end workflow tests;
-- correctness-kernel branch coverage gate;
+- complete branch-aware coverage gate over all 37 Python trust-boundary modules;
 - Ruff and dead-code checks;
-- online official-source registry validation;
+- strict fail-closed online official-source registry validation;
 - complete workbook-runtime generation and verification;
 - exact workbook recovery, comments, fidelity, reader, privacy, formula, and
   rendered-layout checks;
