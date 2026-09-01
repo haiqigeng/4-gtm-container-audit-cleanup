@@ -781,6 +781,49 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(any("remain inside" in error for error in errors), errors)
         self.assertEqual(outside_before, outside.read_bytes())
 
+    def test_rehashed_coverage_release_paths_cannot_escape_audit_bundle(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(
+            self.package,
+            "audit-a",
+            "release-path-boundary-context-001",
+        )
+        outside = self.root / "outside-release-input.json"
+        outside.write_text('{"outside": true}\n', encoding="utf-8")
+        outside_before = outside.read_bytes()
+        release_path = (
+            self.package
+            / "audit-bundles"
+            / "audit-a"
+            / cleanroom_audit.RELEASE_MANIFEST_FILE
+        )
+        release = json.loads(release_path.read_text(encoding="utf-8"))
+        release["released_files"][0]["path"] = "../../../outside-release-input.json"
+        release["released_files"][0]["sha256"] = file_sha256(outside)
+        release["work_units"]["manifest"] = "../outside-release-input.json"
+        release["release_manifest_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in release.items()
+                if key != "release_manifest_sha256"
+            },
+            64,
+        )
+        release_path.write_text(
+            json.dumps(release, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        errors = validate_audit(self.package, "audit-a")
+        self.assertTrue(
+            any("released audit input path" in error for error in errors),
+            errors,
+        )
+        self.assertTrue(
+            any("released work-unit manifest path" in error for error in errors),
+            errors,
+        )
+        self.assertEqual(outside_before, outside.read_bytes())
+
     def test_package_root_redirect_is_rejected_before_any_write(self) -> None:
         empty_target = self.root / "external-empty-package-target"
         empty_target.mkdir()
