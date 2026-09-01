@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import gtm_cleanroom_audit as cleanroom_audit  # noqa: E402
 from gtm_audit_contract import (  # noqa: E402
     DECISION_CLASSES,
     HUMAN_DECISION_LABELS,
@@ -755,6 +756,31 @@ class V2WorkflowTests(unittest.TestCase):
             context_id="fresh-amendment-context-001",
             receipt_id="fresh-amendment-receipt-001",
         )
+        original_replace = cleanroom_audit._atomic_replace
+        injected = {"failed": False}
+
+        def fail_final_seal_once(source: Path, target: Path) -> None:
+            if target == seal_a_path and not injected["failed"]:
+                injected["failed"] = True
+                raise OSError("injected final audit-seal replacement failure")
+            original_replace(source, target)
+
+        with (
+            mock.patch(
+                "gtm_cleanroom_audit._atomic_replace",
+                side_effect=fail_final_seal_once,
+            ),
+            self.assertRaisesRegex(OSError, "injected final audit-seal"),
+        ):
+            seal_audit(self.package, "audit-a", amendment_of=parent)
+        self.assertFalse((self.package / "audit-seals" / "history").exists())
+        self.assertEqual(current_seal_before, seal_a_path.read_bytes())
+        self.assertEqual(canonical_audit_before, canonical_audit_path.read_bytes())
+        self.assertEqual(
+            [],
+            list((self.package / "audit-seals").glob(".audit-a-transition-*")),
+        )
+
         amended = seal_audit(self.package, "audit-a", amendment_of=parent)
         self.assertEqual(1, amended["amendment_sequence"])
         self.assertEqual(parent, amended["amendment_parent_seal_sha256"])
@@ -769,6 +795,17 @@ class V2WorkflowTests(unittest.TestCase):
         history = self.package / "audit-seals" / "history"
         self.assertEqual(1, len(list(history.glob("*.seal.json"))))
         self.assertEqual(1, len(list(history.glob("*.audit.json"))))
+        historical_seal_path = next(history.glob("*.seal.json"))
+        historical_seal_before = historical_seal_path.read_bytes()
+        historical_seal_path.unlink()
+        self.assertTrue(
+            any(
+                "history seal count is incomplete" in error
+                or "current amendment parent chain is invalid" in error
+                for error in sealed_audit_errors(self.package)
+            )
+        )
+        historical_seal_path.write_bytes(historical_seal_before)
         checkpoint_seal_path = checkpoint_path.with_name(
             "source-checkpoint-seal.json"
         )

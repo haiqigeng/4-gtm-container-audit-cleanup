@@ -8,6 +8,7 @@ import copy
 import json
 import re
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -1073,6 +1074,89 @@ def validate_audit(
     return errors
 
 
+def _atomic_replace(source: Path, target: Path) -> None:
+    source.replace(target)
+
+
+def _commit_audit_transition(
+    *,
+    audit_id: str,
+    audit_path: Path,
+    canonical_path: Path,
+    seal_path: Path,
+    seal: dict[str, Any],
+    previous: dict[str, Any] | None,
+) -> None:
+    """Stage one audit/seal transition and restore every prior artifact on failure."""
+
+    seal_dir = seal_path.parent
+    canonical_dir = canonical_path.parent
+    seal_dir.mkdir(exist_ok=True)
+    canonical_dir.mkdir(exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{audit_id}-transition-", dir=seal_dir)
+    )
+    history = seal_dir / HISTORY_DIRECTORY
+    history_existed = history.exists()
+    history_targets: list[Path] = []
+    prior_seal_backup = staging / "prior-seal.json"
+    prior_audit_backup = staging / "prior-audit.json"
+    staged_audit = staging / "next-audit.json"
+    staged_seal = staging / "next-seal.json"
+    seal_existed = seal_path.is_file()
+    audit_existed = canonical_path.is_file()
+    try:
+        if seal_existed:
+            shutil.copy2(seal_path, prior_seal_backup)
+        if audit_existed:
+            shutil.copy2(canonical_path, prior_audit_backup)
+        shutil.copy2(audit_path, staged_audit)
+        write_json(staged_seal, seal)
+        if file_sha256(staged_audit) != seal.get("completed_audit_sha256"):
+            raise ValueError("staged completed audit hash differs from its new seal")
+
+        if previous:
+            history.mkdir(exist_ok=True)
+            previous_seal_hash = str(previous.get("audit_seal_sha256") or "")
+            previous_audit_hash = str(previous.get("completed_audit_sha256") or "")
+            history_seal = history / f"{audit_id}.{previous_seal_hash}.seal.json"
+            history_audit = history / f"{audit_id}.{previous_audit_hash}.audit.json"
+            if history_seal.exists() or history_audit.exists():
+                raise ValueError("audit amendment history identity already exists")
+            staged_history_seal = staging / "history-seal.json"
+            staged_history_audit = staging / "history-audit.json"
+            shutil.copy2(prior_seal_backup, staged_history_seal)
+            shutil.copy2(prior_audit_backup, staged_history_audit)
+            _atomic_replace(staged_history_seal, history_seal)
+            history_targets.append(history_seal)
+            _atomic_replace(staged_history_audit, history_audit)
+            history_targets.append(history_audit)
+
+        _atomic_replace(staged_audit, canonical_path)
+        _atomic_replace(staged_seal, seal_path)
+    except Exception:
+        if audit_existed and prior_audit_backup.is_file():
+            restore_audit = staging / "restore-audit.json"
+            shutil.copy2(prior_audit_backup, restore_audit)
+            _atomic_replace(restore_audit, canonical_path)
+        elif not audit_existed and canonical_path.exists():
+            canonical_path.unlink()
+        if seal_existed and prior_seal_backup.is_file():
+            restore_seal = staging / "restore-seal.json"
+            shutil.copy2(prior_seal_backup, restore_seal)
+            _atomic_replace(restore_seal, seal_path)
+        elif not seal_existed and seal_path.exists():
+            seal_path.unlink()
+        for target in history_targets:
+            if target.exists():
+                target.unlink()
+        if not history_existed and history.is_dir() and not any(history.iterdir()):
+            history.rmdir()
+        raise
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 def seal_audit(
     package_dir: Path,
     audit_id: str,
@@ -1108,19 +1192,6 @@ def seal_audit(
         raise ValueError("audit validator failed: " + "; ".join(errors))
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     sequence = int(previous.get("amendment_sequence", 0)) + 1 if previous else 0
-    seal_dir.mkdir(exist_ok=True)
-    canonical_dir.mkdir(exist_ok=True)
-    if previous:
-        history = seal_dir / HISTORY_DIRECTORY
-        history.mkdir(exist_ok=True)
-        previous_seal_hash = str(previous.get("audit_seal_sha256") or "")
-        previous_audit_hash = str(previous.get("completed_audit_sha256") or "")
-        shutil.copy2(seal_path, history / f"{audit_id}.{previous_seal_hash}.seal.json")
-        shutil.copy2(
-            canonical_path,
-            history / f"{audit_id}.{previous_audit_hash}.audit.json",
-        )
-    shutil.copy2(audit_path, canonical_path)
     checkpoint_seal = json.loads((bundle / CHECKPOINT_SEAL_FILE).read_text(encoding="utf-8"))
     release = json.loads((bundle / RELEASE_MANIFEST_FILE).read_text(encoding="utf-8"))
     seal = {
@@ -1133,7 +1204,7 @@ def seal_audit(
         "obligation_ledger_sha256": audit.get("obligation_ledger_sha256"),
         "source_checkpoint_seal_sha256": checkpoint_seal.get("checkpoint_seal_sha256"),
         "release_manifest_sha256": release.get("release_manifest_sha256"),
-        "completed_audit_sha256": file_sha256(canonical_path),
+        "completed_audit_sha256": file_sha256(audit_path),
         "independent_context_id": audit.get("independent_context_id"),
         "host_isolation_receipt": audit.get("host_isolation_receipt"),
         "validator_status": "pass",
@@ -1143,8 +1214,126 @@ def seal_audit(
         ),
     }
     seal["audit_seal_sha256"] = _hash_without(seal, "audit_seal_sha256")
-    write_json(seal_path, seal)
+    _commit_audit_transition(
+        audit_id=audit_id,
+        audit_path=audit_path,
+        canonical_path=canonical_path,
+        seal_path=seal_path,
+        seal=seal,
+        previous=previous,
+    )
     return seal
+
+
+def _audit_history_errors(
+    package_dir: Path,
+    audit_id: str,
+    current_seal: dict[str, Any],
+    *,
+    checkpoint_seal_sha256: str,
+    release_manifest_sha256: str,
+    bundle_manifest_sha256: str,
+) -> list[str]:
+    errors: list[str] = []
+    try:
+        current_sequence = int(current_seal.get("amendment_sequence") or 0)
+    except (TypeError, ValueError):
+        return [f"{audit_id}: current amendment sequence is invalid"]
+    if current_sequence < 0:
+        return [f"{audit_id}: current amendment sequence is invalid"]
+
+    history = package_dir / SEAL_DIRECTORY / HISTORY_DIRECTORY
+    seal_paths = sorted(history.glob(f"{audit_id}.*.seal.json")) if history.is_dir() else []
+    audit_paths = sorted(history.glob(f"{audit_id}.*.audit.json")) if history.is_dir() else []
+    if len(seal_paths) != current_sequence:
+        errors.append(f"{audit_id}: amendment history seal count is incomplete")
+    if len(audit_paths) != current_sequence:
+        errors.append(f"{audit_id}: amendment history audit count is incomplete")
+
+    seals_by_sequence: dict[int, dict[str, Any]] = {}
+    expected_audit_paths: set[Path] = set()
+    for path in seal_paths:
+        historical_seal = json.loads(path.read_text(encoding="utf-8"))
+        seal_hash = str(historical_seal.get("audit_seal_sha256") or "")
+        if seal_hash != _hash_without(historical_seal, "audit_seal_sha256"):
+            errors.append(f"{audit_id}: historical audit seal hash is invalid")
+        if path.name != f"{audit_id}.{seal_hash}.seal.json":
+            errors.append(f"{audit_id}: historical audit seal filename is invalid")
+        try:
+            sequence = int(historical_seal.get("amendment_sequence") or 0)
+        except (TypeError, ValueError):
+            errors.append(f"{audit_id}: historical amendment sequence is invalid")
+            continue
+        if sequence in seals_by_sequence:
+            errors.append(f"{audit_id}: historical amendment sequence is duplicated")
+        seals_by_sequence[sequence] = historical_seal
+        audit_hash = str(historical_seal.get("completed_audit_sha256") or "")
+        historical_audit_path = history / f"{audit_id}.{audit_hash}.audit.json"
+        expected_audit_paths.add(historical_audit_path)
+        if not historical_audit_path.is_file():
+            errors.append(f"{audit_id}: historical completed audit is missing")
+            continue
+        if file_sha256(historical_audit_path) != audit_hash:
+            errors.append(f"{audit_id}: historical completed audit changed")
+        historical_audit = json.loads(
+            historical_audit_path.read_text(encoding="utf-8")
+        )
+        if historical_seal.get("source_checkpoint_seal_sha256") != (
+            checkpoint_seal_sha256
+        ) or historical_audit.get("source_checkpoint_seal_sha256") != (
+            checkpoint_seal_sha256
+        ):
+            errors.append(f"{audit_id}: historical audit is bound to another checkpoint")
+        if historical_seal.get("release_manifest_sha256") != release_manifest_sha256:
+            errors.append(f"{audit_id}: historical audit is bound to another coverage release")
+        expected_parent = str(
+            historical_seal.get("amendment_parent_seal_sha256") or ""
+        )
+        if str(historical_audit.get("amendment_parent_seal_sha256") or "") != (
+            expected_parent
+        ):
+            errors.append(f"{audit_id}: historical audit parent binding differs from its seal")
+        errors.extend(
+            _host_isolation_receipt_errors(
+                historical_seal.get("host_isolation_receipt") or {},
+                bundle_manifest_sha256,
+                f"{audit_id} historical audit",
+                amendment_parent_seal_sha256=(expected_parent or None),
+            )
+        )
+
+    if set(seals_by_sequence) != set(range(current_sequence)):
+        errors.append(f"{audit_id}: historical amendment sequences are not contiguous")
+    for sequence, historical_seal in sorted(seals_by_sequence.items()):
+        expected_parent = (
+            ""
+            if sequence == 0
+            else str(
+                seals_by_sequence.get(sequence - 1, {}).get("audit_seal_sha256")
+                or ""
+            )
+        )
+        if str(historical_seal.get("amendment_parent_seal_sha256") or "") != (
+            expected_parent
+        ):
+            errors.append(f"{audit_id}: historical amendment parent chain is invalid")
+    expected_current_parent = (
+        ""
+        if current_sequence == 0
+        else str(
+            seals_by_sequence.get(current_sequence - 1, {}).get(
+                "audit_seal_sha256"
+            )
+            or ""
+        )
+    )
+    if str(current_seal.get("amendment_parent_seal_sha256") or "") != (
+        expected_current_parent
+    ):
+        errors.append(f"{audit_id}: current amendment parent chain is invalid")
+    if set(audit_paths) != expected_audit_paths:
+        errors.append(f"{audit_id}: amendment history contains orphan audit artifacts")
+    return errors
 
 
 def sealed_audit_errors(package_dir: Path) -> list[str]:
@@ -1158,12 +1347,14 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
         checkpoint_path = bundle / CHECKPOINT_FILE
         checkpoint_seal_path = bundle / CHECKPOINT_SEAL_FILE
         release_path = bundle / RELEASE_MANIFEST_FILE
+        bundle_manifest_path = bundle / BUNDLE_MANIFEST_FILE
         required_paths = (
             seal_path,
             audit_path,
             checkpoint_path,
             checkpoint_seal_path,
             release_path,
+            bundle_manifest_path,
         )
         if not all(path.is_file() for path in required_paths):
             errors.append(f"{audit_id}: sealed audit artifacts are missing")
@@ -1174,6 +1365,13 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
             checkpoint_seal_path.read_text(encoding="utf-8")
         )
         release = json.loads(release_path.read_text(encoding="utf-8"))
+        bundle_manifest = json.loads(
+            bundle_manifest_path.read_text(encoding="utf-8")
+        )
+        if bundle_manifest.get("bundle_manifest_sha256") != _hash_without(
+            bundle_manifest, "bundle_manifest_sha256"
+        ):
+            errors.append(f"{audit_id}: audit bundle manifest hash is invalid")
         if seal.get("audit_seal_sha256") != _hash_without(seal, "audit_seal_sha256"):
             errors.append(f"{audit_id}: audit seal content hash is invalid")
         if seal.get("completed_audit_sha256") != file_sha256(audit_path):
@@ -1197,6 +1395,38 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
             "release_manifest_sha256"
         ):
             errors.append(f"{audit_id}: audit seal is bound to another coverage release")
+        try:
+            current_sequence = int(seal.get("amendment_sequence") or 0)
+        except (TypeError, ValueError):
+            current_sequence = 0
+            errors.append(f"{audit_id}: current amendment sequence is invalid")
+        current_parent = str(seal.get("amendment_parent_seal_sha256") or "")
+        if str(audit.get("amendment_parent_seal_sha256") or "") != current_parent:
+            errors.append(f"{audit_id}: completed audit parent binding differs from its seal")
+        errors.extend(
+            _host_isolation_receipt_errors(
+                seal.get("host_isolation_receipt") or {},
+                str(bundle_manifest.get("bundle_manifest_sha256") or ""),
+                f"{audit_id} sealed audit",
+                amendment_parent_seal_sha256=(
+                    current_parent if current_sequence > 0 else None
+                ),
+            )
+        )
+        errors.extend(
+            _audit_history_errors(
+                package_dir,
+                audit_id,
+                seal,
+                checkpoint_seal_sha256=str(current_checkpoint_seal or ""),
+                release_manifest_sha256=str(
+                    release.get("release_manifest_sha256") or ""
+                ),
+                bundle_manifest_sha256=str(
+                    bundle_manifest.get("bundle_manifest_sha256") or ""
+                ),
+            )
+        )
         if seal.get("validator_status") != "pass":
             errors.append(f"{audit_id}: audit validator did not pass")
         receipt = seal.get("host_isolation_receipt") or {}

@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved sixteen issues:
+The repeated pre-release review found and resolved eighteen issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -495,6 +495,15 @@ The repeated pre-release review found and resolved sixteen issues:
     seal bound to stale provenance. Checkpoints are now immutable after their
     first seal, while the sealed-audit gate independently revalidates checkpoint
     and coverage-release hashes and their bindings to the current audit.
+17. A late filesystem failure during amendment could archive history and replace
+    the canonical audit before the current seal changed. The complete transition
+    is now staged and recoverable; any failed replacement restores prior audit
+    and seal bytes, removes partial history, and clears staging.
+18. Downstream gates checked only the current audit and seal, so deleted or
+    altered predecessor history could go unnoticed. Every sealed-audit check now
+    proves exact history counts, contiguous sequences, parent links, archived
+    audit hashes, receipt-parent bindings, and unchanged checkpoint/release
+    provenance through the full chain.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

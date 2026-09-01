@@ -114,6 +114,11 @@ Its audit artifact and fresh host receipt both cite the current prior audit-seal
 hash while retaining the immutable source checkpoint and bundle identity. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
 closes this amendment path; later semantic repair uses a successor package.
+Stage the new audit, new seal, and predecessor history together. A failed commit
+must restore the prior current audit and seal byte-for-byte, remove partial
+history, and clear staging. Every later sealed-audit gate revalidates the complete
+contiguous parent chain and every archived audit, receipt, checkpoint, and release
+binding; missing history is a blocker.
 
 One workflow-wide identity registry owns context IDs and host-receipt IDs across
 source checkpoints, current and historical source-audit seals, base neutrals,
