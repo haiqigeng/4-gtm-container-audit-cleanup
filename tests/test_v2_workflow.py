@@ -21,10 +21,15 @@ from gtm_audit_contract import (  # noqa: E402
 )
 from gtm_audit_package_build import build_package  # noqa: E402
 from gtm_canonical_record import build_canonical_record  # noqa: E402
-from gtm_cleanroom_audit import checkpoint_audit, seal_audit  # noqa: E402
+from gtm_cleanroom_audit import (  # noqa: E402
+    checkpoint_audit,
+    seal_audit,
+    sealed_audit_errors,
+)
 from gtm_delivery_mapper import create_delivery_map, seal_editorial  # noqa: E402
 from gtm_delivery_reviews import scaffold_delivery_reviews, seal_delivery  # noqa: E402
 from gtm_fixed_point import advance_fixed_point, start_fixed_point  # noqa: E402
+from gtm_lib import stable_hash  # noqa: E402
 from gtm_projection_review import (  # noqa: E402
     finalize_projection_reconciliation,
     scaffold_projection_reconciliation,
@@ -296,6 +301,33 @@ def complete_audit(package: Path, audit_id: str, *, actionable_priority: bool = 
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     seal_audit(package, audit_id)
+
+
+def write_audit_amendment(
+    package: Path,
+    audit_id: str,
+    *,
+    parent_seal_sha256: str,
+    context_id: str,
+    receipt_id: str,
+) -> None:
+    path = package / "audit-bundles" / audit_id / "audit.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (path.parent / "bundle-manifest.json").read_text(encoding="utf-8")
+    )
+    payload["independent_context_id"] = context_id
+    payload["amendment_parent_seal_sha256"] = parent_seal_sha256
+    payload["host_isolation_receipt"] = {
+        "status": "enforced",
+        "receipt_id": receipt_id,
+        "mechanism": "orchestrator_scoped_context",
+        "allowed_bundle_manifest_sha256": manifest["bundle_manifest_sha256"],
+        "other_audit_accessible": False,
+        "prohibited_artifacts_accessible": False,
+        "amendment_parent_seal_sha256": parent_seal_sha256,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def complete_base_reconciliation(
@@ -660,6 +692,113 @@ class V2WorkflowTests(unittest.TestCase):
             ValueError, "reasoning context identity is already used"
         ):
             complete_checkpoint(self.package, "audit-b", "shared-context-test-001")
+
+    def test_source_audit_amendment_is_fresh_bound_and_append_only(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "amendment-source-a-context")
+        complete_checkpoint(self.package, "audit-b", "amendment-source-b-context")
+        complete_audit(self.package, "audit-a")
+        complete_audit(self.package, "audit-b")
+        seal_a_path = self.package / "audit-seals" / "audit-a.json"
+        seal_b = json.loads(
+            (self.package / "audit-seals" / "audit-b.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        first_seal = json.loads(seal_a_path.read_text(encoding="utf-8"))
+        parent = first_seal["audit_seal_sha256"]
+        current_seal_before = seal_a_path.read_bytes()
+        canonical_audit_path = self.package / "audits" / "audit-a.json"
+        canonical_audit_before = canonical_audit_path.read_bytes()
+        checkpoint_path = (
+            self.package
+            / "audit-bundles"
+            / "audit-a"
+            / "source-checkpoint-seal.json"
+        )
+        checkpoint_before = checkpoint_path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "already sealed and immutable"):
+            checkpoint_audit(self.package, "audit-a")
+        self.assertEqual(checkpoint_before, checkpoint_path.read_bytes())
+
+        write_audit_amendment(
+            self.package,
+            "audit-a",
+            parent_seal_sha256=parent,
+            context_id="fresh-amendment-context-001",
+            receipt_id=seal_b["host_isolation_receipt"]["receipt_id"],
+        )
+        with self.assertRaisesRegex(
+            ValueError, "host isolation receipt identity is already used"
+        ):
+            seal_audit(self.package, "audit-a", amendment_of=parent)
+
+        write_audit_amendment(
+            self.package,
+            "audit-a",
+            parent_seal_sha256=parent,
+            context_id=seal_b["independent_context_id"],
+            receipt_id="fresh-amendment-receipt-001",
+        )
+        with self.assertRaisesRegex(
+            ValueError, "reasoning context identity is already used"
+        ):
+            seal_audit(self.package, "audit-a", amendment_of=parent)
+        self.assertFalse((self.package / "audit-seals" / "history").exists())
+        self.assertEqual(current_seal_before, seal_a_path.read_bytes())
+        self.assertEqual(canonical_audit_before, canonical_audit_path.read_bytes())
+
+        write_audit_amendment(
+            self.package,
+            "audit-a",
+            parent_seal_sha256=parent,
+            context_id="fresh-amendment-context-001",
+            receipt_id="fresh-amendment-receipt-001",
+        )
+        amended = seal_audit(self.package, "audit-a", amendment_of=parent)
+        self.assertEqual(1, amended["amendment_sequence"])
+        self.assertEqual(parent, amended["amendment_parent_seal_sha256"])
+        self.assertEqual(checkpoint_before, checkpoint_path.read_bytes())
+        current_audit = json.loads(
+            (self.package / "audits" / "audit-a.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "fresh-amendment-context-001",
+            current_audit["independent_context_id"],
+        )
+        history = self.package / "audit-seals" / "history"
+        self.assertEqual(1, len(list(history.glob("*.seal.json"))))
+        self.assertEqual(1, len(list(history.glob("*.audit.json"))))
+        checkpoint_seal_path = checkpoint_path.with_name(
+            "source-checkpoint-seal.json"
+        )
+        checkpoint_seal_before = checkpoint_seal_path.read_bytes()
+        tampered_checkpoint_seal = json.loads(
+            checkpoint_seal_before.decode("utf-8")
+        )
+        tampered_checkpoint_seal["independent_context_id"] = (
+            "tampered-checkpoint-context"
+        )
+        tampered_checkpoint_seal["checkpoint_seal_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in tampered_checkpoint_seal.items()
+                if key != "checkpoint_seal_sha256"
+            },
+            64,
+        )
+        checkpoint_seal_path.write_text(
+            json.dumps(tampered_checkpoint_seal, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any(
+                "bound to another checkpoint" in error
+                for error in sealed_audit_errors(self.package)
+            )
+        )
+        checkpoint_seal_path.write_bytes(checkpoint_seal_before)
+        self.assertEqual([], sealed_audit_errors(self.package))
 
     def test_neutral_verifier_cannot_reuse_a_source_audit_context(self) -> None:
         self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")

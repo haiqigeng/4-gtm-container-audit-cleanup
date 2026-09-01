@@ -214,7 +214,8 @@ and ownership compatibility determine the verdict.
 ## Repair And Completion
 
 Sealed semantic artifacts are immutable. An amendment uses a fresh context bound
-to the prior seal and append-only history before canonical sealing. After
+to the prior seal in both the audit artifact and its new host receipt, preserves
+the immutable source checkpoint, and writes append-only history before canonical sealing. After
 canonical sealing, a semantic or fidelity defect starts one immutable successor
 package bound to the predecessor record and same locked source, then reruns the
 whole workflow. Presentation-only defects create a new editorial artifact and

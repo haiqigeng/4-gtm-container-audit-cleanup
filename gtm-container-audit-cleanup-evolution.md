@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved fourteen issues:
+The repeated pre-release review found and resolved sixteen issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -486,6 +486,15 @@ The repeated pre-release review found and resolved fourteen issues:
     the delivery gate. Delivery now checks both reviewers against the same
     workflow-wide registry and the final seal independently rejects any cross-
     owner collision.
+15. The documented pre-canonical audit amendment path could not satisfy both its
+    checkpoint identity lock and fresh-context rule. Amendments now retain the
+    immutable source checkpoint, use a globally fresh context and receipt, bind
+    both artifact and receipt to the current prior audit seal, and archive the
+    prior audit and seal only after every validation passes.
+16. A source checkpoint could be resealed in place, leaving an existing audit
+    seal bound to stale provenance. Checkpoints are now immutable after their
+    first seal, while the sealed-audit gate independently revalidates checkpoint
+    and coverage-release hashes and their bindings to the current audit.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

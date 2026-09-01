@@ -101,6 +101,16 @@ Before canonical sealing, an audit amendment uses a new context and binds
 successor-package command above. Never edit a sealed result in place or expose
 the other audit.
 
+For an amendment, set both `audit.amendment_parent_seal_sha256` and
+`audit.host_isolation_receipt.amendment_parent_seal_sha256` to that current seal
+hash. Supply a new context ID and a new enforced receipt bound to the unchanged
+audit bundle, then validate and seal with the same parent hash:
+
+```powershell
+python -B scripts/gtm_cleanroom_audit.py validate audit-package audit-a --amendment-of <current-seal-hash>
+python -B scripts/gtm_cleanroom_audit.py seal audit-package audit-a --amendment-of <current-seal-hash>
+```
+
 Context and receipt identities are single-use across the complete workflow, not
 just within this stage. The initial checkpoint and seal of one source audit form
 one continuous owner; every other audit, neutral, projection, editorial, fidelity,

@@ -322,6 +322,35 @@ def _specific_text(value: Any, minimum_words: int = 5) -> bool:
     return len(re.findall(r"\b[\w{}:./-]+\b", text)) >= minimum_words
 
 
+def _host_isolation_receipt_errors(
+    receipt: dict[str, Any],
+    bundle_manifest_sha256: str,
+    label: str,
+    *,
+    amendment_parent_seal_sha256: str | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    if receipt.get("status") != "enforced":
+        errors.append(f"{label} requires an enforced host isolation receipt")
+    if len(str(receipt.get("receipt_id") or "").strip()) < 12:
+        errors.append(f"{label} host isolation receipt_id is missing or too weak")
+    if receipt.get("mechanism") not in ISOLATION_MECHANISMS:
+        errors.append(f"{label} host isolation mechanism is unsupported or absent")
+    if receipt.get("allowed_bundle_manifest_sha256") != bundle_manifest_sha256:
+        errors.append(f"{label} host isolation receipt is not bound to its audit bundle")
+    if receipt.get("other_audit_accessible") is not False:
+        errors.append(f"{label} must keep the other audit inaccessible")
+    if receipt.get("prohibited_artifacts_accessible") is not False:
+        errors.append(f"{label} must keep prohibited artifacts inaccessible")
+    declared_parent = str(receipt.get("amendment_parent_seal_sha256") or "")
+    if amendment_parent_seal_sha256 is None:
+        if declared_parent:
+            errors.append(f"{label} unexpectedly declares an amendment parent")
+    elif declared_parent != amendment_parent_seal_sha256:
+        errors.append(f"{label} host receipt is not bound to the prior audit seal")
+    return errors
+
+
 def _checkpoint_errors(
     checkpoint: dict[str, Any],
     audit_id: str,
@@ -345,18 +374,11 @@ def _checkpoint_errors(
     if len(context_id) < 12:
         errors.append("source checkpoint requires a strong independent_context_id")
     receipt = checkpoint.get("host_isolation_receipt") or {}
-    if receipt.get("status") != "enforced":
-        errors.append("source checkpoint requires an enforced host isolation receipt")
-    if len(str(receipt.get("receipt_id") or "").strip()) < 12:
-        errors.append("host isolation receipt_id is missing or too weak")
-    if receipt.get("mechanism") not in ISOLATION_MECHANISMS:
-        errors.append("host isolation mechanism is unsupported or absent")
-    if receipt.get("allowed_bundle_manifest_sha256") != bundle_manifest_sha256:
-        errors.append("host isolation receipt is not bound to this audit bundle")
-    if receipt.get("other_audit_accessible") is not False:
-        errors.append("the other audit must be inaccessible in this execution scope")
-    if receipt.get("prohibited_artifacts_accessible") is not False:
-        errors.append("prohibited artifacts must be inaccessible in this execution scope")
+    errors.extend(
+        _host_isolation_receipt_errors(
+            receipt, bundle_manifest_sha256, "source checkpoint"
+        )
+    )
     expected_keys = {str(row["object_key"]) for row in inventory}
     behavior_rows = [
         row for row in as_list(checkpoint.get("object_behavior_map")) if isinstance(row, dict)
@@ -576,6 +598,8 @@ def checkpoint_audit(
     if audit_id not in AUDIT_IDS:
         raise ValueError(f"unsupported audit identity: {audit_id}")
     bundle = (package_dir / BUNDLE_DIRECTORY / audit_id).resolve()
+    if (bundle / CHECKPOINT_SEAL_FILE).is_file():
+        raise ValueError("source checkpoint is already sealed and immutable")
     manifest, errors = _bundle_manifest_errors(bundle)
     package_manifest_path = package_dir / "audit-package-manifest.json"
     if not package_manifest_path.is_file():
@@ -832,13 +856,15 @@ def validate_audit(
     package_dir: Path,
     audit_id: str,
     audit_path: Path | None = None,
+    *,
+    amendment_of: str | None = None,
 ) -> list[str]:
     if audit_id not in AUDIT_IDS:
         return [f"unsupported audit identity: {audit_id}"]
     bundle = package_dir / BUNDLE_DIRECTORY / audit_id
     audit_path = audit_path or bundle / AUDIT_FILE
     errors: list[str] = []
-    _manifest, bundle_errors = _bundle_manifest_errors(bundle)
+    manifest, bundle_errors = _bundle_manifest_errors(bundle)
     errors.extend(bundle_errors)
     release_path = bundle / RELEASE_MANIFEST_FILE
     checkpoint_seal_path = bundle / CHECKPOINT_SEAL_FILE
@@ -885,13 +911,72 @@ def validate_audit(
             "source_checkpoint_seal_sha256",
             checkpoint_seal.get("checkpoint_seal_sha256"),
         ),
-        ("independent_context_id", checkpoint_seal.get("independent_context_id")),
-        ("host_isolation_receipt", checkpoint_seal.get("host_isolation_receipt")),
         ("status", "complete"),
     )
     for field, expected in checks:
         if audit.get(field) != expected:
             errors.append(f"audit {field} differs from its locked contract")
+
+    seal_path = package_dir / SEAL_DIRECTORY / f"{audit_id}.json"
+    previous = (
+        json.loads(seal_path.read_text(encoding="utf-8"))
+        if seal_path.is_file()
+        else None
+    )
+    context_id = str(audit.get("independent_context_id") or "").strip()
+    receipt = audit.get("host_isolation_receipt") or {}
+    receipt_id = str(receipt.get("receipt_id") or "").strip()
+    sequence = 0
+    if amendment_of:
+        if not previous:
+            errors.append("audit amendment requires a current prior audit seal")
+        else:
+            sequence = int(previous.get("amendment_sequence") or 0) + 1
+            if previous.get("audit_seal_sha256") != _hash_without(
+                previous, "audit_seal_sha256"
+            ):
+                errors.append("prior audit seal content hash is invalid")
+            if amendment_of != previous.get("audit_seal_sha256"):
+                errors.append("audit amendment does not cite the current audit seal")
+            if context_id == str(previous.get("independent_context_id") or ""):
+                errors.append("audit amendment requires a fresh reasoning context")
+            previous_receipt_id = str(
+                (previous.get("host_isolation_receipt") or {}).get("receipt_id")
+                or ""
+            )
+            if receipt_id == previous_receipt_id:
+                errors.append("audit amendment requires a fresh host isolation receipt")
+        if len(context_id) < 12:
+            errors.append("audit amendment requires a strong independent_context_id")
+        if audit.get("amendment_parent_seal_sha256") != amendment_of:
+            errors.append("audit amendment artifact is not bound to its prior seal")
+        errors.extend(
+            _host_isolation_receipt_errors(
+                receipt,
+                str(manifest.get("bundle_manifest_sha256") or ""),
+                "audit amendment",
+                amendment_parent_seal_sha256=amendment_of,
+            )
+        )
+    else:
+        if audit.get("independent_context_id") != checkpoint_seal.get(
+            "independent_context_id"
+        ):
+            errors.append("audit independent_context_id differs from its checkpoint")
+        if receipt != checkpoint_seal.get("host_isolation_receipt"):
+            errors.append("audit host_isolation_receipt differs from its checkpoint")
+        if audit.get("amendment_parent_seal_sha256"):
+            errors.append("initial audit unexpectedly declares an amendment parent")
+
+    errors.extend(
+        reasoning_identity_reuse_errors(
+            collect_reasoning_identity_registry(package_dir),
+            owner=f"source-audit:{audit_id}:{sequence}",
+            label=f"{audit_id} audit",
+            context_id=context_id,
+            receipt_id=receipt_id,
+        )
+    )
 
     obligations = {
         str(row.get("obligation_id") or ""): row
@@ -999,34 +1084,32 @@ def seal_audit(
     audit_path = (completed_audit or bundle / AUDIT_FILE).resolve()
     if audit_path.parent != bundle.resolve():
         raise ValueError("completed audit must be inside its own clean-room bundle")
-    errors = validate_audit(package_dir, audit_id, audit_path)
-    if errors:
-        raise ValueError("audit validator failed: " + "; ".join(errors))
-    audit = json.loads(audit_path.read_text(encoding="utf-8"))
     seal_dir = package_dir / SEAL_DIRECTORY
-    seal_dir.mkdir(exist_ok=True)
     seal_path = seal_dir / f"{audit_id}.json"
     canonical_dir = package_dir / "audits"
-    canonical_dir.mkdir(exist_ok=True)
     canonical_path = canonical_dir / f"{audit_id}.json"
     previous = json.loads(seal_path.read_text(encoding="utf-8")) if seal_path.is_file() else None
     if previous:
         if amendment_of != previous.get("audit_seal_sha256"):
             raise ValueError("audit is already sealed; amendment_of must match its current seal")
-        if previous.get("independent_context_id") == audit.get("independent_context_id"):
-            raise ValueError("an audit amendment requires a fresh reasoning context")
     elif amendment_of:
         raise ValueError("amendment_of was supplied but no prior audit seal exists")
-    sequence = int(previous.get("amendment_sequence", 0)) + 1 if previous else 0
-    identity_errors = reasoning_identity_reuse_errors(
-        collect_reasoning_identity_registry(package_dir),
-        owner=f"source-audit:{audit_id}:{sequence}",
-        label=f"{audit_id} audit",
-        context_id=audit.get("independent_context_id"),
-        receipt_id=(audit.get("host_isolation_receipt") or {}).get("receipt_id"),
+    if amendment_of and (package_dir / "canonical-record-seal.json").is_file():
+        raise ValueError(
+            "source-audit amendment is closed after canonical sealing; start a successor package"
+        )
+    errors = validate_audit(
+        package_dir,
+        audit_id,
+        audit_path,
+        amendment_of=amendment_of,
     )
-    if identity_errors:
-        raise ValueError("; ".join(identity_errors))
+    if errors:
+        raise ValueError("audit validator failed: " + "; ".join(errors))
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    sequence = int(previous.get("amendment_sequence", 0)) + 1 if previous else 0
+    seal_dir.mkdir(exist_ok=True)
+    canonical_dir.mkdir(exist_ok=True)
     if previous:
         history = seal_dir / HISTORY_DIRECTORY
         history.mkdir(exist_ok=True)
@@ -1071,14 +1154,49 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
     for audit_id in AUDIT_IDS:
         seal_path = package_dir / SEAL_DIRECTORY / f"{audit_id}.json"
         audit_path = package_dir / "audits" / f"{audit_id}.json"
-        if not seal_path.is_file() or not audit_path.is_file():
+        bundle = package_dir / BUNDLE_DIRECTORY / audit_id
+        checkpoint_path = bundle / CHECKPOINT_FILE
+        checkpoint_seal_path = bundle / CHECKPOINT_SEAL_FILE
+        release_path = bundle / RELEASE_MANIFEST_FILE
+        required_paths = (
+            seal_path,
+            audit_path,
+            checkpoint_path,
+            checkpoint_seal_path,
+            release_path,
+        )
+        if not all(path.is_file() for path in required_paths):
             errors.append(f"{audit_id}: sealed audit artifacts are missing")
             continue
         seal = json.loads(seal_path.read_text(encoding="utf-8"))
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        checkpoint_seal = json.loads(
+            checkpoint_seal_path.read_text(encoding="utf-8")
+        )
+        release = json.loads(release_path.read_text(encoding="utf-8"))
         if seal.get("audit_seal_sha256") != _hash_without(seal, "audit_seal_sha256"):
             errors.append(f"{audit_id}: audit seal content hash is invalid")
         if seal.get("completed_audit_sha256") != file_sha256(audit_path):
             errors.append(f"{audit_id}: completed audit changed after sealing")
+        if checkpoint_seal.get("checkpoint_seal_sha256") != _hash_without(
+            checkpoint_seal, "checkpoint_seal_sha256"
+        ):
+            errors.append(f"{audit_id}: source checkpoint seal content hash is invalid")
+        if checkpoint_seal.get("checkpoint_sha256") != file_sha256(checkpoint_path):
+            errors.append(f"{audit_id}: source checkpoint changed after sealing")
+        current_checkpoint_seal = checkpoint_seal.get("checkpoint_seal_sha256")
+        if seal.get("source_checkpoint_seal_sha256") != current_checkpoint_seal:
+            errors.append(f"{audit_id}: audit seal is bound to another checkpoint")
+        if audit.get("source_checkpoint_seal_sha256") != current_checkpoint_seal:
+            errors.append(f"{audit_id}: completed audit is bound to another checkpoint")
+        if release.get("release_manifest_sha256") != _hash_without(
+            release, "release_manifest_sha256"
+        ):
+            errors.append(f"{audit_id}: coverage release manifest hash is invalid")
+        if seal.get("release_manifest_sha256") != release.get(
+            "release_manifest_sha256"
+        ):
+            errors.append(f"{audit_id}: audit seal is bound to another coverage release")
         if seal.get("validator_status") != "pass":
             errors.append(f"{audit_id}: audit validator did not pass")
         receipt = seal.get("host_isolation_receipt") or {}
@@ -1105,6 +1223,7 @@ def main() -> int:
     validate.add_argument("package_dir", type=Path)
     validate.add_argument("audit_id", choices=AUDIT_IDS)
     validate.add_argument("--audit", type=Path)
+    validate.add_argument("--amendment-of")
     seal = subparsers.add_parser("seal")
     seal.add_argument("package_dir", type=Path)
     seal.add_argument("audit_id", choices=AUDIT_IDS)
@@ -1119,7 +1238,12 @@ def main() -> int:
                 args.completed_checkpoint,
             )
         elif args.command == "validate":
-            errors = validate_audit(args.package_dir, args.audit_id, args.audit)
+            errors = validate_audit(
+                args.package_dir,
+                args.audit_id,
+                args.audit,
+                amendment_of=args.amendment_of,
+            )
             result = {"status": "pass" if not errors else "blocked", "errors": errors}
         else:
             result = seal_audit(

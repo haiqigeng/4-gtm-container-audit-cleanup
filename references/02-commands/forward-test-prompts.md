@@ -58,6 +58,8 @@ Measure:
   peer-neutral, projection-review, or prior-cycle identity;
 - workflow-wide rejection when a projection review, editorial pass, fidelity
   reviewer, or workbook-only reader reuses any earlier context or receipt ID;
+- successful fresh source-audit amendment with unchanged checkpoint provenance,
+  append-only history, and byte-identical rollback after rejected reuse;
 - exact operation validity, dependency safety, target coherence, and fixed-point
   convergence/non-convergence blocking, with byte-identical rollback after a
   failed candidate cycle;

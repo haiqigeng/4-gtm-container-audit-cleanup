@@ -78,6 +78,10 @@
 - One ownership-aware registry proves that no different source, neutral,
   projection, editorial, fidelity, or reader review owner reused a reasoning
   context or host-isolation receipt anywhere in the workflow.
+- Source checkpoints are immutable after sealing. A pre-canonical audit
+  amendment succeeds only with fresh globally unused identities, explicit prior-
+  seal binding, unchanged checkpoint provenance, and append-only prior history;
+  a failed amendment changes none of those artifacts.
 - Every visible sheet is rendered and inspected; privacy and formula-injection
   scans pass.
 

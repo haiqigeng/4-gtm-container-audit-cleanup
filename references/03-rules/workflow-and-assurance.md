@@ -110,6 +110,10 @@ IDs, coverage, and seals; it does not claim that self-authored JSON can prove ho
 access control. If the host cannot enforce both scoped contexts, block. An
 amendment uses a fresh context bound to the prior seal and archives the previous
 artifact and seal in append-only history.
+Its audit artifact and fresh host receipt both cite the current prior audit-seal
+hash while retaining the immutable source checkpoint and bundle identity. A
+failed amendment leaves current and historical seals unchanged. Canonical sealing
+closes this amendment path; later semantic repair uses a successor package.
 
 One workflow-wide identity registry owns context IDs and host-receipt IDs across
 source checkpoints, current and historical source-audit seals, base neutrals,
