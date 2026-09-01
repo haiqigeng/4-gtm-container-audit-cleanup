@@ -1,7 +1,8 @@
 # Naming Standardization
 
-Use this reference whenever an audit, cleanup plan, mutation, or generated JSON
-includes naming review or rename operations.
+Use this reference whenever the audit or exact target plan includes naming review
+or rename operations. Naming follows semantic canonicalisation; this skill does
+not execute the rename.
 
 ## Contents
 

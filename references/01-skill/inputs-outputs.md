@@ -1,180 +1,41 @@
 # Inputs And Outputs
 
-## Contents
+## Required Input
 
-- [Required Evidence](#required-evidence)
-- [Deliverables](#deliverables)
-- [Lifecycle](#lifecycle)
-- [Change-Log Detail](#change-log-detail)
+One complete, unambiguous GTM web ContainerVersion JSON export or equivalent
+read-only GTM evidence with resolvable account, container, version/workspace, and
+WEB container-type identity. A standard GTM export envelope proves omitted
+supported web layers empty; equivalent read-only evidence must enumerate them.
+Server-container exports are not accepted in this version.
 
-## Required Evidence
+## Optional Locked Input
 
-Start every new task with one compact analyst exchange. The analyst must identify
-or confirm the exact complete JSON/equivalent source and requested result before
-the agent selects a file or begins the audit. Ask once even when a likely source
-is discoverable; after the answer, infer safe missing context and continue unless
-a true source-integrity blocker remains. If the confirmed source is unavailable,
-request that export or exact path rather than substituting another container.
+- analyst-confirmed context such as CMP, route intent, Advanced Consent Mode,
+  known server ownership, naming rules, exclusions, and exact `do_not_touch`
+  object keys;
+- an analyst-approved tracking plan or requirement artifact. It is withheld from
+  each audit until that audit seals its source-only checkpoint.
 
-- a complete GTM container JSON export or equivalent complete read-only GTM
-  API/UI configuration evidence;
-- container type: web or server;
-- website/domain and business model when relevant to interpretation;
-- known CMP, browser-to-server routing, ecommerce, lead, media, publisher, or
-  market context.
+Inference may route review; it cannot silently become an approved fact. Ambiguity
+that changes a verdict becomes an owner decision or evidence limit.
 
-An explicitly analyst-approved tracking plan may be supplied as optional JSON,
-CSV, XLSX, or XLSM requirement evidence. Preserve its source file, sheet, row,
-raw fields, and hashes. Keep it separate from the container-derived shared facts
-and Run 1; only Runs 2 and 3 may use the separately labelled evidence. Match only
-exact exported identifiers and never infer a replacement from similar wording.
+## Outputs
 
-The agent should infer safe facts from the export and supplied website context.
-Material business, naming, folder, lifecycle, ownership, preferred-target, legal, or
-unseen-server questions remain nonblocking owner/evidence decisions in the completed
-audit. Ask immediately only when source identity is partial/ambiguous, a source layer is
-unmodelled, or missing evidence prevents a complete container-configuration judgment.
+The audit package contains immutable source and contract locks, the canonical
+scan, independent scan assurance, obligation ledger, two isolated audit bundles
+and seals, reconciliation and neutral verification, exact operation packet,
+fixed-point proof and deterministic replay, sealed canonical record and manifest,
+delivery map/editorial seals, workbook build and verification artifacts, and
+independent fidelity/reader review seals.
 
-Persist context in a small JSON object when supplied explicitly. Typical keys
-are `website_url`, `business_model`, `container_type`, `cmp`, `markets`,
-`product_scopes`, `server_routing_hosts`, `known_owner_exceptions`, and
-`unresolved_questions`. When available, also record `spa`, analyst-confirmed
-`canonical_ids`, `staging_hosts`, exact `do_not_touch` object keys, and an
-approved `naming_policy`. These fields sharpen decisions and execution safety;
-their absence does not create a reduced audit mode. A full run defaults
-`requested_deliverable` to
-`audit_and_cleanup_plan`; do not ask the analyst to choose between the audit and
-the plan. Run the deterministic
-context model before building the package. Its preflight labels each core field
-as analyst-provided, high-confidence inferred, or unresolved and identifies
-which questions materially affect interpretation. The package merges confirmed
-context with inference and records the complete intake state in the context
-hash. Supply `cmp`, `markets`, and `server_routing_hosts` as arrays; an explicit
-empty array means confirmed none rather than missing context. The same
-confirmed-empty rule applies to `canonical_ids`, `staging_hosts`, and
-`do_not_touch`. A do-not-touch entry used for execution must resolve to an exact
-`layer:ID`; a name-only hint remains non-executable until resolved.
+The user-facing output is exactly one `.xlsx` workbook with four required visible
+sheets and an optional Custom Code sheet, as specified in
+`references/03-rules/workbook-delivery.md`. The canonical JSON remains a separate
+technical artifact, not a second workbook.
 
-Live browser requests, Tag Assistant, CMP interaction, website dataLayer
-inspection, and vendor-platform results are not evidence for this skill.
+## Completion State
 
-Before interpretation, the evidence gate validates the ContainerVersion root,
-the complete current entity-layer registry, layer array shapes, required object
-IDs, and per-layer ID uniqueness. Unknown entity-like layers or ambiguous IDs
-block the audit; missing references inside an otherwise valid export remain
-visible findings and do not reduce the remaining scan scope.
-
-## Deliverables
-
-Every full run produces:
-
-- a complete audit summary;
-- an exact canonical cleanup plan as `cleanup_plan.xlsx`;
-- a derived, evidence-edited `cleanup_plan.analyst.xlsx` as the required analyst
-  deliverable when its separate readability gate passes;
-- a simulated future-state quality result across sanitation, configuration, and
-  business architecture.
-
-The canonical workbook is generated and validated first and remains the
-unchanged technical recovery record. The derived workbook copies it, adds
-five lean human-readable tabs, and retains every original technical tab content-identical
-but hidden by default. Before building it, a hash-bound AI editorial pass rewrites
-each visible row from its exact evidence into plain analyst language while IDs,
-objects, dispositions, operations, and direction stay locked. If that editorial,
-build, or gate fails, preserve the canonical record, mark analyst delivery
-incomplete, and repair only the presentation step; do not rerun or alter any scan.
-
-When requested and authorised, it may additionally produce:
-
-- planned change preview;
-- validated importable GTM JSON;
-- approved direct GTM workspace changes;
-- post-execution change log as a separate XLSX workbook;
-- a hash-locked row-level approval response for the exact operation packet; and
-- an objective audit delta between two independently completed full packages.
-
-The audit evidence package contains `context.json`, `source_model.json`,
-`shared_facts.json`, three independent review artifacts, technical code facts,
-three physical run-specific input bundles, validator-bound review seals,
-run-specific input contracts and completion attestations, reconciled operations
-with a decision ledger, projected object counts, measurement-family
-preservation and target-state mapping, and the future-state gate. These are
-working/proof artifacts; the workbook entry layer remains concise.
-The canonical visible Cleanup Plan uses a stable broad problem category before the exact
-area/problem type and preserves GTM layer prefixes in `Affected object(s)` so
-analysts can filter the plan without losing source-specific detail.
-Each visible operation uses analyst language: the literal GTM problem, why the
-configuration behaves that way, the exact change, preserved
-settings/measurement, priority/approval, static readback, and rollback. Raw
-paths, hashes, validator prose, and exhaustive traces stay in the proof
-artifacts. Invisible Unicode-reference rows name the non-standard space and
-show the readable intended `{{Variable}}`.
-Its manifest also records the exact runnable skill version and runtime-tree hash
-so results cannot silently come from a stale or locally divergent installation.
-Each operation includes an evidence-based priority basis. The reconciled packet
-also records server coupling, static configured-activation risk, and risk-based
-approval/decommission treatment. It records container-only evidence limits as
-boundaries, but does not create or run Preview, browser, CMP, network, vendor,
-or other runtime-QA tasks. Those are a separately scoped `gtm-preview-recette`
-workflow if later requested.
-
-The derived analyst workbook is a post-gate projection only. Its Actions tab is
-first and contains every atomic operation with a standalone literal problem,
-consequence, exact change, approval/preconditions, and static verification/
-rollback. Its Decisions tab accounts for every owner-decision source record and
-shows affected families plus what an answer unlocks. Its Audit Register contains
-every reconciled decision-ledger record, and its Custom HTML tab inventories
-every source Custom HTML tag across state/execution context, functional role,
-technical health, replacement/simplification candidates, simplest safe target, and
-exact action/decision. It
-uses stable IDs, visible-sheet links, outline groups, and cell notes rather than
-adding a separate traceability tab or extra visible columns. The authoritative
-JSON package and content-identical technical tabs retain the full proof; those
-canonical tabs are hidden by default in the analyst copy and remain available
-through A1 unhide/filter instructions.
-
-The visible plans include every proposed operation and genuine unresolved owner
-question with a concrete recommendation. Nonblocking container-evidence limits
-are summarized once as a scope boundary, while each exact per-object next action
-remains in hidden proof and the audit package. The plan leads with the concrete
-configured problem and measurement effect, defines the exact target
-state/action, explains
-priority, and summarizes retained
-business-family architecture as well as cleanup. Hidden workbook proof is
-decision-oriented and privacy-scanned; exhaustive leaf, trace, contract, and
-code-line evidence remains in the machine-readable audit package.
-
-## Lifecycle
-
-1. **Audit and cleanup plan:** proposed decisions only.
-2. **Approval and route selection:** complete the versioned response with one
-   `Approve`, `Reject`, or `Amend` decision per operation, validate its packet and
-   row hashes, then choose direct GTM/API/MCP or import JSON. Risk confirmations
-   remain separate.
-3. **Execution:** only after exact approval and a passing execution preflight.
-4. **Change log:** what actually changed, produced only after execution or
-   generated cleanup artifact creation.
-
-Never integrate the change log into the cleanup plan. A requested hypothetical
-record must be labelled `planned change preview` or `simulated change log`, not
-presented as executed GTM work.
-
-An audit delta is descriptive only. Both sides must be independently completed
-against their own full source, facts, three scans, seals, and operation packet.
-The delta may compare source objects, findings, operations, decisions, families,
-and counts; it never imports an old verdict, score, or confidence into a new run.
-
-## Change-Log Detail
-
-The post-execution change log must be understandable without GTM View Changes.
-Use one row per changed object field, dependency, route, source, folder, code
-block, rename, deletion, or creation. Include linked operation ID, before,
-after, reason, impact, QA status, rollback, and blocker where applicable.
-This applies to every supported layer, including Zones and Google tag
-configurations. A before/after source with ambiguous IDs or an unmodelled entity
-layer is rejected instead of being partially diffed.
-Link an approved operation only when its simulated field mutation exactly
-matches the observed layer, object ID, path, before value, and after value.
-An executed result is certified only when the complete readback equals the
-approved simulated future state and every observed field change has exactly one
-approved operation link.
+`pass` means canonical audit closure, fixed-point replay, exact workbook coverage,
+technical verification, fidelity, workbook-only reader, rendered-layout, privacy,
+and formula checks all passed. A blocked workflow reports its exact unmet gate;
+it never substitutes a partial workbook.

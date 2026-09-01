@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Build the GTM audit evidence package.
-
-This command is the deterministic first half of a full skill execution. It
-creates the source model and the three independent cleanup lens artifacts that
-must exist before a user-facing cleanup plan is compiled.
-"""
+"""Build the source-locked package for the dual clean-room GTM audit."""
 
 from __future__ import annotations
 
@@ -14,84 +9,34 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from gtm_architecture_review import scaffold_review as scaffold_architecture_review
-from gtm_baseline_audit import audit_export
-from gtm_configuration_review import scaffold_review as scaffold_configuration_review
-from gtm_context_model import build_context_model
-from gtm_custom_code_extract import extract_export
-from gtm_lib import as_list, source_descriptor
-from gtm_operational_review import scaffold_review as scaffold_operational_review
-from gtm_requirement_evidence import build_requirement_evidence
-from gtm_review_isolation import prepare_review_bundles
-from gtm_review_shards import (
-    DEFAULT_MAX_AUTHORED_WORK_UNITS,
-    DEFAULT_MAX_ITEMS,
-    DEFAULT_MAX_OBLIGATIONS,
-    review_requires_sharding,
-    review_workload,
-    split_review,
-)
-from gtm_shared_facts import build_shared_facts
+from gtm_canonical_scan import build_canonical_scan
+from gtm_cleanroom_audit import prepare_audit_bundles
+from gtm_lib import file_sha256, stable_hash, write_json
+from gtm_obligation_ledger import build_obligation_ledger
+from gtm_scan_assurance import assure_scan
 from gtm_skill_identity import build_identity, declared_identity_errors
-from gtm_source_model import build_model
+from gtm_vendor_registry import validate_registry
 
 
-def write_json(path: Path, payload: dict[str, Any], pretty: bool) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2 if pretty else None),
-        encoding="utf-8",
-    )
-
-
-def nonzero_findings(payload: dict[str, Any]) -> int:
-    return sum(
-        1
-        for finding in payload.get("findings", [])
-        if finding.get("finding_type") != "zero_findings"
-    )
-
-
-def build_review_work_units(
-    out_dir: Path,
-    files: dict[str, Path],
-    reviews: dict[str, tuple[str, dict[str, Any], str]],
-    pretty: bool,
-) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "max_items_per_shard": DEFAULT_MAX_ITEMS,
-        "max_configuration_obligations_per_shard": DEFAULT_MAX_OBLIGATIONS,
-        "max_authored_work_units_per_shard": DEFAULT_MAX_AUTHORED_WORK_UNITS,
-        "runs": {},
-    }
-    for run_name, (file_key, review, shard_directory) in reviews.items():
-        workload = review_workload(review)
-        run_result = {
-            "review_file": files[file_key].name,
-            "strategy": "single_file",
-            **workload,
-        }
-        if review_requires_sharding(review):
-            shard_dir = out_dir / shard_directory
-            shard_manifest = split_review(
-                files[file_key],
-                shard_dir,
-                max_items=DEFAULT_MAX_ITEMS,
-                pretty=pretty,
-                max_obligations=DEFAULT_MAX_OBLIGATIONS,
+def _ensure_empty_directory(path: Path) -> None:
+    if path.exists():
+        if not path.is_dir() or any(path.iterdir()):
+            raise RuntimeError(
+                "audit package out-dir must be new or empty; evidence is never overwritten"
             )
-            run_result.update(
-                {
-                    "strategy": "sharded",
-                    "shard_directory": shard_directory,
-                    "shard_manifest": f"{shard_directory}/shard_manifest.json",
-                    "primary_shards": len(shard_manifest["shards"]),
-                    "obligation_shards": len(shard_manifest["obligation_shards"]),
-                    "discovery_shard": shard_manifest["discovery_shard"],
-                }
-            )
-        result["runs"][run_name] = run_result
-    return result
+    else:
+        path.mkdir(parents=True)
+
+
+def _artifact_record(path: Path, role: str) -> dict[str, Any]:
+    return {"role": role, "path": path.name, "sha256": file_sha256(path)}
+
+
+def _manifest_hash(payload: dict[str, Any]) -> str:
+    return stable_hash(
+        {key: value for key, value in payload.items() if key != "package_manifest_sha256"},
+        64,
+    )
 
 
 def build_package(
@@ -105,121 +50,134 @@ def build_package(
     identity_report, identity_errors = declared_identity_errors(skill_root)
     if identity_errors:
         raise RuntimeError(
-            "runtime identity preflight failed after intake and before package creation: "
+            "runtime identity preflight failed before package creation: "
             + "; ".join(identity_errors)
         )
-    if out_dir.exists():
-        if not out_dir.is_dir() or any(out_dir.iterdir()):
-            raise RuntimeError(
-                "audit package out-dir must be a new or empty directory; existing "
-                "artifacts are never overwritten"
+    if not export_path.is_file():
+        raise RuntimeError(f"confirmed GTM source does not exist: {export_path}")
+    _ensure_empty_directory(out_dir)
+
+    scan_result = build_canonical_scan(
+        export_path,
+        context_path=context_path,
+        requirements_path=requirements_path,
+    )
+    scan = scan_result["canonical_scan"]
+    contract = scan_result["audit_contract"]
+    context = scan_result["context"]
+    requirements = scan_result["approved_requirements"]
+    registry_path = skill_root / "references" / "03-rules" / "vendor-registry.toml"
+    registry_errors, registry_warnings = validate_registry(
+        registry_path, online=False, max_age_days=365
+    )
+    if registry_errors or registry_warnings:
+        raise RuntimeError(
+            "locked vendor registry is invalid or stale: "
+            + "; ".join([*registry_errors, *registry_warnings])
+        )
+    assurance = assure_scan(
+        export_path,
+        scan,
+        vendor_registry_path=registry_path,
+    )
+    if assurance.get("status") != "pass":
+        mismatch_ids = [
+            str(row.get("check_id") or "unknown")
+            for row in assurance.get("checks", [])
+            if row.get("status") != "pass"
+        ]
+        raise RuntimeError(
+            "independent scan assurance blocked semantic review: "
+            + ", ".join(mismatch_ids)
+        )
+    ledger = build_obligation_ledger(scan, assurance, requirements)
+
+    locked_source_path = out_dir / "locked-source.json"
+    context_output_path = out_dir / "context.json"
+    contract_path = out_dir / "audit-contract.json"
+    source_model_path = out_dir / "source-model.json"
+    scan_path = out_dir / "canonical-scan.json"
+    assurance_path = out_dir / "scan-assurance.json"
+    ledger_path = out_dir / "obligation-ledger.json"
+    registry_output_path = out_dir / "vendor-registry.toml"
+    manifest_path = out_dir / "audit-package-manifest.json"
+    shutil.copy2(export_path, locked_source_path)
+    write_json(context_output_path, context)
+    write_json(contract_path, contract)
+    write_json(source_model_path, scan_result["source_model"])
+    write_json(scan_path, scan)
+    write_json(assurance_path, assurance)
+    write_json(ledger_path, ledger)
+    shutil.copy2(registry_path, registry_output_path)
+    requirement_output_path: Path | None = None
+    if requirements:
+        requirement_output_path = out_dir / "approved-requirements.json"
+        write_json(requirement_output_path, requirements)
+
+    runtime_identity = build_identity(skill_root)
+    declared = identity_report.get("declared") or {}
+    if not runtime_identity.get("source_git_commit"):
+        # A clean runtime bundle has no .git directory; in that explicit case,
+        # preserve the source checkout identity recorded when the bundle was built.
+        for field in ("source_git_commit", "source_git_dirty"):
+            if declared.get(field) is not None:
+                runtime_identity[field] = declared[field]
+    artifact_records = [
+        _artifact_record(locked_source_path, "raw_source"),
+        _artifact_record(context_output_path, "locked_context"),
+        _artifact_record(contract_path, "audit_contract"),
+        _artifact_record(source_model_path, "source_identity_model"),
+        _artifact_record(scan_path, "canonical_scan"),
+        _artifact_record(assurance_path, "independent_scan_assurance"),
+        _artifact_record(ledger_path, "semantic_obligation_ledger"),
+        _artifact_record(registry_output_path, "locked_vendor_registry"),
+    ]
+    if requirement_output_path:
+        artifact_records.append(
+            _artifact_record(
+                requirement_output_path,
+                "approved_requirement_evidence_withheld_until_checkpoint",
             )
-    else:
-        out_dir.mkdir(parents=True)
-    skill_identity = build_identity(skill_root)
-    declared_identity = identity_report.get("declared") or {}
-    for field in ("source_git_commit", "source_git_dirty"):
-        if declared_identity.get(field) is not None:
-            skill_identity[field] = declared_identity[field]
+        )
 
-    source_model = build_model(export_path)
-    if source_model.get("coverage_gate") == "blocked_source_integrity":
-        source_path = out_dir / "source_model.json"
-        manifest_path = out_dir / "audit_package_manifest.json"
-        manifest = {
-            **source_descriptor(export_path),
-            "kind": "gtm_audit_package_manifest",
-            "status": "blocked",
-            "skill_runtime_identity": {
-                key: skill_identity.get(key)
-                for key in (
-                    "project_version",
-                    "runtime_tree_sha256",
-                    "runtime_file_count",
-                    "source_git_commit",
-                    "source_git_dirty",
-                )
-            },
-            "source_model_coverage_gate": source_model.get("coverage_gate"),
-            "shared_facts_coverage_gate": "not_built",
-            "counts": {
-                "source_integrity_findings": len(
-                    source_model.get("source_integrity_findings", [])
-                ),
-                "source_model_objects": sum(
-                    len(source_model.get("objects", {}).get(key, []))
-                    for key in (
-                        "tags",
-                        "triggers",
-                        "variables",
-                        "customTemplates",
-                        "zones",
-                        "clients",
-                        "gtagConfigs",
-                        "transformations",
-                    )
-                ),
-            },
-            "required_next_artifacts": [
-                "corrected complete GTM ContainerVersion export"
-            ],
-            "files": {
-                "source_model": source_path.name,
-                "manifest": manifest_path.name,
-            },
-            "notes": [
-                "Source integrity is blocking; no review scaffold or inferred context was built.",
-                "Resolve every source_integrity_finding before starting the three independent runs.",
-            ],
-        }
-        write_json(source_path, source_model, pretty)
-        write_json(manifest_path, manifest, pretty)
-        return manifest
-
-    context = build_context_model(export_path, context_path)
-    requirement_evidence = (
-        build_requirement_evidence(requirements_path) if requirements_path else None
-    )
-    operational_scan = audit_export(export_path)
-    technical = extract_export(export_path)
-    shared_facts = build_shared_facts(
-        export_path,
-        context=context,
-        technical=technical,
-        navigation=source_model,
-    )
-    operational_review = scaffold_operational_review(export_path, shared_facts)
-    configuration_review = scaffold_configuration_review(
-        export_path,
-        technical,
-        shared_facts,
-        requirement_evidence=requirement_evidence,
-    )
-    architecture_review = scaffold_architecture_review(
-        export_path,
-        shared_facts,
-        requirement_evidence=requirement_evidence,
-    )
-
-    files = {
-        "source_model": out_dir / "source_model.json",
-        "context": out_dir / "context.json",
-        "shared_facts": out_dir / "shared_facts.json",
-        "operational_scan": out_dir / "operational_scan.json",
-        "operational_review": out_dir / "operational_review.json",
-        "technical_code_findings": out_dir / "technical_code_findings.json",
-        "configuration_review": out_dir / "configuration_review.json",
-        "architecture_review": out_dir / "architecture_review.json",
-        "manifest": out_dir / "audit_package_manifest.json",
+    temporary_manifest = {
+        "kind": "gtm_dual_audit_package_manifest",
+        "schema_version": 1,
+        "status": "building",
+        "source_sha256": scan.get("source_sha256"),
     }
-    if requirement_evidence:
-        files["approved_requirements"] = out_dir / "approved_requirements.json"
+    temporary_manifest["package_manifest_sha256"] = _manifest_hash(
+        temporary_manifest
+    )
+    write_json(manifest_path, temporary_manifest)
+    audit_bundles = prepare_audit_bundles(
+        locked_source_path,
+        out_dir,
+        scan=scan,
+        assurance=assurance,
+        ledger=ledger,
+        context_path=context_output_path,
+        contract_path=contract_path,
+        registry_path=registry_output_path,
+        requirements_path=requirement_output_path,
+    )
 
     manifest = {
-        **source_descriptor(export_path),
-        "kind": "gtm_audit_package_manifest",
+        "kind": "gtm_dual_audit_package_manifest",
+        "schema_version": 1,
+        "status": "ready_for_source_checkpoints",
+        "source_file": export_path.name,
+        "source_sha256": scan.get("source_sha256"),
+        "container_identity": scan.get("container_identity", {}),
+        "context_sha256": scan.get("context_sha256"),
+        "audit_contract_sha256": scan.get("audit_contract_sha256"),
+        "canonical_scan_sha256": scan.get("canonical_scan_sha256"),
+        "scan_assurance_sha256": assurance.get("scan_assurance_sha256"),
+        "obligation_ledger_sha256": ledger.get("obligation_ledger_sha256"),
+        "vendor_registry_sha256": file_sha256(registry_output_path),
+        "approved_requirements_sha256": scan.get("approved_requirements_sha256"),
         "skill_runtime_identity": {
-            key: skill_identity.get(key)
+            key: runtime_identity.get(key)
             for key in (
                 "project_version",
                 "runtime_tree_sha256",
@@ -228,224 +186,40 @@ def build_package(
                 "source_git_dirty",
             )
         },
-        "status": (
-            "pass"
-            if str(shared_facts.get("coverage_gate") or "").startswith("pass")
-            else "blocked"
-        ),
-        "source_model_coverage_gate": source_model.get("coverage_gate"),
-        "shared_facts_coverage_gate": shared_facts.get("coverage_gate"),
-        "shared_facts_sha256": shared_facts.get("shared_facts_sha256"),
-        "context_sha256": context.get("context_sha256"),
-        "run_input_contracts": {
-            "operational_sanitation": operational_review.get("input_contract"),
-            "configuration_correctness": configuration_review.get("input_contract"),
-            "business_architecture": architecture_review.get("input_contract"),
-        },
-        "intake": {
-            "status": context.get("intake_status"),
-            "material_questions": sum(
-                1
-                for item in context.get("intake_questions", [])
-                if item.get("material")
-            ),
-            "unresolved_questions": len(context.get("intake_questions", [])),
-            "provided_fields": context.get("provided_fields", []),
-        },
+        "artifacts": artifact_records,
+        "audit_bundles": audit_bundles,
         "counts": {
-            "source_model_objects": sum(
-                len(source_model.get("objects", {}).get(key, []))
-                for key in (
-                    "tags",
-                    "triggers",
-                    "variables",
-                    "customTemplates",
-                    "zones",
-                    "clients",
-                    "gtagConfigs",
-                    "transformations",
-                )
-            ),
-            "shared_fact_objects": shared_facts.get("counts", {}).get("objects", 0),
-            "field_edges": source_model.get("counts", {}).get("field_edges", 0),
-            "trigger_edges": source_model.get("counts", {}).get("trigger_edges", 0),
-            "operational_findings": nonzero_findings(operational_scan),
-            "operational_zero_finding_rows": sum(
-                1
-                for finding in operational_scan.get("findings", [])
-                if finding.get("finding_type") == "zero_findings"
-            ),
-            "technical_code_rows": len(technical.get("rows", [])),
-            "configuration_review_rows": len(configuration_review.get("rows", [])),
-            "architecture_families": len(architecture_review.get("families", [])),
-            "architecture_comparisons": len(architecture_review.get("comparisons", [])),
-            "approved_requirement_rows": len(
-                as_list((requirement_evidence or {}).get("requirements"))
+            **scan.get("counts", {}),
+            "semantic_obligations": ledger.get("counts", {}).get("obligations", 0),
+            "source_only_obligations": ledger.get("counts", {}).get("source_only", 0),
+            "post_checkpoint_obligations": ledger.get("counts", {}).get(
+                "post_source_checkpoint", 0
             ),
         },
-        "required_next_artifacts": [
-            "completed operational_review.json",
-            "completed configuration_review.json",
-            "completed architecture_review.json",
-            "three isolated review seals",
+        "required_next_steps": [
+            "Complete and seal the source-only checkpoint in audit-a.",
+            "Independently complete and seal the candidate-blind source checkpoint in audit-b.",
+            "Complete every released obligation in two host-scoped audit contexts.",
+            "Validate and seal both audits before reconciliation.",
         ],
-        "files": {key: path.name for key, path in files.items() if key != "manifest"},
-        "notes": [
-            "This package is evidence, not the user-facing cleanup plan.",
-            (
-                "Review scaffolds are generated and semantic review continues. Material "
-                "context questions remain nonblocking owner decisions; they block only an "
-                "affected mutation whose exact target cannot be selected from the export."
-                if context.get("intake_status") == "confirmation_required"
-                else "Intake has no unresolved material question; semantic review may start."
-            ),
-            "The three review artifacts are independent and all are mandatory.",
-            "Complete each review only inside its physical review-bundles directory.",
-            "All verdict engines use the same immutable shared facts and source hash.",
-            "Unresolved references remain operational findings and do not stop other audit checks.",
-            "Technical code findings support configuration review and do not replace it.",
-            "Compile operations only after all three review validators pass.",
-        ],
-    }
-    manifest["files"]["manifest"] = files["manifest"].name
-
-    write_json(files["context"], context, pretty)
-    write_json(files["source_model"], source_model, pretty)
-    write_json(files["shared_facts"], shared_facts, pretty)
-    write_json(files["operational_scan"], operational_scan, pretty)
-    write_json(files["operational_review"], operational_review, pretty)
-    write_json(files["technical_code_findings"], technical, pretty)
-    if requirement_evidence:
-        write_json(files["approved_requirements"], requirement_evidence, pretty)
-    write_json(files["configuration_review"], configuration_review, pretty)
-    write_json(files["architecture_review"], architecture_review, pretty)
-    manifest["review_work_units"] = build_review_work_units(
-        out_dir,
-        files,
-        {
-            "operational_sanitation": (
-                "operational_review",
-                operational_review,
-                "operational-shards",
-            ),
-            "configuration_correctness": (
-                "configuration_review",
-                configuration_review,
-                "configuration-shards",
-            ),
-            "business_architecture": (
-                "architecture_review",
-                architecture_review,
-                "architecture-shards",
-            ),
-        },
-        pretty,
-    )
-    sharded_runs = [
-        run_name
-        for run_name, run in manifest["review_work_units"]["runs"].items()
-        if run["strategy"] == "sharded"
-    ]
-    if sharded_runs:
-        manifest["notes"].append(
-            "Large reviews were automatically sharded for: "
-            + ", ".join(sharded_runs)
-            + ". Complete and check every declared shard, then merge each run "
-            "back to its bundle-local review file before validation and sealing."
-        )
-    else:
-        manifest["notes"].append(
-            "All reviews are below the automatic shard limits; complete the "
-            "bundle-local review files directly."
-        )
-    manifest["review_bundles"] = prepare_review_bundles(
-        export_path,
-        out_dir,
-        skill_root,
-        pretty=pretty,
-    )
-    for run_name, run in manifest["review_work_units"]["runs"].items():
-        if run.get("strategy") != "sharded":
-            continue
-        staging_directory = str(run.get("shard_directory") or "")
-        staging_path = (out_dir / staging_directory).resolve()
-        if staging_path.parent != out_dir.resolve() or not staging_path.is_dir():
-            raise RuntimeError(
-                f"unsafe or missing staging shard directory for {run_name}"
-            )
-        shutil.rmtree(staging_path)
-        bundle_directory = f"review-bundles/{run_name}/{staging_directory}"
-        run["shard_directory"] = bundle_directory
-        run["shard_manifest"] = f"{bundle_directory}/shard_manifest.json"
-    manifest["notes"].append(
-        "A root orchestrator must assign each review-bundles directory to a distinct "
-        "fresh reasoning context, then validate and seal that bundle-local output."
-    )
-    artifact_files = [
-        path
-        for path in out_dir.rglob("*")
-        if path.is_file() and path != files["manifest"]
-    ]
-    configuration_workload = manifest["review_work_units"]["runs"].get(
-        "configuration_correctness", {}
-    )
-    artifact_bytes = sum(path.stat().st_size for path in artifact_files)
-    manifest["scalability"] = {
-        "contract": (
-            "Evidence coverage must remain exhaustive while authored work and physical "
-            "shards are measured by meaningful object/behavior units. These metrics are "
-            "release-regression evidence, not a reduced audit mode."
-        ),
-        "source_bytes": export_path.stat().st_size,
-        "artifact_files_excluding_manifest": len(artifact_files),
-        "artifact_bytes_excluding_manifest": artifact_bytes,
-        "artifact_to_source_bytes_ratio": round(
-            artifact_bytes / max(1, export_path.stat().st_size), 3
-        ),
-        "configuration_evidence_obligations": int(
-            configuration_workload.get("configuration_evidence_obligations")
-            or configuration_workload.get("configuration_obligations")
-            or 0
-        ),
-        "configuration_authored_work_units": int(
-            configuration_workload.get("authored_behavior_work_units") or 0
-        ),
-        "obligation_to_authored_ratio": float(
-            configuration_workload.get("obligation_to_authored_ratio") or 0
-        ),
-        "review_shards": sum(
-            int(run.get("primary_shards") or 0)
-            + int(run.get("obligation_shards") or 0)
-            + int(bool(run.get("discovery_shard")))
-            for run in manifest["review_work_units"]["runs"].values()
+        "phase_boundary": (
+            "This package is read-only. The workflow ends at one validated analyst "
+            "workbook and never mutates GTM, creates an import, version, or publication."
         ),
     }
-    write_json(files["manifest"], manifest, pretty)
+    manifest["package_manifest_sha256"] = _manifest_hash(manifest)
+    write_json(manifest_path, manifest)
     return manifest
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("export", type=Path, help="Path to a GTM container export JSON")
-    parser.add_argument(
-        "--out-dir",
-        type=Path,
-        required=True,
-        help="Directory where source/lens artifacts should be written",
-    )
-    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON files")
-    parser.add_argument(
-        "--context",
-        type=Path,
-        help="Optional analyst-provided JSON context merged with deterministic inference",
-    )
-    parser.add_argument(
-        "--requirements",
-        type=Path,
-        help="Optional analyst-approved JSON, CSV, XLSX, or XLSM tracking-plan evidence",
-    )
+    parser.add_argument("export", type=Path)
+    parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--context", type=Path)
+    parser.add_argument("--requirements", type=Path)
+    parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
-
     try:
         result = build_package(
             args.export,
@@ -458,7 +232,7 @@ def main() -> int:
         print(json.dumps({"status": "blocked", "errors": [str(exc)]}))
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
-    return 0 if result["status"] == "pass" else 2
+    return 0
 
 
 if __name__ == "__main__":

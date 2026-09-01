@@ -1,5 +1,5 @@
 schema_version = 2
-reviewed_on = "2026-07-26"
+reviewed_on = "2026-09-01"
 
 [[vendors]]
 name = "Universal Analytics (legacy)"
@@ -11,7 +11,7 @@ official_docs = ["https://support.google.com/analytics/answer/10220206?hl=en", "
 name = "GA4 / Google tag"
 category = "analytics"
 patterns = ["\\bga4\\b", "google analytics", "measurement id", "G-[A-Z0-9]+", "\\bgaawe\\b", "\\bgaawc\\b", "\\bgoogtag\\b", "google tag", "googletagmanager\\.com", "google-analytics\\.com", "\\bgtag\\s*\\("]
-official_docs = ["https://developers.google.com/analytics/devguides/collection/ga4/reference/events", "https://developers.google.com/analytics/devguides/collection/ga4/reference/recommended-events", "https://developers.google.com/analytics/devguides/collection/ga4/ecommerce", "https://support.google.com/analytics/answer/13316687?hl=en", "https://developers.google.com/tag-platform/tag-manager/gateway/setup-guide"]
+official_docs = ["https://developers.google.com/analytics/devguides/collection/ga4/reference/events", "https://developers.google.com/analytics/devguides/collection/ga4/reference/recommended-events", "https://developers.google.com/analytics/devguides/collection/ga4/ecommerce", "https://support.google.com/analytics/answer/13316687?hl=en", "https://support.google.com/tagmanager/answer/9442095?hl=en", "https://support.google.com/tagmanager/answer/12131703?hl=en", "https://support.google.com/tagmanager/answer/7679318?hl=en", "https://support.google.com/tagmanager/answer/2772421?hl=en", "https://developers.google.com/tag-platform/tag-manager/gateway/setup-guide"]
 contract_version = "2026-07-25"
 contracts = [
   { id = "purchase", event = "purchase", status = "supported", required_fields = ["transaction_id", "items"], deduplication_fields = ["transaction_id"], field_rules = [{ field = "currency", value_type = "string", exact_length = 3 }, { field = "value", value_type = "number" }] },
@@ -96,13 +96,26 @@ official_docs = ["https://help.awin.com/developers/docs/gtm-client-side"]
 name = "Didomi"
 category = "cmp"
 patterns = ["didomi"]
-official_docs = ["https://developers.didomi.io/cmp/web-sdk/third-parties/tags-management/tag-managers/google-tag-manager"]
+official_docs = ["https://developers.didomi.io/cmp/web-sdk/third-parties/tags-management/events-and-variables", "https://developers.didomi.io/cmp/web-sdk/third-parties/tags-management/tag-managers/google-tag-manager/didomis-gtm-template"]
+contract_version = "2026-09-01"
+contracts = [
+  { id = "didomi-ready", event = "didomi-ready", status = "supported" },
+  { id = "didomi-consent", event = "didomi-consent", status = "supported", required_fields = ["didomiVendorsEnabled"] },
+  { id = "didomi-consent-changed", event = "didomi-consent-changed", status = "supported", required_fields = ["didomiVendorsEnabled"] },
+  { id = "didomi-vendors-enabled", status = "supported", required_fields = ["didomiVendorsEnabled"] },
+]
 
 [[vendors]]
 name = "OneTrust"
 category = "cmp"
 patterns = ["onetrust", "optanon"]
-official_docs = ["https://support.google.com/tagmanager/answer/14545200?hl=en"]
+official_docs = ["https://developer.onetrust.com/onetrust/docs/javascript-events-guide", "https://developer.onetrust.com/onetrust/docs/single-page-applications"]
+contract_version = "2026-09-01"
+contracts = [
+  { id = "groups-updated", event = "OneTrustGroupsUpdated", status = "supported", required_fields = ["OnetrustActiveGroups"] },
+  { id = "consent-applied", event = "OTConsentApplied", status = "supported" },
+  { id = "active-groups-state", status = "supported", required_fields = ["OnetrustActiveGroups"] },
+]
 
 [[vendors]]
 name = "Cookiebot"

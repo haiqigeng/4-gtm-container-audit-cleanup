@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Build the independent GTM operational-sanitation scan.
+"""Build internal deterministic operational candidate evidence.
 
-This scan owns structural cleanup evidence. Later configuration or architecture
-reviews may explain an exception, but they cannot silently remove a finding.
-The scan never decides external business purpose.
+The canonical v2 scan consumes these neutral candidates.  This module does not
+own semantic verdicts and no longer exposes the standalone v1 scan command.
 """
 
 from __future__ import annotations
 
-import argparse
 import collections
 import difflib
 import json
@@ -561,7 +559,6 @@ def is_event_token(value: str) -> bool:
     return normalized in KNOWN_EVENT_TOKENS or compact in {
         item.replace("_", "") for item in KNOWN_EVENT_TOKENS
     }
-
 
 def vendor_label(value: str) -> str:
     cleaned = re.sub(r"\s+", " ", value.strip())
@@ -3951,18 +3948,3 @@ def audit_export(path: Path) -> dict[str, Any]:
         "modules": list(builder.modules.values()),
         "findings": builder.findings,
     }
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("export", type=Path, help="Path to a GTM container export JSON")
-    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
-    args = parser.parse_args()
-
-    result = audit_export(args.export)
-    print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

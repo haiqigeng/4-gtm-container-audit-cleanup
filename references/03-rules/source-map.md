@@ -2,33 +2,29 @@
 
 | Topic | Authoritative local source |
 | --- | --- |
-| Product objective | `references/01-skill/purpose.md` |
-| Inputs, outputs, lifecycle | `references/01-skill/inputs-outputs.md` |
-| Completion/failure | `references/01-skill/acceptance-criteria.md` |
-| Full pipeline | `execution-contract.md` |
-| Release/runtime identity | `scripts/gtm_skill_identity.py` and `.skill-build-manifest.json` |
-| Independent run bundles and seals | `scripts/gtm_review_isolation.py` |
-| Persistent context | `scripts/gtm_context_model.py` |
-| Source identity and modeled layers | `scripts/gtm_source_model.py` and `scripts/gtm_lib.py` |
-| Canonical deterministic facts | `scripts/gtm_shared_facts.py` |
-| Effective consent routes | `scripts/gtm_consent_model.py` |
-| Vendor detection and official sources | `scripts/gtm_vendor_registry.py` and `vendor-registry.toml` |
-| Custom-code parser coverage boundary | `scripts/gtm_configuration_review.py` |
-| Basic cleanup | `operational-sanitation.md` |
-| Object and custom-code correctness | `configuration-correctness.md` |
-| Families and overlap | `business-architecture.md` |
-| GA4/media/consent/server contracts | `domain-contracts.md` |
-| JSON structure | `container-json-guide.md` |
+| North Star and all audit areas | `audit-coverage.md` |
+| Product purpose and phase boundary | `../01-skill/purpose.md` and `../01-skill/non-goals.md` |
+| Inputs and outputs | `../01-skill/inputs-outputs.md` |
+| Definition of done | `../01-skill/acceptance-criteria.md` |
+| Dual-audit workflow and fixed point | `workflow-and-assurance.md` |
+| Human workbook | `workbook-delivery.md` |
+| Capability disposition | `capability-migration.md` |
+| Runtime/release identity | `scripts/gtm_skill_identity.py` and `.skill-build-manifest.json` |
+| Canonical scan and assurance | `scripts/gtm_canonical_scan.py` and `scripts/gtm_scan_assurance.py` |
+| Obligation ownership | `scripts/gtm_obligation_ledger.py` |
+| Audit isolation and seals | `scripts/gtm_cleanroom_audit.py` |
+| Reconciliation and neutral checks | `scripts/gtm_reconciliation.py` |
+| Operation model and projection | `scripts/gtm_operation_model.py`, `scripts/gtm_target_synthesis.py`, and `scripts/gtm_fixed_point.py` |
+| Canonical record | `scripts/gtm_canonical_record.py` |
+| Delivery mapping/build/reviews | `scripts/gtm_delivery_mapper.py`, `scripts/gtm_workbook_build.mjs`, `scripts/gtm_workbook_verify.mjs`, and `scripts/gtm_delivery_reviews.py` |
+| GTM JSON structure | `container-json-guide.md` |
+| Product/vendor contracts | `domain-contracts.md` and `vendor-registry.toml` |
 | Naming | `naming-standardization.md` |
-| Operations | `operation-schema.md` |
-| Direct/API/JSON execution | `mutation-playbook.md` |
-| Canonical cleanup workbook | `workbook-architecture.md` |
-| Derived analyst workbook | `workbook-output-contract.md` |
-| Change log | `change-log-template.md` |
-| Severity | `severity-calibration.md` |
 | Commands | `../02-commands/validation-commands.md` |
+| Forward-test release proof | `../02-commands/forward-test-prompts.md` |
 
-For vendor judgments, use the registry first. When the required event/feature
-documentation is absent or stale, browse the current official vendor source and
-bind that source/domain to the vendor in the versioned registry, validate it,
-and rebuild before recording the URL in a certified configuration contract.
+For version-sensitive judgments, use the locked registry first. If its applicable
+official source is absent or stale, record a blocked evidence limit and one
+research owner; do not modify the registry during the audit. Registry maintenance
+is a separate skill-evolution action followed by a new audit package. A URL
+supplied after evidence lock cannot silently alter a sealed audit.

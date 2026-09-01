@@ -230,28 +230,80 @@ def source_integrity_findings(data: dict[str, Any]) -> list[dict[str, Any]]:
             }
         ]
     cv = raw_cv
-    nested_container = cv.get("container")
-    has_nested_container_identity = isinstance(nested_container, dict) and any(
-        str(nested_container.get(key) or "").strip()
-        for key in ("containerId", "publicId", "path", "accountId")
-    )
-    has_version_identity = bool(str(cv.get("containerVersionId") or "").strip())
-    has_entity_layer = any(layer in cv for layer in OBJECT_LAYERS)
-    if not (has_version_identity or has_nested_container_identity or has_entity_layer):
+    identity = container_identity(data)
+    missing_identity_parts = []
+    if not identity.get("account_id"):
+        missing_identity_parts.append("account")
+    if not (identity.get("container_id") or identity.get("public_id")):
+        missing_identity_parts.append("container")
+    if not (identity.get("version_id") or identity.get("workspace_id")):
+        missing_identity_parts.append("version/workspace")
+    if not identity.get("container_type"):
+        missing_identity_parts.append("container type")
+    if missing_identity_parts:
         findings.append(
             {
-                "finding_type": "invalid_container_version_shape",
+                "finding_type": "incomplete_container_identity",
                 "source_path": root_path,
                 "details": (
-                    "The source has no ContainerVersion identity, identified nested container, "
-                    "or recognized GTM entity layer."
+                    "The source does not resolve the required GTM identity parts: "
+                    + ", ".join(missing_identity_parts)
+                    + "."
+                ),
+                "blocking": True,
+            }
+        )
+    container_types = {
+        value.strip().upper()
+        for value in str(identity.get("container_type") or "").split(",")
+        if value.strip()
+    }
+    if container_types and container_types != {"WEB"}:
+        findings.append(
+            {
+                "finding_type": "unsupported_container_type",
+                "source_path": root_path,
+                "details": (
+                    "This skill accepts one WEB container only; resolved usageContext is "
+                    + ", ".join(sorted(container_types))
+                    + "."
+                ),
+                "blocking": True,
+            }
+        )
+
+    standard_export_envelope = bool(
+        "containerVersion" in data
+        and str(data.get("exportFormatVersion") or "").strip()
+        and str(data.get("exportTime") or "").strip()
+    )
+    web_layers = {
+        "tag",
+        "trigger",
+        "variable",
+        "folder",
+        "builtInVariable",
+        "customTemplate",
+        "zone",
+        "gtagConfig",
+    }
+    missing_web_layers = sorted(web_layers - set(cv))
+    if not standard_export_envelope and missing_web_layers:
+        findings.append(
+            {
+                "finding_type": "partial_equivalent_source",
+                "source_path": root_path,
+                "missing_layers": missing_web_layers,
+                "details": (
+                    "Equivalent read-only evidence lacks a standard GTM export envelope and "
+                    "does not enumerate every supported web layer."
                 ),
                 "blocking": True,
             }
         )
 
     for key, value in sorted(cv.items()):
-        if key in ID_KEYS:
+        if key in ID_KEYS or key == "usageContext":
             continue
         if isinstance(value, list):
             findings.append(
@@ -534,14 +586,27 @@ def container_configuration_differences(
 
 
 def container_identity(data: dict[str, Any]) -> dict[str, str]:
-    """Return the strongest container identity fields present in an export/readback."""
+    """Return one canonical source identity for a GTM ContainerVersion."""
 
     cv = container_version(data)
     nested = cv.get("container") if isinstance(cv.get("container"), dict) else {}
+    raw_usage = cv.get("usageContext") or nested.get("usageContext") or []
+    usage_contexts = (
+        [str(value).strip().upper() for value in raw_usage if str(value).strip()]
+        if isinstance(raw_usage, list)
+        else [str(raw_usage).strip().upper()]
+        if str(raw_usage).strip()
+        else []
+    )
     values = {
-        "accountId": cv.get("accountId") or nested.get("accountId"),
-        "containerId": cv.get("containerId") or nested.get("containerId"),
-        "publicId": cv.get("publicId") or nested.get("publicId"),
+        "account_id": cv.get("accountId") or nested.get("accountId"),
+        "container_id": cv.get("containerId") or nested.get("containerId"),
+        "public_id": cv.get("publicId") or nested.get("publicId"),
+        "container_name": cv.get("name") or nested.get("name"),
+        "version_id": cv.get("containerVersionId"),
+        "workspace_id": cv.get("workspaceId"),
+        "path": cv.get("path") or nested.get("path"),
+        "container_type": ",".join(sorted(set(usage_contexts))),
     }
     return {key: str(value) for key, value in values.items() if str(value or "")}
 
@@ -551,8 +616,8 @@ def container_identity_binding(
 ) -> dict[str, Any]:
     """Compare two GTM identities without rejecting compatible extra evidence.
 
-    ``publicId`` is globally meaningful.  The numeric ``containerId`` is scoped
-    to an account, so it is strong only when ``accountId`` is also shared.  A
+    ``public_id`` is globally meaningful.  The numeric ``container_id`` is scoped
+    to an account, so it is strong only when ``account_id`` is also shared.  A
     readback may legitimately expose more identity fields than an older export;
     matching shared strong fields is therefore required instead of exact-dict
     equality.
@@ -561,16 +626,17 @@ def container_identity_binding(
     expected_identity = container_identity(expected)
     actual_identity = container_identity(actual)
     shared_fields = sorted(set(expected_identity) & set(actual_identity))
+    stable_fields = {"account_id", "container_id", "public_id", "container_type"}
     conflicting_fields = sorted(
         field
-        for field in shared_fields
+        for field in set(shared_fields) & stable_fields
         if expected_identity[field] != actual_identity[field]
     )
     strong_shared_fields: list[str] = []
-    if "publicId" in shared_fields:
-        strong_shared_fields.append("publicId")
-    if {"accountId", "containerId"} <= set(shared_fields):
-        strong_shared_fields.extend(["accountId", "containerId"])
+    if "public_id" in shared_fields:
+        strong_shared_fields.append("public_id")
+    if {"account_id", "container_id"} <= set(shared_fields):
+        strong_shared_fields.extend(["account_id", "container_id"])
     strong_shared_fields = sorted(set(strong_shared_fields))
 
     errors: list[str] = []

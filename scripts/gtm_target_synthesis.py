@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Compile exact operations from the sealed reconciled semantic record."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
+from gtm_audit_contract import ACTIONABLE_DECISION_CLASSES
+from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_operation_model import (
+    apply_operations,
+    dependency_order,
+    merge_exact_operation_ids,
+    normalize_operation,
+    operation_packet_sha256,
+    operation_write_conflicts,
+    validate_operations,
+)
+
+OPERATION_PACKET_FILE = "operation-packet.json"
+INITIAL_PROJECTION_FILE = "projected-container.json"
+
+
+def reconciliation_seal_errors(package_dir: Path) -> list[str]:
+    record_path = package_dir / "reconciled-decisions.json"
+    seal_path = package_dir / "reconciliation-seal.json"
+    if not record_path.is_file() or not seal_path.is_file():
+        return ["sealed reconciled decision record is missing"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    errors = []
+    expected_seal_hash = stable_hash(
+        {key: value for key, value in seal.items() if key != "reconciliation_seal_sha256"},
+        64,
+    )
+    if seal.get("reconciliation_seal_sha256") != expected_seal_hash:
+        errors.append("reconciliation seal content hash is invalid")
+    if seal.get("reconciled_file_sha256") != file_sha256(record_path):
+        errors.append("reconciled decision record changed after sealing")
+    if seal.get("reconciled_record_sha256") != record.get(
+        "reconciled_record_sha256"
+    ):
+        errors.append("reconciliation seal is bound to another record")
+    if seal.get("validator_status") != "pass":
+        errors.append("reconciliation validator did not pass")
+    return errors
+
+
+def compile_operation_packet(package_dir: Path) -> dict[str, Any]:
+    errors = reconciliation_seal_errors(package_dir)
+    if errors:
+        raise ValueError("; ".join(errors))
+    source_path = package_dir / "locked-source.json"
+    record_path = package_dir / "reconciled-decisions.json"
+    context_path = package_dir / "context.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    operations = []
+    decision_to_operation: dict[str, str] = {}
+    blocked_decisions = []
+    for canonical in as_list(record.get("canonical_decisions")):
+        if not isinstance(canonical, dict):
+            continue
+        canonical_id = str(canonical.get("canonical_decision_id") or "")
+        decision = canonical.get("decision") or {}
+        decision_class = str(decision.get("decision_class") or "")
+        if decision_class in ACTIONABLE_DECISION_CLASSES:
+            proposal = decision.get("operation_proposal")
+            if not isinstance(proposal, dict):
+                raise ValueError(f"{canonical_id} has no exact operation proposal")
+            operation = normalize_operation(proposal, canonical_id, decision)
+            operations.append(operation)
+            decision_to_operation[canonical_id] = str(
+                operation.get("operation_id") or ""
+            )
+        elif decision_class in {"owner_decision", "container_evidence_limit"}:
+            blocked_decisions.append(
+                {
+                    "canonical_decision_id": canonical_id,
+                    "decision_class": decision_class,
+                    "subject_keys": canonical.get("subject_keys", []),
+                    "next_step": decision.get("next_step"),
+                }
+            )
+    operations = merge_exact_operation_ids(operations)
+    errors = operation_write_conflicts(operations)
+    do_not_touch = {
+        str(value)
+        for value in as_list((context.get("context") or {}).get("do_not_touch"))
+        if str(value)
+    }
+    errors.extend(validate_operations(source, operations, do_not_touch=do_not_touch))
+    if errors:
+        raise ValueError("operation safety gate failed: " + "; ".join(errors))
+    ordered = dependency_order(operations)
+    projected = apply_operations(source, ordered)
+    operation_ids = {str(row.get("operation_id") or "") for row in ordered}
+    reverse_dependencies: dict[str, list[str]] = defaultdict(list)
+    for operation in ordered:
+        for dependency in as_list(operation.get("depends_on")):
+            reverse_dependencies[str(dependency)].append(
+                str(operation.get("operation_id") or "")
+            )
+    for operation in ordered:
+        unknown = set(as_list(operation.get("depends_on"))) - operation_ids
+        if unknown:
+            raise ValueError(
+                f"{operation.get('operation_id')}: unknown dependencies {sorted(unknown)}"
+            )
+    packet = {
+        "kind": "gtm_reconciled_operation_packet",
+        "schema_version": 1,
+        "status": "ready_for_fixed_point_projection",
+        "source_sha256": record.get("source_sha256"),
+        "reconciled_record_sha256": record.get("reconciled_record_sha256"),
+        "operations": ordered,
+        "operation_order": [str(row.get("operation_id") or "") for row in ordered],
+        "decision_to_operation": decision_to_operation,
+        "blocked_decisions": blocked_decisions,
+        "reverse_dependencies": dict(sorted(reverse_dependencies.items())),
+        "operation_packet_sha256": operation_packet_sha256(ordered),
+        "boundary": (
+            "This is a static target-state packet for workbook delivery. It is not "
+            "approval, an import, a GTM mutation request, or proof of execution."
+        ),
+    }
+    packet["operation_record_sha256"] = stable_hash(packet, 64)
+    write_json(package_dir / OPERATION_PACKET_FILE, packet)
+    write_json(package_dir / INITIAL_PROJECTION_FILE, projected)
+    return {
+        "status": "pass",
+        "operations": len(ordered),
+        "blocked_decisions": len(blocked_decisions),
+        "operation_packet_sha256": packet["operation_packet_sha256"],
+        "projected_container_sha256": stable_hash(projected, 64),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("package_dir", type=Path)
+    args = parser.parse_args()
+    try:
+        result = compile_operation_packet(args.package_dir)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(json.dumps({"status": "blocked", "errors": [str(exc)]}))
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,658 @@
+#!/usr/bin/env python3
+"""Reconcile two sealed clean-room GTM audits with neutral verification."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from gtm_audit_contract import (
+    ACTIONABLE_DECISION_CLASSES,
+    CANONICAL_DECISION_FIELDS,
+    OPERATION_ACTION_FIELDS,
+    semantic_contract_errors,
+)
+from gtm_cleanroom_audit import AUDIT_IDS, sealed_audit_errors
+from gtm_lib import as_list, file_sha256, stable_hash, write_json
+
+RECONCILIATION_FILE = "reconciliation.json"
+NEUTRAL_FILE = "neutral-verification.json"
+RECONCILIATION_SCAFFOLD_FILE = "reconciliation-scaffold.json"
+NEUTRAL_QUEUE_FILE = "neutral-verification-queue.json"
+RECONCILED_RECORD_FILE = "reconciled-decisions.json"
+RECONCILIATION_SEAL_FILE = "reconciliation-seal.json"
+
+
+def _normalized_text(value: Any) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
+def operation_action_payload(proposal: Any) -> dict[str, Any]:
+    if not isinstance(proposal, dict):
+        return {}
+    return {
+        field: proposal.get(field, [])
+        for field in OPERATION_ACTION_FIELDS
+        if as_list(proposal.get(field))
+    }
+
+
+def semantic_signature(decision: dict[str, Any]) -> dict[str, Any]:
+    decision_class = str(decision.get("decision_class") or "")
+    return {
+        "decision_class": decision_class,
+        "action_payload_sha256": stable_hash(
+            operation_action_payload(decision.get("operation_proposal")), 64
+        ),
+        "has_action": decision_class in ACTIONABLE_DECISION_CLASSES,
+        "priority": decision.get("priority"),
+        "owner_boundary": bool(str(decision.get("owner_question") or "").strip()),
+        "evidence_boundary": bool(
+            str(decision.get("evidence_boundary") or "").strip()
+        ),
+    }
+
+
+def canonical_semantic_payload(decision: dict[str, Any]) -> dict[str, Any]:
+    """Return every field whose meaning reconciliation is forbidden to invent."""
+
+    return {
+        **{field: decision.get(field) for field in CANONICAL_DECISION_FIELDS},
+        "operation_proposal": decision.get("operation_proposal"),
+        "evidence_citations": sorted(
+            str(value) for value in as_list(decision.get("evidence_citations"))
+        ),
+    }
+
+
+def comparison_classification(left: dict[str, Any], right: dict[str, Any]) -> str:
+    left_signature = semantic_signature(left)
+    right_signature = semantic_signature(right)
+    if left_signature == right_signature:
+        semantic_text_fields = (
+            "target_direction",
+            "owner_question",
+            "evidence_boundary",
+            "preserved_distinctions",
+        )
+        if all(
+            _normalized_text(left.get(field)) == _normalized_text(right.get(field))
+            for field in semantic_text_fields
+        ):
+            return "agreement"
+        return "compatible_complementary_conclusions"
+    left_class = str(left.get("decision_class") or "")
+    right_class = str(right.get("decision_class") or "")
+    if (left_class in ACTIONABLE_DECISION_CLASSES) != (
+        right_class in ACTIONABLE_DECISION_CLASSES
+    ):
+        return "one_sided_finding"
+    if left_class != right_class:
+        return "conflicting_verdict"
+    if left_class in {"owner_decision", "container_evidence_limit"}:
+        return "different_evidence_boundary"
+    return "conflicting_target"
+
+
+def material_verification_reasons(
+    obligation: dict[str, Any],
+    left: dict[str, Any],
+    right: dict[str, Any],
+    classification: str,
+) -> list[str]:
+    reasons = {
+        str(value)
+        for value in as_list(obligation.get("material_verification_triggers"))
+        if str(value)
+    }
+    if classification not in {"agreement", "compatible_complementary_conclusions"}:
+        reasons.add(classification)
+    priorities = {str(left.get("priority") or ""), str(right.get("priority") or "")}
+    if priorities & {"Critical", "High"}:
+        reasons.add("high_or_critical_operation")
+    for decision in (left, right):
+        proposal = decision.get("operation_proposal") or {}
+        deletions = as_list(proposal.get("deletions"))
+        if deletions:
+            reasons.add("active_deletion")
+        if as_list(proposal.get("remaps")) and deletions:
+            reasons.add("active_consolidation")
+    return sorted(reasons)
+
+
+def _discovery_decisions(audit: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result = {}
+    for row in as_list(audit.get("open_discoveries")):
+        if not isinstance(row, dict):
+            continue
+        discovery_id = str(row.get("discovery_id") or "")
+        decision = row.get("decision")
+        if discovery_id and isinstance(decision, dict):
+            result[discovery_id] = {
+                **decision,
+                "decision_id": decision.get("decision_id") or discovery_id,
+                "obligation_id": discovery_id,
+                "area_id": row.get("area_id"),
+                "scope_level": row.get("scope_level") or "relationship",
+                "audit_mechanism": "independent_discovery",
+                "fact_kind": "independent_discovery",
+                "subject_keys": row.get("subject_keys", []),
+                "family_ids": row.get("family_ids", []),
+                "candidate_id": discovery_id,
+                "source_coordinates": row.get("source_coordinates", []),
+                "material_verification_triggers": ["one_sided_finding"],
+            }
+    return result
+
+
+def _comparison_row(
+    obligation_id: str,
+    obligation: dict[str, Any],
+    left: dict[str, Any] | None,
+    right: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    if left is None or right is None:
+        classification = "one_sided_finding"
+        present = left or right or {}
+        reasons = sorted(
+            {
+                "one_sided_finding",
+                *as_list(obligation.get("material_verification_triggers")),
+            }
+        )
+    else:
+        classification = comparison_classification(left, right)
+        reasons = material_verification_reasons(
+            obligation, left, right, classification
+        )
+        present = left
+    verification_id = "NV-" + stable_hash(
+        {
+            "obligation_id": obligation_id,
+            "classification": classification,
+            "reasons": reasons,
+            "obligation_sha256": obligation.get("obligation_sha256"),
+        },
+        16,
+    ).upper()
+    requires_neutral = bool(reasons)
+    comparison = {
+        "comparison_id": "REC-" + stable_hash(obligation_id, 16).upper(),
+        "obligation_id": obligation_id,
+        "obligation_sha256": obligation.get("obligation_sha256"),
+        "area_id": obligation.get("area_id") or present.get("area_id"),
+        "scope_level": obligation.get("scope_level") or present.get("scope_level"),
+        "audit_mechanism": obligation.get("audit_mechanism")
+        or present.get("audit_mechanism"),
+        "fact_kind": obligation.get("fact_kind") or present.get("fact_kind"),
+        "subject_keys": obligation.get("subject_keys") or present.get("subject_keys", []),
+        "family_ids": obligation.get("family_ids") or present.get("family_ids", []),
+        "candidate_id": obligation.get("candidate_id") or present.get("candidate_id", ""),
+        "applicability": obligation.get("applicability")
+        or present.get("applicability", "applicable"),
+        "source_coordinates": obligation.get("source_coordinates")
+        or present.get("source_coordinates", []),
+        "classification": classification,
+        "neutral_verification_required": requires_neutral,
+        "neutral_verification_id": verification_id if requires_neutral else "",
+        "neutral_verification_reasons": reasons,
+        "audit_decisions": {
+            "audit-a": left or {},
+            "audit-b": right or {},
+        },
+        "status": "pending",
+        "canonical_decision": {},
+        "reconciliation_rationale": "",
+    }
+    if not requires_neutral:
+        return comparison, None
+    queue = {
+        "verification_id": verification_id,
+        "obligation_id": obligation_id,
+        "obligation_sha256": obligation.get("obligation_sha256"),
+        "area_id": comparison["area_id"],
+        "audit_mechanism": comparison["audit_mechanism"],
+        "fact_kind": comparison["fact_kind"],
+        "subject_keys": comparison["subject_keys"],
+        "source_coordinates": comparison["source_coordinates"],
+        "verification_reasons": reasons,
+        "neutral_question": (
+            "From the supplied raw coordinates, neutral evidence, and applicable contract "
+            "only, what source-supported decision and narrowest safe target follow?"
+        ),
+        "neutral_evidence": obligation.get("evidence", {}),
+        "prohibited_context": (
+            "Do not disclose or infer audit identity, audit rationale, vote count, expected "
+            "outcome, reconciliation preference, or workbook wording."
+        ),
+        "status": "pending",
+        "independent_context_id": "",
+        "canonical_decision": {},
+        "evidence_citations": [],
+        "verification_rationale": "",
+    }
+    return comparison, queue
+
+
+def scaffold_reconciliation(package_dir: Path) -> dict[str, Any]:
+    errors = sealed_audit_errors(package_dir)
+    if errors:
+        raise ValueError("sealed-audit gate failed: " + "; ".join(errors))
+    ledger_path = package_dir / "obligation-ledger.json"
+    if not ledger_path.is_file():
+        raise ValueError("obligation ledger is missing")
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    audits = {
+        audit_id: json.loads(
+            (package_dir / "audits" / f"{audit_id}.json").read_text(encoding="utf-8")
+        )
+        for audit_id in AUDIT_IDS
+    }
+    obligations = {
+        str(row.get("obligation_id") or ""): row
+        for row in as_list(ledger.get("obligations"))
+    }
+    decisions = {
+        audit_id: {
+            str(row.get("obligation_id") or ""): row
+            for row in as_list(audits[audit_id].get("decisions"))
+        }
+        for audit_id in AUDIT_IDS
+    }
+    discoveries = {
+        audit_id: _discovery_decisions(audits[audit_id]) for audit_id in AUDIT_IDS
+    }
+    all_ids = sorted(
+        set(obligations)
+        | set(discoveries["audit-a"])
+        | set(discoveries["audit-b"])
+    )
+    comparisons = []
+    neutral_queue = []
+    for obligation_id in all_ids:
+        obligation = obligations.get(obligation_id)
+        left = decisions["audit-a"].get(obligation_id) or discoveries[
+            "audit-a"
+        ].get(obligation_id)
+        right = decisions["audit-b"].get(obligation_id) or discoveries[
+            "audit-b"
+        ].get(obligation_id)
+        if obligation is None:
+            source = left or right or {}
+            obligation = {
+                "obligation_id": obligation_id,
+                "obligation_sha256": stable_hash(
+                    {
+                        "obligation_id": obligation_id,
+                        "area_id": source.get("area_id"),
+                        "subject_keys": source.get("subject_keys", []),
+                        "source_coordinates": source.get("source_coordinates", []),
+                    },
+                    64,
+                ),
+                "area_id": source.get("area_id"),
+                "scope_level": source.get("scope_level"),
+                "audit_mechanism": "independent_discovery",
+                "fact_kind": "independent_discovery",
+                "subject_keys": source.get("subject_keys", []),
+                "family_ids": source.get("family_ids", []),
+                "candidate_id": obligation_id,
+                "source_coordinates": source.get("source_coordinates", []),
+                "material_verification_triggers": ["one_sided_finding"],
+                "evidence": {
+                    "discovery_id": obligation_id,
+                    "source_coordinates": source.get("source_coordinates", []),
+                    "subject_keys": source.get("subject_keys", []),
+                },
+            }
+        comparison, queue = _comparison_row(
+            obligation_id, obligation, left, right
+        )
+        comparisons.append(comparison)
+        if queue:
+            neutral_queue.append(queue)
+    reconciliation = {
+        "kind": "gtm_contradiction_aware_reconciliation",
+        "schema_version": 1,
+        "source_sha256": ledger.get("source_sha256"),
+        "canonical_scan_sha256": ledger.get("canonical_scan_sha256"),
+        "obligation_ledger_sha256": ledger.get("obligation_ledger_sha256"),
+        "audit_seal_sha256": {
+            audit_id: json.loads(
+                (package_dir / "audit-seals" / f"{audit_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            ).get("audit_seal_sha256")
+            for audit_id in AUDIT_IDS
+        },
+        "status": "pending",
+        "comparisons": comparisons,
+    }
+    neutral = {
+        "kind": "gtm_neutral_verification_queue",
+        "schema_version": 1,
+        "source_sha256": ledger.get("source_sha256"),
+        "canonical_scan_sha256": ledger.get("canonical_scan_sha256"),
+        "status": "pending" if neutral_queue else "not_required",
+        "verifications": neutral_queue,
+        "isolation_contract": (
+            "Each row is answered in a fresh neutral context without either audit's "
+            "identity, rationale, vote count, or expected outcome."
+        ),
+    }
+    reconciliation["reconciliation_scaffold_sha256"] = stable_hash(
+        reconciliation, 64
+    )
+    neutral["neutral_queue_sha256"] = stable_hash(neutral, 64)
+    write_json(package_dir / RECONCILIATION_SCAFFOLD_FILE, reconciliation)
+    write_json(package_dir / NEUTRAL_QUEUE_FILE, neutral)
+    write_json(package_dir / RECONCILIATION_FILE, reconciliation)
+    write_json(package_dir / NEUTRAL_FILE, neutral)
+    return {
+        "status": "pass",
+        "comparisons": len(comparisons),
+        "neutral_verifications": len(neutral_queue),
+        "reconciliation_file": RECONCILIATION_FILE,
+        "neutral_file": NEUTRAL_FILE,
+    }
+
+
+def _neutral_errors(neutral: dict[str, Any], expected: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    expected_rows = {
+        str(row.get("verification_id") or ""): row
+        for row in as_list(expected.get("verifications"))
+    }
+    supplied_rows = [
+        row for row in as_list(neutral.get("verifications")) if isinstance(row, dict)
+    ]
+    supplied = {
+        str(row.get("verification_id") or ""): row for row in supplied_rows
+    }
+    if len(supplied) != len(supplied_rows) or "" in supplied:
+        errors.append("neutral verification IDs are blank or duplicated")
+    if set(supplied) != set(expected_rows):
+        errors.append("neutral verification must cover the exact queued rows")
+    contexts: set[str] = set()
+    for verification_id, expected_row in expected_rows.items():
+        row = supplied.get(verification_id)
+        if not row:
+            continue
+        label = f"neutral verification {verification_id}"
+        for field in (
+            "verification_id",
+            "obligation_id",
+            "obligation_sha256",
+            "area_id",
+            "subject_keys",
+            "source_coordinates",
+            "verification_reasons",
+            "neutral_question",
+            "neutral_evidence",
+            "prohibited_context",
+        ):
+            if row.get(field) != expected_row.get(field):
+                errors.append(f"{label}: locked field {field} changed")
+        if row.get("status") != "complete":
+            errors.append(f"{label}: status must be complete")
+        context_id = str(row.get("independent_context_id") or "")
+        if len(context_id) < 12:
+            errors.append(f"{label}: independent context identity is missing")
+        elif context_id in contexts:
+            errors.append(f"{label}: neutral context identity is reused")
+        contexts.add(context_id)
+        decision = row.get("canonical_decision")
+        if not isinstance(decision, dict):
+            errors.append(f"{label}: canonical decision is missing")
+        else:
+            errors.extend(semantic_contract_errors(decision, label))
+        citations = {
+            str(value) for value in as_list(row.get("evidence_citations"))
+        }
+        allowed = set(as_list(expected_row.get("source_coordinates")))
+        if allowed and (not citations or citations - allowed):
+            errors.append(f"{label}: citations must use supplied raw coordinates")
+        if not re.search(
+            r"\b(?:because|shows|configured|evidence|source|field|route|object)\b",
+            str(row.get("verification_rationale") or ""),
+            re.I,
+        ):
+            errors.append(f"{label}: verification rationale is not evidence-bound")
+    return errors
+
+
+def canonical_matches_allowed(
+    canonical: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    allow_neutral_rejection: bool = False,
+) -> bool:
+    payload_hash = stable_hash(canonical_semantic_payload(canonical), 64)
+    if any(
+        payload_hash == stable_hash(canonical_semantic_payload(row), 64)
+        for row in candidates
+    ):
+        return True
+    # A neutral verifier may reject or narrow a proposal to a non-actionable
+    # state, but it cannot invent a third actionable target.
+    return bool(
+        allow_neutral_rejection
+        and canonical.get("decision_class")
+        in {
+            "justified_as_is",
+            "owner_decision",
+            "container_evidence_limit",
+            "not_applicable",
+        }
+        and not operation_action_payload(canonical.get("operation_proposal"))
+    )
+
+
+def finalize_reconciliation(
+    package_dir: Path,
+    reconciliation_path: Path | None = None,
+    neutral_path: Path | None = None,
+) -> dict[str, Any]:
+    base_reconciliation_path = package_dir / RECONCILIATION_SCAFFOLD_FILE
+    base_neutral_path = package_dir / NEUTRAL_QUEUE_FILE
+    if not base_reconciliation_path.is_file() or not base_neutral_path.is_file():
+        raise ValueError("reconciliation must be scaffolded first")
+    expected_reconciliation = json.loads(
+        base_reconciliation_path.read_text(encoding="utf-8")
+    )
+    expected_neutral = json.loads(base_neutral_path.read_text(encoding="utf-8"))
+    reconciliation = json.loads(
+        (reconciliation_path or package_dir / RECONCILIATION_FILE).read_text(
+            encoding="utf-8"
+        )
+    )
+    neutral = json.loads(
+        (neutral_path or package_dir / NEUTRAL_FILE).read_text(encoding="utf-8")
+    )
+    errors = _neutral_errors(neutral, expected_neutral)
+    expected_rows = {
+        str(row.get("comparison_id") or ""): row
+        for row in as_list(expected_reconciliation.get("comparisons"))
+    }
+    supplied_rows = [
+        row
+        for row in as_list(reconciliation.get("comparisons"))
+        if isinstance(row, dict)
+    ]
+    supplied = {
+        str(row.get("comparison_id") or ""): row for row in supplied_rows
+    }
+    if set(supplied) != set(expected_rows) or len(supplied) != len(supplied_rows):
+        errors.append("reconciliation must cover the exact comparison set")
+    neutral_by_id = {
+        str(row.get("verification_id") or ""): row
+        for row in as_list(neutral.get("verifications"))
+    }
+    canonical_rows = []
+    for comparison_id, expected in expected_rows.items():
+        row = supplied.get(comparison_id)
+        if not row:
+            continue
+        label = f"reconciliation {comparison_id}"
+        for field in (
+            "comparison_id",
+            "obligation_id",
+            "obligation_sha256",
+            "area_id",
+            "scope_level",
+            "audit_mechanism",
+            "fact_kind",
+            "subject_keys",
+            "family_ids",
+            "candidate_id",
+            "applicability",
+            "source_coordinates",
+            "classification",
+            "neutral_verification_required",
+            "neutral_verification_id",
+            "neutral_verification_reasons",
+            "audit_decisions",
+        ):
+            if row.get(field) != expected.get(field):
+                errors.append(f"{label}: locked field {field} changed")
+        if row.get("status") != "complete":
+            errors.append(f"{label}: status must be complete")
+        canonical = row.get("canonical_decision")
+        if not isinstance(canonical, dict):
+            errors.append(f"{label}: canonical decision is missing")
+            continue
+        errors.extend(semantic_contract_errors(canonical, label))
+        if row.get("applicability") == "source_counted_zero":
+            if canonical.get("decision_class") != "not_applicable":
+                errors.append(f"{label}: source-counted zero must be Not applicable")
+        elif canonical.get("decision_class") == "not_applicable":
+            errors.append(f"{label}: applicable obligation cannot be Not applicable")
+        source_decisions = [
+            decision
+            for decision in (row.get("audit_decisions") or {}).values()
+            if isinstance(decision, dict) and decision
+        ]
+        if row.get("neutral_verification_required"):
+            verification = neutral_by_id.get(
+                str(row.get("neutral_verification_id") or "")
+            )
+            if not verification:
+                errors.append(f"{label}: required neutral verification is missing")
+            elif canonical != verification.get("canonical_decision"):
+                errors.append(f"{label}: canonical decision differs from neutral result")
+        elif not canonical_matches_allowed(canonical, source_decisions):
+            errors.append(f"{label}: canonical decision introduces a new semantic choice")
+        if not canonical_matches_allowed(
+            canonical,
+            source_decisions,
+            allow_neutral_rejection=bool(row.get("neutral_verification_required")),
+        ):
+            errors.append(f"{label}: actionable target was not proposed by either audit")
+        if not re.search(
+            r"\b(?:both|source|evidence|configured|decision|target|audit)\b",
+            str(row.get("reconciliation_rationale") or ""),
+            re.I,
+        ):
+            errors.append(f"{label}: reconciliation rationale is incomplete")
+        canonical_rows.append(
+            {
+                "canonical_decision_id": "CD-" + comparison_id.removeprefix("REC-"),
+                "obligation_id": row.get("obligation_id"),
+                "obligation_sha256": row.get("obligation_sha256"),
+                "area_id": row.get("area_id"),
+                "scope_level": row.get("scope_level"),
+                "audit_mechanism": row.get("audit_mechanism"),
+                "fact_kind": row.get("fact_kind"),
+                "subject_keys": row.get("subject_keys", []),
+                "family_ids": row.get("family_ids", []),
+                "candidate_id": row.get("candidate_id"),
+                "applicability": row.get("applicability"),
+                "source_coordinates": row.get("source_coordinates", []),
+                "reconciliation_class": row.get("classification"),
+                "neutral_verification_id": row.get("neutral_verification_id"),
+                "decision": canonical,
+                "audit_support": [
+                    {
+                        "decision_id": source.get("decision_id"),
+                        "decision_sha256": stable_hash(source, 64),
+                    }
+                    for source in source_decisions
+                ],
+                "owning_audits": sorted(
+                    audit_id
+                    for audit_id, source in (row.get("audit_decisions") or {}).items()
+                    if source
+                ),
+                "reconciliation_rationale": row.get("reconciliation_rationale"),
+            }
+        )
+    if errors:
+        raise ValueError("reconciliation gate failed: " + "; ".join(errors))
+    record = {
+        "kind": "gtm_reconciled_semantic_record",
+        "schema_version": 1,
+        "source_sha256": expected_reconciliation.get("source_sha256"),
+        "canonical_scan_sha256": expected_reconciliation.get(
+            "canonical_scan_sha256"
+        ),
+        "obligation_ledger_sha256": expected_reconciliation.get(
+            "obligation_ledger_sha256"
+        ),
+        "audit_seal_sha256": expected_reconciliation.get("audit_seal_sha256"),
+        "neutral_queue_sha256": expected_neutral.get("neutral_queue_sha256"),
+        "canonical_decisions": sorted(
+            canonical_rows, key=lambda item: str(item["canonical_decision_id"])
+        ),
+    }
+    record["reconciled_record_sha256"] = stable_hash(record, 64)
+    record_path = package_dir / RECONCILED_RECORD_FILE
+    write_json(record_path, record)
+    seal = {
+        "kind": "gtm_reconciliation_seal",
+        "schema_version": 1,
+        "source_sha256": record.get("source_sha256"),
+        "reconciled_record_sha256": record.get("reconciled_record_sha256"),
+        "reconciled_file_sha256": file_sha256(record_path),
+        "validator_status": "pass",
+    }
+    seal["reconciliation_seal_sha256"] = stable_hash(seal, 64)
+    write_json(package_dir / RECONCILIATION_SEAL_FILE, seal)
+    return {
+        "status": "pass",
+        "canonical_decisions": len(canonical_rows),
+        "reconciled_record_sha256": record["reconciled_record_sha256"],
+        "reconciliation_seal_sha256": seal["reconciliation_seal_sha256"],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    scaffold = subparsers.add_parser("scaffold")
+    scaffold.add_argument("package_dir", type=Path)
+    finalize = subparsers.add_parser("finalize")
+    finalize.add_argument("package_dir", type=Path)
+    finalize.add_argument("--reconciliation", type=Path)
+    finalize.add_argument("--neutral", type=Path)
+    args = parser.parse_args()
+    try:
+        if args.command == "scaffold":
+            result = scaffold_reconciliation(args.package_dir)
+        else:
+            result = finalize_reconciliation(
+                args.package_dir,
+                args.reconciliation,
+                args.neutral,
+            )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(json.dumps({"status": "blocked", "errors": [str(exc)]}))
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

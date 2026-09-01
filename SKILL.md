@@ -1,238 +1,198 @@
 ---
 name: gtm-container-audit-cleanup
-description: Perform heavy operational Google Tag Manager cleanup as a container-only expert web analyst. Start from a complete JSON export or equivalent read-only GTM evidence, exhaustively audit sanitation, recursive configuration and custom code, consent and routing, and business architecture; turn every substantiated finding into the simplest exact cleanup plan; and, when explicitly approved, execute through GTM/API/MCP or produce a validated import JSON and change log. Use for naming, consolidation, migration, repair, deletion, and target-state redesign. Do not use for GTM Preview, live browser/network/dataLayer/CMP/vendor QA, legal decisions, website implementation, unseen server containers, unapproved mutation, or publication.
+description: Audit and optimize one complete Google Tag Manager web container from locked JSON or equivalent read-only evidence, using an independently assured canonical scan, two host-scoped complete semantic audits, neutral reconciliation, deterministic fixed-point target validation, and one human analyst workbook. Use for web-container defects, duplicates, configuration, consent/routing, client-side server transport, Google settings inheritance, trigger/blocker architecture, firing priority, custom code, naming, consolidation, and greenfield-quality target design. Do not use for a server-container audit, GTM Preview or browser/runtime QA, tracking-plan design, legal decisions, GTM mutation/import/version/publication, execution approval, change logs, or audit deltas.
 ---
 
-# GTM Web Analyst Audit And Cleanup
+# GTM Container Audit And Cleanup
 
-Act as an experienced web analyst, not a mechanical duplicate finder. Use only complete container configuration and exported code as audit evidence.
+## Outcome
 
-## North Star
+Make the supplied container as clean, correct, simple, and maintainable as if a
+senior web analyst configured it today from an empty container for the same proven
+needs. From container-visible evidence, decide what is wrong, what is materially
+non-optimal, what should stay and why, and what remains an owner decision or
+evidence limit. Produce one exact static target and one trustworthy analyst
+workbook backed by a sealed canonical JSON record.
 
-> Do the heavy operational work needed to leave an existing GTM container as clean, simple, well-organised and logically correct as its real measurement needs allow. Exhaustively identify every container-visible cleanup and optimisation opportunity, decide the exact safe disposition and target state for each, and, when authorised, execute and verify the approved changes without regressing necessary measurement, consent behaviour, routing or integrations.
+Read before work:
 
-The audit is the evidence foundation; the actionable cleanup plan and verified resulting container are the product. Keep machinery only when it improves discovery completeness, decision quality, execution safety, or regression prevention.
+- `references/01-skill/purpose.md`
+- `references/01-skill/inputs-outputs.md`
+- `references/01-skill/non-goals.md`
+- `references/01-skill/acceptance-criteria.md`
+- `references/03-rules/audit-coverage.md`
+- `references/03-rules/workflow-and-assurance.md`
+- `references/03-rules/domain-contracts.md`
+- `references/03-rules/workbook-delivery.md`
 
-## Reference Routing
+Use `references/03-rules/source-map.md` to route any deeper question. Use
+`references/03-rules/container-json-guide.md` for export shape and
+`references/03-rules/naming-standardization.md` for names. The v1 capability
+disposition is in `references/03-rules/capability-migration.md`.
 
-Read these before every full execution:
+## Hard Boundary
 
-1. `references/01-skill/purpose.md`
-2. `references/01-skill/inputs-outputs.md`
-3. `references/01-skill/acceptance-criteria.md`
-4. `references/03-rules/execution-contract.md`
+Stop at the validated workbook. Never mutate GTM, generate/apply an import,
+create a GTM version, publish, certify post-change state, create an approval
+packet or change log, or describe an operation as executed. A future
+implementation task needs separate explicit authorization and a mutation-capable
+skill.
 
-Then load the detailed contract immediately before its stage:
+Do not claim runtime firing, network/vendor receipt, live data-layer values,
+cookie/CMP UI behaviour, GA4 property settings, legal compliance, runtime
+performance, or unseen server enforcement. Use the exact static evidence boundary
+in every affected conclusion.
 
-| Stage | Required reference |
-| --- | --- |
-| Operational sanitation | `references/03-rules/operational-sanitation.md` |
-| Configuration and custom code | `references/03-rules/configuration-correctness.md` |
-| GA4, ecommerce, media, consent, and server routing | `references/03-rules/domain-contracts.md` |
-| Business architecture | `references/03-rules/business-architecture.md` |
-| Reconciliation and structured actions | `references/03-rules/operation-schema.md` |
-| Priority and approval | `references/03-rules/severity-calibration.md` |
-| Canonical workbook | `references/03-rules/workbook-architecture.md` |
-| Post-gate analyst workbook | `references/03-rules/workbook-output-contract.md` |
-| Naming and mutation | `references/03-rules/naming-standardization.md`, `references/03-rules/mutation-playbook.md` |
-| Separate post-execution log | `references/03-rules/change-log-template.md` |
-| Exact commands | `references/02-commands/validation-commands.md` |
+## Required Workflow
 
-These references are authoritative. Do not replace their exact obligations with a shorter subjective checklist.
+Follow one workflow only. There is no three-run, one-audit, reduced-depth,
+same-context, legacy-workbook, or alternate-XLSX fallback.
 
-## Operating Boundary
+### 1. Lock Evidence
 
-- Require a complete GTM JSON export or equivalent complete read-only configuration evidence.
-- Audit configured container logic only. Do not run or prescribe GTM Preview, browser, network, dataLayer, CMP, vendor-platform, or other runtime checks.
-- Do not infer an unseen server container, legal decision, or website behavior.
-- Audit and recommendation depth are always complete. Approval changes execution, never audit scope.
-- Never mutate, create a version, or publish without the exact user approval required for that action.
-- Block on ambiguous source identity or an unmodelled entity layer. Keep broken references in an otherwise valid export as findings while scanning everything else.
+Resolve one complete unambiguous ContainerVersion export or equivalent read-only
+evidence. Confirm only when source or outcome is ambiguous. Lock source, context,
+runtime skill identity, audit contract, vendor registry, and optional approved
+requirements. Respect exact `do_not_touch` object keys.
 
-## Intake And Evidence Lock
+Accept one web-container source only. Do not accept or request a server-container
+export. Audit client-side transporter configuration and consent forwarding, then
+state downstream server-container processing as outside this skill's evidence.
 
-Every new task starts with one compact intake exchange before file discovery,
-identity checks, or semantic work. Ask the analyst to identify or confirm the
-exact complete container JSON/equivalent source and the requested outcome, then
-wait for the answer. Even when a likely file is visible or mentioned in prior
-conversation, do not silently select it. If the request already names both,
-acknowledge them and ask only one missing material constraint or for explicit
-confirmation that the named source is the one to audit. After that first answer,
-infer safe missing context and continue autonomously; do not turn the intake into
-a questionnaire. If the confirmed source cannot be found, ask for the export or
-exact path instead of selecting another file.
+Build a new package with `scripts/gtm_audit_package_build.py`. Package creation
+must pass runtime identity and independent raw-source scan assurance before any
+semantic review. Never overwrite an existing package.
 
-Collect or infer the container type, website/domain, business model, material measurement context, CMP and routing context, SPA status, canonical IDs, staging hosts, exact `do_not_touch` object keys, naming policy, and requested execution route when known. Do not re-ask for values already present in the confirmed export.
+When a version-sensitive product, template, CMP, or vendor rule is absent or
+stale, do not mutate the skill while auditing. Mark the affected obligation as
+`container_evidence_limit`, identify one research owner and the exact official
+evidence needed, and keep dependent recommendations blocked. Registry maintenance
+is a separate, explicitly requested skill-evolution action; after that action is
+validated, start a new audit package rather than changing an in-flight package.
 
-Persist supplied, inferred, confirmed-empty, and unresolved values in `context.json` with their evidence basis. Context may guide interpretation but cannot replace container evidence or turn an assumption into a finding.
+### 2. Preserve Fact/Judgment Separation
 
-Before semantic review:
+Treat `canonical-scan.json` and `scan-assurance.json` as neutral evidence. The
+scanner may generate candidates; it may not decide correctness, necessity,
+priority, consolidation, or target architecture. The independent assurance path
+must reread raw source and pass every applicable critical identity.
 
-1. after the mandatory intake answer, run `scripts/gtm_skill_identity.py check`; stop before package creation unless a matching release manifest or exact clean Git checkout proves the runnable tree;
-2. compare development and installed trees with `scripts/gtm_skill_identity.py verify` when both exist;
-3. run `scripts/gtm_context_model.py` and present supplied, high-confidence inferred, and unresolved fields separately;
-4. record material generated questions as nonblocking owner decisions and continue the
-   complete audit; ask immediately only when the source is partial/ambiguous, an entity
-   layer is unmodelled, or missing proof prevents an exact configuration judgment;
-5. stop if the source is partial or its ContainerVersion identity is ambiguous.
+Use the typed `obligation-ledger.json`. Every object, chain, family,
+relationship, singleton, source-owned branch/leaf/recursive trace, executable
+code segment, and container-level method receives work or a source-counted zero.
 
-Use the exact syntax in `references/02-commands/validation-commands.md`. The package command is:
+### 3. Run Two Host-Scoped Complete Audits
 
-```bash
-python -B scripts/gtm_audit_package_build.py container.json --context audit-context.json --out-dir audit-package --pretty
-```
+Run Audit A and Audit B concurrently in separate fresh contexts over separate
+allowlisted bundles created by `scripts/gtm_cleanroom_audit.py`. The execution
+host must make the peer bundle and prohibited downstream artifacts inaccessible
+and issue the receipt bound to the exact bundle manifest. The validator proves
+receipt consistency, bundle integrity, and context separation; it cannot replace
+host access control. The orchestrator coordinates but authors neither audit.
 
-Omit `--context` when no analyst context is available. Pending business, naming,
-folder, lifecycle, or ownership questions do not stop the scans or workbook; they
-remain in A3 and block only an affected mutation whose exact target depends on the answer.
-Add `--requirements approved-plan.xlsx` only when the analyst explicitly identifies
-that file as an approved tracking-plan requirement. It is normalized as separately
-labelled external requirement evidence for Runs 2 and 3; it never enters the
-container-only shared facts or Run 1, and exact source rows are preserved without
-inventing semantic matches.
+Audit A traverses object/chain first; Audit B traverses family/target first. Both
+complete every applicable semantic obligation in areas 2–26 and close object,
+chain, family, relationship, singleton, shared-infrastructure, and container
+coverage. Different traversal does not mean different scope.
 
-## Non-Negotiable Architecture
+Each audit seals its source-only checkpoint before approved requirement evidence
+is released. Audit B is also generated-candidate-blind before its checkpoint.
+Later inputs may add work but may not rewrite checkpointed discovery.
 
-A full audit has three independent runs against the same source, context, and shared-fact hashes:
+Use deterministic family work units and one shared-infrastructure unit when the
+bundle requires sharding. Never reduce evidence or reviewer count for context
+size. Validate and immutably seal both audits. If host-enforced isolation is
+unavailable, block.
 
-1. operational sanitation;
-2. configuration correctness;
-3. business architecture.
+### 4. Reconcile And Verify Neutrally
 
-Build one deterministic, judgment-free fact layer for identity, leaves, references, consumers, terminal sources, trigger logic, code/formula facts, consent routes, and behavior signatures. Each run may read the export, locked context, shared facts, and its own scaffold. Its prohibited inputs include foreign verdicts, reconciled output, and test helpers.
+Use `scripts/gtm_reconciliation.py`. Compare atomic decisions by exact obligation,
+subjects, family/relationship, and target. Expose agreements, complementary
+conclusions, one-sided findings, conflicts, and differing evidence boundaries.
+Never vote, average, or silently select an audit.
 
-Use the three physical allowlisted directories under `review-bundles/`. Assign each directory to a different fresh reasoning context; the root orchestrator must not author any of the three reviews. There is no same-context fallback for a certified full audit. Semantic decisions must be authored independently; scripts may scaffold, shard, merge, validate, and seal but may not bulk-fill judgments. Promote a run into the canonical package only through `gtm_review_isolation.py seal`, using the real distinct context identity. Reconciliation is blocked until all three sealed review hashes match the canonical reviews.
+Send every disagreement, one-sided finding, and material-risk class listed in
+the workflow reference to a fresh neutral verifier. The neutral input excludes
+audit identity, rationale, vote count, and expected answer. It may confirm,
+narrow, reject, or keep blocked; it cannot invent a third actionable target.
 
-Reconcile only after every run passes its own validator.
+### 5. Synthesize And Prove The Target
 
-## Automatic Work Sharding
+Use `scripts/gtm_target_synthesis.py` to compile only reconciled, required-
+verified decisions into exact creates, additions, changes, named-field removals,
+remaps, renames, pauses, deletions, dependencies, static verification, and
+rollback. Synthesis may
+not introduce a new semantic choice.
 
-Package creation automatically shards large runs under the thresholds and exact
-resume contract in `execution-contract.md`. Sharding changes workload shape, never
-scope, depth, or the number of independent verdict runs. Work only inside the run's
-allowlisted bundle, inspect its complete base evidence, check each declared shard,
-repair only the named failing shard, merge without loss, validate, and seal. Keep
-drafts in `review-scratch/`; never create new per-obligation micro-shards for current
-packages. Exact commands are in `validation-commands.md`.
+Use `scripts/gtm_fixed_point.py` and `scripts/gtm_projection_review.py`. Every
+cycle starts from the locked original, applies the complete packet, reruns global
+scan and independent assurance, and sends new/changed semantic obligations to two
+fresh host-scoped reviews plus required neutral checks. Permit at most three cycles.
+Block as `non_convergent_target_state` on cycle-three actionability, recurring
+actionable hashes, oscillation, conflicts, or no exact safe operation.
 
-## Three Audit Runs
+Replay a stable packet from the locked original and require the complete hash
+tuple to match. Then create the authoritative record with
+`scripts/gtm_canonical_record.py`.
 
-### Run 1: Operational Sanitation
+### 6. Build One Human Workbook
 
-Read `references/03-rules/operational-sanitation.md`. Complete every generated finding and source-counted zero row through its five required inner passes. Resolve source-proven structural defects into exact operations unless a valid source-locked exception applies. Keep genuine lifecycle, organisation, or ownership choices visible with a precise question and recommended target.
+Use `scripts/gtm_delivery_mapper.py` only after canonical sealing. If a mandatory
+delivery field is absent or semantically wrong, reopen its owning audit or
+projection record in a fresh amendment context, repeat reconciliation/neutral
+checks/fixed-point closure, and reseal. Delivery may never patch a canonical
+field.
 
-Do not delete or consolidate from a signature alone. Prove reachability, every surviving consumer remap, layer compatibility, cycle safety, and final name uniqueness. Run 3 must confirm business equivalence for active consolidation.
+Run the editorial transformation in a fresh context. It may improve declared
+prose fields only and must preserve every technical identifier and locked meaning.
 
-### Run 2: Configuration Correctness
+Use the workspace spreadsheet artifact runtime and the bundled
+`scripts/gtm_workbook_build.mjs`; verify with
+`scripts/gtm_workbook_verify.mjs`. If that runtime is unavailable, block instead
+of authoring through another library. The workbook has `01 Overview`,
+`02 Recommendations`, `03 Decisions Needed`, `04 Full Audit`, and `05 Custom
+Code` only when source-applicable.
 
-Read `configuration-correctness.md` and applicable `domain-contracts.md` topics.
-Complete their exact object, branch, recursive dependency, consumer/peer, contract,
-technical, code-line, and D3 obligations. Generated narration is evidence, not a
-verdict. Author substantive object and behavior-group conclusions wherever the
-contract escalates risk; a `Correct` verdict is valid only after every source-visible
-signal has a source-specific closure. A proven defect gets the simplest exact operation
-when the target is container-visible; a genuinely unknown target keeps one precise
-owner/evidence boundary and recommendation.
+Use `scripts/gtm_delivery_reviews.py` to create separately scoped fidelity and
+workbook-only reader checks. Render and visually inspect every visible sheet.
+Pass exact row/field recovery, comments/navigation/dimensions, absence of
+unexpected formulas or renderer artifacts, privacy, formula injection, fidelity,
+readability, and layout checks before sealing delivery.
 
-Apply the complete custom-code health and replacement review defined there, including
-dataLayer/native/template/site-side replacement, null/type/timing contracts, security,
-readability, and maintainability. Never substitute cosmetic minification for a repair.
+## Decision Rules
 
-Use the bundled official vendor registry first. For an unknown integration, perform current official-source research, update and validate the registry, rebuild the scaffold, and only then certify the contract.
+Use exactly one class per primary obligation: `defect`,
+`correct_but_materially_non_optimal`, `justified_as_is`, `owner_decision`,
+`container_evidence_limit`, or source-proven `not_applicable`.
 
-### Run 3: Business Architecture
+For consent, classify the route first. Except confirmed Advanced Consent Mode,
+all direct browser/vendor tags use a consent-free positive trigger and one
+reusable denial blocker. A page-load tag may use a documented CMP timing event;
+a later action keeps its business event. Do not configure consent in both the
+positive route and blocker, and do not use Additional Consent Checks as the gate.
+Built-In Consent Checks remain intrinsic metadata.
 
-Read `references/03-rules/business-architecture.md`. Review every source-derived family, member chain, deterministic relationship candidate, singleton, Zone/configuration root, and open-discovery method independently from Runs 1 and 2.
+A pure client-to-server transporter has firing triggers only, no client consent
+gate, and one complete canonical consent value configured once and inherited by
+every transported event. Mixed direct/server routes are judged per branch.
 
-Decide necessity, overlap, conflict, intentional distinction, canonical object, and simplest target architecture from configured event, route, destination, payload, consent, sequence, dependency, market/product, and ownership evidence. Generated candidates are the minimum queue, not the discovery boundary. Every additional relationship is a source-bound `DISC-*` comparison.
+Treat explicit firing priority as suspect, including `0`. Keep nonzero priority
+only for an evidenced start-order need among same-event competitors; sequencing,
+not priority, owns completion dependencies.
 
-An actionable relationship verdict must change a candidate member's behavior. Retention needs a positive source-visible distinction for every member; an opaque signature, name similarity, or consumer count is not sufficient.
+Share Google configuration-wide values through one Configuration Settings owner
+and genuinely shared event values through one Event Settings owner. Keep event-
+specific values local and preserve justified overrides. Repetition creates a
+candidate only; type, shape, source, timing, consent, route, destination, consumer,
+and ownership compatibility determine the verdict.
 
-## Validate, Reconcile, And Simulate
+## Repair And Completion
 
-Follow `references/02-commands/validation-commands.md` in this order:
+Sealed semantic artifacts are immutable. An amendment uses a fresh context bound
+to the prior seal and append-only history. Presentation-only defects create a new
+editorial artifact and rebuild; semantic or fidelity defects reopen the owning
+semantic chain.
 
-1. validate each completed bundle-local review and seal it into the canonical package;
-2. validate the three sealed canonical reviews;
-3. compile the three reviews into one contradiction-aware operation packet;
-4. simulate every structured operation on a copy of the export;
-5. run the three-run completion gate with the operation packet and all three seals.
-
-Do not average or vote across runs. Merge only identical complete structured mutations and preserve every lens's rationale. Block contradictory mutations, unsafe deletions/remaps, behavior changes through preserved or unresolved architecture, incomplete decisions, broken references, newly generated findings, unexplained broad count changes, or missing measurement-family target states.
-
-For every High/Critical challenge or cross-run conflict recheck, use a fresh context
-with only the exact source coordinates, source facts, and a neutral question. Do not
-disclose another lens's rationale or an expected outcome. Record the independent
-recheck context and verdict before sealing the final operation.
-
-Every substantiated cleanup disposition becomes the simplest exact operation. Every confirmed measurement family receives an explicit retained, changed, owner-blocked, or evidence-limited target state with preserved behavior, consent, and routing. Container-only evidence limits remain static boundaries, not runtime tasks.
-
-When the analyst asks what changed between audits, run
-`scripts/gtm_audit_delta.py` only after both packages independently complete
-their full three scans, seals, reconciliation, and gates. Compare objective
-objects, findings, operations, decisions, families, and counts; never use the
-previous result as a changed-only shortcut or carry forward its verdicts,
-confidence, or score.
-
-## Build The Human Cleanup Plan
-
-Build and gate the canonical workbook exactly as `workbook-architecture.md` defines.
-After its privacy scan passes, generate the evidence-locked editorial queue, use a
-semantic AI pass to rewrite every visible analyst row from its bound facts into
-plain web-analyst language, then build and independently gate the derived analyst copy
-under `workbook-output-contract.md`. This is a presentation-only pass: it may change
-wording but never IDs, objects, dispositions, priorities, operations, approval state,
-or evidence boundaries. The analyst tabs must expose every atomic action,
-genuine owner topic, retained business family, and Custom HTML technical/replacement
-decision in literal analyst language; keep exhaustive proof in the canonical/JSON
-record. Group only answer-equivalent owner records without losing children. Never use
-the derived workbook as audit input, weaken actions for brevity, or loosen an audit
-gate to improve presentation. If only the derived file fails, keep the validated
-canonical workbook as the technical recovery artifact, report analyst delivery as
-incomplete, and repair only the editorial/build/gate step without rerunning a scan.
-
-## Approval And Optional Execution
-
-After delivering the audit and plan, ask for:
-
-1. all operation IDs or an explicit approved subset;
-2. direct GTM/API/MCP cleanup or a validated import JSON.
-
-Do not ask for an aggressiveness mode. A subset is staged incomplete cleanup and must be re-simulated. Apply naming standardisation during approved cleanup unless explicitly excluded.
-
-Generate a versioned row-level response with
-`scripts/gtm_approval_response.py template`. The analyst must mark every
-operation `Approve`, `Reject`, or `Amend`; packet and row hashes bind the response
-to the exact operation surface, and server/activation/observation confirmations
-remain separate. Validate the response and pass it to the execution guard with
-`--approval-response`. A missing, foreign, duplicated, or changed row blocks
-execution.
-
-Before mutation, read `references/03-rules/mutation-playbook.md` and:
-
-- require a passing execution preflight saved as `execution_preflight.json`,
-  rollback source, and exact approval; never make a GTM/API/MCP mutation call
-  unless that saved artifact is bound to the current readback and selected packet;
-- execute the compiler's dependency order; separately approve any reconciliation
-  closure object made unused by earlier operations;
-- use a new workspace and modify existing objects where safe;
-- re-read the complete workspace immediately before mutation, bind that readback
-  through the execution guard, and stop on drift;
-- enforce exact `do_not_touch`, server-coupling, activation-risk, and decommission confirmations;
-- validate and read back every batch, recording each operation ID before its call;
-- stop on drift, missing references, consent uncertainty, unexpected recreation, or any unapproved change;
-- never publish or create a version unless separately requested.
-
-Offline import generation may use the locked source and approved passing
-simulation without opening GTM authentication. Treat that artifact as
-planned/unapplied; a fresh identity-bound readback is mandatory immediately
-before applying it, and only the final post-import readback can certify an
-executed change log.
-
-Certify execution only when the final complete readback equals the approved simulation and every observed field change links to one approved operation. Save the passing final certification artifact; API/MCP success responses or visible workspace changes are never completion evidence. Treat that readback as the sole authoritative execution result; an executed change-log workbook must be regenerated from its passing certification. Produce the separate field-level change log only after execution or generated cleanup artifact creation.
-
-End every stage with one concrete next step.
-
-## Portability
-
-The reasoning contract works with Codex, Claude Code, Gemini, and comparable agents. Python 3.11+ provides deterministic scaffolds and gates; `openpyxl` builds XLSX and optional `esprima` enriches JavaScript facts. Missing tooling blocks full execution when evidence locks, exact obligation coverage, reconciliation, or delivery gates cannot be reproduced. State the prerequisite and stop; never invent a reduced fallback mode.
+Use `references/02-commands/validation-commands.md` for exact commands and
+`references/02-commands/forward-test-prompts.md` for release proof. Deliver only
+when every criterion in `references/01-skill/acceptance-criteria.md` passes.

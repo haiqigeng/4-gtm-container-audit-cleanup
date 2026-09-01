@@ -8,7 +8,7 @@ search alone.
 - Root shapes and typed parameters
 - References, edges, and source-bound facts
 - Tags, triggers, variables, code, and templates
-- Web/server scope and import artifacts
+- Web-container scope and completeness
 
 ## Root Shapes
 
@@ -27,9 +27,7 @@ Common layers:
 | Zone | `zoneId` |
 | custom template | `templateId` |
 | built-in variable | `name` |
-| server client | `clientId` |
 | Google tag configuration | `gtagConfigId` |
-| transformation | `transformationId` |
 
 Before building semantic facts, fail closed when the source is not a
 ContainerVersion, a known entity layer is not an array, an entry is not an
@@ -64,8 +62,7 @@ maps. Build edges for:
 - setup and teardown tag names;
 - Zone boundary evaluation trigger IDs;
 - parent folders;
-- custom-template type IDs;
-- clients and transformations where exported.
+- custom-template type IDs.
 
 Recognize GTM internal references such as `{{_event}}` and high-range system
 trigger IDs. Built-in variables terminate a recursive trace and are not missing
@@ -92,8 +89,7 @@ Do not label a tag triggerless until checking:
 
 - `firingTriggerId` and system routes;
 - whether another tag invokes it through `setupTag` or `teardownTag`;
-- paused/scheduled state;
-- server-container semantics when the object is a server tag.
+- paused/scheduled state.
 
 Blocking triggers, setup/teardown sequence, priority, consent settings, and
 event parameters all contribute to execution logic.
@@ -134,20 +130,16 @@ shape, and parser facts without treating static signals as final judgments.
 An absent or failed parser is itself an explicit coverage fact; it never turns
 empty AST output into evidence that no parser-level issue exists.
 
-## Web And Server Containers
+## Web-Container Scope
 
-Use `usageContext` and object layers to classify scope. In web exports identify
-transport/server container URLs and consent parameters but do not infer unseen
-server forwarding. In server exports include clients, transformations,
-request-claiming configuration, server tags, event-data mappings, permissions,
-and outgoing endpoints.
+Require WEB in `usageContext`. Identify client-side transport URLs, destinations,
+consent-forwarding parameters, direct-browser branches, and mixed routes, but do
+not infer or inspect downstream server-container processing. Reject a SERVER
+ContainerVersion instead of switching audit modes.
 
-## Full Exports And Patches
+## Complete Sources
 
-A cleanup plan operates on a full source graph. Same-container import patches
-have special identity/template/built-in behavior and may recreate objects.
-Validate the effective merged container, not the patch fragment alone. Never
-call a JSON import-ready until IDs, references, templates, built-ins, groups,
-folders, Zones, Google tag configurations, and route-specific churn pass
-validation. Apply the same identity gate to before/after change-log sources so
-duplicate IDs cannot disappear through dictionary-based diffing.
+The audit operates on one full source graph, never an import patch or changed-only
+fragment. A standard GTM export envelope may omit empty web layers; equivalent
+read-only evidence must enumerate them. Apply the same identity and shape gates
+to every fixed-point projection.

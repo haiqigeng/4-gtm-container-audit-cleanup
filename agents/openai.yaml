@@ -1,7 +1,7 @@
 interface:
-  display_name: "GTM Container Audit & Cleanup"
-  short_description: "Audit deeply and execute exact GTM cleanup"
-  default_prompt: "Use $gtm-container-audit-cleanup to exhaustively audit this GTM container, define its safest target state, and execute and verify only explicitly approved cleanup operations."
+  display_name: "GTM Container Audit & Optimize"
+  short_description: "Audit a GTM container and deliver its optimal static target"
+  default_prompt: "Use $gtm-container-audit-cleanup to audit this complete GTM container, identify defects and material optimisations, prove an exact static target through independent review and fixed-point closure, and deliver one analyst workbook without mutating GTM."
 
 policy:
   allow_implicit_invocation: true

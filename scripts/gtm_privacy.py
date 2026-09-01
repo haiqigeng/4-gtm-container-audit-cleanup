@@ -14,6 +14,7 @@ SENSITIVE_KEY_RE = re.compile(
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 WINDOWS_USER_PATH_RE = re.compile(r"(?i)\b[A-Z]:\\Users\\[^\\\s]+")
 POSIX_USER_PATH_RE = re.compile(r"(?i)(?:^|\s)/(?:home|Users)/[^/\s]+")
+URL_RE = re.compile(r"https?://[^\s\]\[\)\(\}\{\"']+", re.I)
 SENSITIVE_ASSIGNMENT_RE = re.compile(
     r"(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|"
     r"authorization|email|phone|user[_-]?id|client[_-]?id)"
@@ -44,10 +45,28 @@ def redact_text(value: Any) -> str:
     text = EMAIL_RE.sub("<redacted-email>", text)
     text = WINDOWS_USER_PATH_RE.sub(r"C:\\Users\\<redacted>", text)
     text = POSIX_USER_PATH_RE.sub(" /home/<redacted>", text)
-    return SENSITIVE_ASSIGNMENT_RE.sub(
+    text = SENSITIVE_ASSIGNMENT_RE.sub(
         r"\1=<redacted>",
         text,
     )
+    return URL_RE.sub(lambda match: sanitize_url(match.group(0)), text)
+
+
+def redact_delivery_value(value: Any, field_name: str = "") -> Any:
+    """Recursively redact workbook-bound values while preserving object shape."""
+
+    if field_name and SENSITIVE_KEY_RE.search(field_name):
+        return "<redacted>"
+    if isinstance(value, dict):
+        return {
+            str(key): redact_delivery_value(child, str(key))
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_delivery_value(child, field_name) for child in value]
+    if isinstance(value, str):
+        return redact_text(value)
+    return value
 
 
 def spreadsheet_safe_text(value: Any) -> str:

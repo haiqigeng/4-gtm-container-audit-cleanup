@@ -1,22 +1,20 @@
 # Non-Goals
 
-Do not use this skill for:
+This skill does not:
 
-- Tag Assistant, GTM Preview, browser/network, live dataLayer, CMP-interaction,
-  or vendor-platform QA;
-- legal approval or privacy-policy interpretation;
-- website/dataLayer implementation work;
-- auditing an unseen server container merely because a web container sends to it;
-- publishing GTM versions;
-- mutation without explicit approval and rollback protection;
-- deleting an object based only on age, name, inactivity assumptions, or a
-  similarity score;
-- inventing GTM-side custom JavaScript when the correct solution is a website
-  or dataLayer contract;
-- replacing literal behavior with categories such as `computed value`,
-  `vendor loader`, or `payload transformer`;
-- producing a real change log before cleanup execution.
+- run GTM Preview, a browser, network capture, data-layer inspection, or live CMP
+  testing;
+- certify runtime firing, vendor receipt, GA4 property behaviour, cookie state,
+  legal compliance, financial reconciliation, or runtime performance;
+- design a tracking plan or infer a missing business measurement need from an
+  absent tag;
+- mutate GTM, create/apply an import, create a GTM version, publish, or treat a
+  workbook as execution approval;
+- generate an execution preflight, post-change readback certification, change
+  log, or audit-to-audit delta;
+- audit an unseen server container; or
+- provide a reduced-depth, one-audit, same-context, or legacy three-run fallback.
 
-When the request needs live validation, use a separate recette/runtime workflow.
-When evidence cannot decide business necessity or legal consent, ask one precise
-owner question instead of guessing.
+Use a runtime recette or consent/privacy audit for browser-observed behaviour,
+`configure-gtm` for separately authorised implementation, and the relevant
+measurement-design skill for tracking-plan or KPI design.

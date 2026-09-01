@@ -21,6 +21,7 @@ from gtm_lib import (
     SEMANTIC_LAYERS,
     as_list,
     code_identity_text,
+    container_identity,
     container_root_path,
     container_version,
     custom_template_ids,
@@ -373,6 +374,7 @@ def build_model(path: Path) -> dict[str, Any]:
         "kind": "gtm_source_model_navigation_map",
         "source_model_role": "navigation_map_not_evidence_source",
         "raw_evidence_must_be_rechecked_for_findings": True,
+        "container_identity": container_identity(data) if isinstance(data, dict) else {},
         "counts": counts,
         "objects": {
             "tags": [object_summary(obj, "tag") for obj in layer_items["tag"]],
