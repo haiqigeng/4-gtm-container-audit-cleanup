@@ -143,6 +143,13 @@ generic conclusion for object-, family-, relationship-, or obligation-specific
 review. Such an edit is an audit-local authoring aid, not a skill dependency or
 shared semantic result, and must never read the peer audit.
 
+Before checkpoint sealing, an audit bundle has no `work-units` directory. An
+audit-local authoring aid may read only the checkpoint and locked inputs during
+that phase. The checkpoint command creates `work-units/work-unit-manifest.json`;
+only then may the aid read work units, using each manifest record's exact
+`filename` field. Create the assigned scratch directory with missing parents as
+needed, while requiring the package and assigned bundle to exist first.
+
 Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B
 must use distinct agent and context labels.
