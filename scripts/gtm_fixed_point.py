@@ -13,7 +13,7 @@ from typing import Any
 
 from gtm_audit_contract import ACTIONABLE_DECISION_CLASSES, semantic_contract_errors
 from gtm_canonical_scan import build_canonical_scan
-from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_lib import as_list, file_sha256, require_safe_package_root, stable_hash, write_json
 from gtm_obligation_ledger import build_obligation_ledger
 from gtm_operation_model import (
     apply_operations,
@@ -25,9 +25,8 @@ from gtm_operation_model import (
     validate_operations,
 )
 from gtm_projection_review import (
-    CLOSURE_FILE,
-    CLOSURE_SEAL_FILE,
     prepare_projection_reviews,
+    projection_closure_seal_errors,
 )
 from gtm_scan_assurance import assure_scan
 from gtm_target_synthesis import server_consent_gate_regression_errors
@@ -432,6 +431,7 @@ def _create_cycle(
 
 
 def _global_state(package_dir: Path) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     return _load(package_dir / FIXED_POINT_ROOT / STATE_FILE)
 
 
@@ -458,6 +458,7 @@ def _packet_errors(package_dir: Path, packet: dict[str, Any]) -> list[str]:
 
 
 def fixed_point_seal_errors(package_dir: Path) -> list[str]:
+    require_safe_package_root(package_dir)
     """Verify the immutable proof, replay target, and fixed-point seal."""
 
     root = package_dir / FIXED_POINT_ROOT
@@ -493,6 +494,7 @@ def fixed_point_seal_errors(package_dir: Path) -> list[str]:
 
 
 def start_fixed_point(package_dir: Path) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     root = package_dir / FIXED_POINT_ROOT
     if root.exists():
         raise ValueError("fixed-point proof already exists; artifacts are never overwritten")
@@ -554,24 +556,7 @@ def start_fixed_point(package_dir: Path) -> dict[str, Any]:
 
 
 def _closure_errors(cycle_dir: Path) -> tuple[dict[str, Any], list[str]]:
-    closure_path = cycle_dir / CLOSURE_FILE
-    seal_path = cycle_dir / CLOSURE_SEAL_FILE
-    if not closure_path.is_file() or not seal_path.is_file():
-        return {}, ["sealed projection closure is missing"]
-    closure = _load(closure_path)
-    seal = _load(seal_path)
-    errors = []
-    if seal.get("projection_closure_seal_sha256") != _hash_without(
-        seal, "projection_closure_seal_sha256"
-    ):
-        errors.append("projection closure seal hash is invalid")
-    if seal.get("projection_closure_file_sha256") != file_sha256(closure_path):
-        errors.append("projection closure changed after sealing")
-    if seal.get("projection_closure_sha256") != closure.get(
-        "projection_closure_sha256"
-    ):
-        errors.append("projection closure seal is bound to another record")
-    return closure, errors
+    return projection_closure_seal_errors(cycle_dir)
 
 
 def _projection_decision_candidate(
@@ -835,6 +820,7 @@ def _seal_stable_fixed_point(
 
 
 def advance_fixed_point(package_dir: Path) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     state = _global_state(package_dir)
     if state.get("status") in {"pass", "stable_replayed"}:
         raise ValueError("fixed-point proof is already complete")

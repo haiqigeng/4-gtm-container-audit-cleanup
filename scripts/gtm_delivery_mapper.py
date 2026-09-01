@@ -11,7 +11,7 @@ from typing import Any
 
 from gtm_audit_contract import HUMAN_DECISION_LABELS, HUMAN_DECISION_MEANINGS
 from gtm_canonical_record import canonical_record_seal_errors
-from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_lib import as_list, file_sha256, require_safe_package_root, stable_hash, write_json
 from gtm_privacy import privacy_findings, redact_delivery_value
 from gtm_reasoning_identity import (
     collect_reasoning_identity_registry,
@@ -504,15 +504,11 @@ def _delivery_coverage_errors(
     return errors
 
 
-def create_delivery_map(package_dir: Path, language: str = "English") -> dict[str, Any]:
-    errors = canonical_record_seal_errors(package_dir)
-    if errors:
-        raise ValueError("canonical record gate failed: " + "; ".join(errors))
-    root = package_dir / DELIVERY_ROOT
-    if root.exists():
-        raise ValueError("delivery artifacts already exist and are never overwritten")
-    root.mkdir()
-    record = _load(package_dir / "canonical-record.json")
+def delivery_map_from_record(
+    record: dict[str, Any], language: str = "English"
+) -> dict[str, Any]:
+    """Project the exact human delivery map from canonical semantic authority."""
+
     names = _name_index(record)
     recommendations = _recommendation_rows(record, names)
     owner_rows = _owner_rows(record, names)
@@ -570,6 +566,28 @@ def create_delivery_map(package_dir: Path, language: str = "English") -> dict[st
     if coverage_errors:
         raise ValueError("delivery ownership failed: " + "; ".join(coverage_errors))
     map_payload["delivery_map_sha256"] = stable_hash(map_payload, 64)
+    return map_payload
+
+
+def create_delivery_map(
+    package_dir: Path,
+    language: str = "English",
+    *,
+    _validate_only: bool = False,
+) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
+    errors = canonical_record_seal_errors(package_dir)
+    if errors:
+        raise ValueError("canonical record gate failed: " + "; ".join(errors))
+    root = package_dir / DELIVERY_ROOT
+    if root.exists() and not _validate_only:
+        raise ValueError("delivery artifacts already exist and are never overwritten")
+    record = _load(package_dir / "canonical-record.json")
+    map_payload = delivery_map_from_record(record, language)
+    if _validate_only:
+        return map_payload
+    root.mkdir()
+    rows = as_list(map_payload.get("rows"))
     map_path = root / DELIVERY_MAP_FILE
     write_json(map_path, map_payload)
     seal = {
@@ -652,6 +670,7 @@ def create_delivery_map(package_dir: Path, language: str = "English") -> dict[st
 
 
 def _delivery_map_errors(package_dir: Path) -> tuple[dict[str, Any], list[str]]:
+    require_safe_package_root(package_dir)
     root = package_dir / DELIVERY_ROOT
     map_path = root / DELIVERY_MAP_FILE
     seal_path = root / DELIVERY_MAP_SEAL_FILE
@@ -672,12 +691,40 @@ def _delivery_map_errors(package_dir: Path) -> tuple[dict[str, Any], list[str]]:
         errors.append("delivery map changed after sealing")
     canonical_path = package_dir / "canonical-record.json"
     if canonical_path.is_file():
-        errors.extend(_delivery_coverage_errors(_load(canonical_path), delivery_map))
+        canonical = _load(canonical_path)
+        errors.extend(_delivery_coverage_errors(canonical, delivery_map))
+        try:
+            expected_map = delivery_map_from_record(
+                canonical, str(delivery_map.get("language") or "English")
+            )
+        except ValueError as exc:
+            errors.append(f"delivery map reconstruction failed: {exc}")
+        else:
+            if delivery_map != expected_map:
+                errors.append("delivery map differs from canonical reconstruction")
     errors.extend(canonical_record_seal_errors(package_dir))
+    if canonical_path.is_file():
+        expected_seal = {
+            "kind": "gtm_human_delivery_map_seal",
+            "schema_version": 1,
+            "canonical_record_sha256": _load(canonical_path).get(
+                "canonical_record_sha256"
+            ),
+            "canonical_record_file_sha256": file_sha256(canonical_path),
+            "delivery_map_sha256": delivery_map.get("delivery_map_sha256"),
+            "delivery_map_file_sha256": file_sha256(map_path),
+            "validator_status": "pass",
+        }
+        expected_seal["delivery_map_seal_sha256"] = _hash_without(
+            expected_seal, "delivery_map_seal_sha256"
+        )
+        if seal != expected_seal:
+            errors.append("delivery map seal differs from canonical reconstruction")
     return delivery_map, errors
 
 
 def validate_editorial(package_dir: Path) -> list[str]:
+    require_safe_package_root(package_dir)
     delivery_map, errors = _delivery_map_errors(package_dir)
     root = package_dir / DELIVERY_ROOT
     path = root / EDITORIAL_FILE
@@ -766,6 +813,7 @@ def validate_editorial(package_dir: Path) -> list[str]:
 def seal_editorial(
     package_dir: Path, *, amendment_of: str | None = None
 ) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     errors = validate_editorial(package_dir)
     if errors:
         raise ValueError("editorial gate failed: " + "; ".join(errors))
@@ -828,6 +876,7 @@ def seal_editorial(
 
 
 def editorial_seal_errors(package_dir: Path) -> list[str]:
+    require_safe_package_root(package_dir)
     root = package_dir / DELIVERY_ROOT
     editorial_path = root / EDITORIAL_FILE
     seal_path = root / EDITORIAL_SEAL_FILE

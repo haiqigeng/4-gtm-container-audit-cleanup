@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,38 @@ KNOWN_SYSTEM_TRIGGER_REFERENCES = {
 
 def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def path_is_link_or_reparse(path: Path) -> bool:
+    """Reject symlinks and Windows reparse points, including NTFS junctions."""
+
+    try:
+        if path.is_symlink():
+            return True
+        attributes = int(getattr(path.lstat(), "st_file_attributes", 0))
+    except OSError:
+        return False
+    return bool(
+        attributes & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    )
+
+
+def package_root_errors(package_dir: Path) -> list[str]:
+    """Reject a workflow root whose directory entry redirects elsewhere."""
+
+    return (
+        ["audit package root is a link or reparse point"]
+        if path_is_link_or_reparse(package_dir)
+        else []
+    )
+
+
+def require_safe_package_root(package_dir: Path) -> None:
+    """Fail before a package-scoped workflow reads or writes redirected content."""
+
+    errors = package_root_errors(package_dir)
+    if errors:
+        raise ValueError("; ".join(errors))
 
 
 def param_value(obj: dict[str, Any], key: str) -> Any:

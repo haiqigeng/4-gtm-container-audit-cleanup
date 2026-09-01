@@ -8,7 +8,6 @@ import copy
 import json
 import re
 import shutil
-import stat
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -29,7 +28,14 @@ from gtm_audit_work_units import (
     work_unit_completion_errors,
     work_unit_identity_hash,
 )
-from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_lib import (
+    as_list,
+    file_sha256,
+    package_root_errors,
+    path_is_link_or_reparse,
+    stable_hash,
+    write_json,
+)
 from gtm_reasoning_identity import (
     collect_reasoning_identity_registry,
     reasoning_identity_reuse_errors,
@@ -66,24 +72,10 @@ def _hash_without(payload: dict[str, Any], *fields: str) -> str:
     )
 
 
-def _path_is_link_or_reparse(path: Path) -> bool:
-    """Reject symlinks and Windows reparse points, including NTFS junctions."""
-
-    try:
-        if path.is_symlink():
-            return True
-        attributes = int(getattr(path.lstat(), "st_file_attributes", 0))
-    except OSError:
-        return False
-    return bool(
-        attributes & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
-    )
-
-
 def _regular_tree_files(root: Path) -> tuple[list[Path], list[str]]:
     """Enumerate one tree without crossing any link or reparse boundary."""
 
-    if _path_is_link_or_reparse(root):
+    if path_is_link_or_reparse(root):
         return [], [f"path is a link or reparse point: {root}"]
     files: list[Path] = []
     pending = [root]
@@ -96,7 +88,7 @@ def _regular_tree_files(root: Path) -> tuple[list[Path], list[str]]:
             errors.append(f"cannot enumerate protected tree {directory}: {exc}")
             continue
         for entry in entries:
-            if _path_is_link_or_reparse(entry):
+            if path_is_link_or_reparse(entry):
                 errors.append(f"path is a link or reparse point: {entry}")
             elif entry.is_dir():
                 pending.append(entry)
@@ -111,7 +103,7 @@ def _contained_child_errors(path: Path, parent: Path, label: str) -> list[str]:
     """Prove one package child is direct, regular, and not redirected."""
 
     errors: list[str] = []
-    if _path_is_link_or_reparse(path):
+    if path_is_link_or_reparse(path):
         errors.append(f"{label} is a link or reparse point")
     try:
         if path.resolve().parent != parent.resolve():
@@ -119,14 +111,6 @@ def _contained_child_errors(path: Path, parent: Path, label: str) -> list[str]:
     except OSError:
         errors.append(f"{label} cannot be resolved")
     return errors
-
-
-def package_root_errors(package_dir: Path) -> list[str]:
-    """Reject a package root whose name redirects to another filesystem path."""
-
-    if _path_is_link_or_reparse(package_dir):
-        return ["audit package root is a link or reparse point"]
-    return []
 
 
 def _copy_locked(source: Path, target: Path, role: str) -> dict[str, Any]:
@@ -999,7 +983,7 @@ def _sealed_work_unit_snapshot(
         (snapshot_dir, snapshot_audit_root),
     )
     for path, expected_parent in containment_checks:
-        if _path_is_link_or_reparse(path):
+        if path_is_link_or_reparse(path):
             errors.append("sealed work-unit snapshot path is a link or reparse point")
         try:
             if path.resolve().parent != expected_parent.resolve():
@@ -1541,7 +1525,7 @@ def _commit_audit_transition(
             source = bundle / WORK_UNIT_DIRECTORY / relative_path
             if (
                 not source.is_file()
-                or _path_is_link_or_reparse(source)
+                or path_is_link_or_reparse(source)
                 or not source.resolve().is_relative_to(source_root)
                 or file_sha256(source) != expected_sha256
             ):
@@ -1584,7 +1568,7 @@ def _commit_audit_transition(
             (snapshot_root, seal_dir),
             (snapshot_audit_root, snapshot_root),
         ):
-            if _path_is_link_or_reparse(path) or (
+            if path_is_link_or_reparse(path) or (
                 path.resolve().parent != expected_parent.resolve()
             ):
                 raise ValueError("work-unit snapshot target leaves its sealed root")
@@ -1671,9 +1655,9 @@ def _commit_audit_transition(
         if snapshot_replaced and snapshot_target.exists():
             try:
                 if (
-                    _path_is_link_or_reparse(snapshot_root)
-                    or _path_is_link_or_reparse(snapshot_audit_root)
-                    or _path_is_link_or_reparse(snapshot_target)
+                    path_is_link_or_reparse(snapshot_root)
+                    or path_is_link_or_reparse(snapshot_audit_root)
+                    or path_is_link_or_reparse(snapshot_target)
                     or snapshot_root.resolve().parent != seal_dir.resolve()
                     or snapshot_audit_root.resolve().parent
                     != snapshot_root.resolve()
@@ -1961,7 +1945,7 @@ def _audit_history_errors(
     snapshot_entries: list[Path] = []
     snapshot_root = snapshot_audit_root.parent
     if snapshot_audit_root.exists():
-        if _path_is_link_or_reparse(snapshot_audit_root) or (
+        if path_is_link_or_reparse(snapshot_audit_root) or (
             snapshot_audit_root.resolve().parent != snapshot_root.resolve()
         ):
             errors.append(
@@ -1970,7 +1954,7 @@ def _audit_history_errors(
         else:
             snapshot_entries = list(snapshot_audit_root.iterdir())
     reparse_entries = [
-        path for path in snapshot_entries if _path_is_link_or_reparse(path)
+        path for path in snapshot_entries if path_is_link_or_reparse(path)
     ]
     if reparse_entries:
         errors.append(
@@ -2173,14 +2157,14 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
         errors.append("the two sealed audits reuse one host isolation receipt")
     snapshot_root = seal_root / WORK_UNIT_SNAPSHOT_ROOT
     if snapshot_root.exists() and (
-        _path_is_link_or_reparse(snapshot_root)
+        path_is_link_or_reparse(snapshot_root)
         or snapshot_root.resolve().parent != seal_root.resolve()
     ):
         errors.append("sealed work-unit snapshot root leaves the audit-seal directory")
     elif snapshot_root.is_dir():
         snapshot_children = list(snapshot_root.iterdir())
         if (
-            any(_path_is_link_or_reparse(path) for path in snapshot_children)
+            any(path_is_link_or_reparse(path) for path in snapshot_children)
             or any(path.is_file() for path in snapshot_children)
             or {
                 path.name for path in snapshot_children if path.is_dir()

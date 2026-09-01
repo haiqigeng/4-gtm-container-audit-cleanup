@@ -16,7 +16,13 @@ from gtm_audit_contract import (
     semantic_contract_errors,
 )
 from gtm_cleanroom_audit import AUDIT_IDS, ISOLATION_MECHANISMS, sealed_audit_errors
-from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_lib import (
+    as_list,
+    file_sha256,
+    require_safe_package_root,
+    stable_hash,
+    write_json,
+)
 from gtm_reasoning_identity import used_reasoning_identities
 
 RECONCILIATION_FILE = "reconciliation.json"
@@ -321,7 +327,12 @@ def _comparison_row(
     return comparison, queue
 
 
-def scaffold_reconciliation(package_dir: Path) -> dict[str, Any]:
+def _reconciliation_scaffold_payloads(
+    package_dir: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Reconstruct the only valid scaffold and neutral queue from sealed inputs."""
+
+    require_safe_package_root(package_dir)
     errors = sealed_audit_errors(package_dir)
     if errors:
         raise ValueError("sealed-audit gate failed: " + "; ".join(errors))
@@ -431,14 +442,19 @@ def scaffold_reconciliation(package_dir: Path) -> dict[str, Any]:
         reconciliation, 64
     )
     neutral["neutral_queue_sha256"] = stable_hash(neutral, 64)
+    return reconciliation, neutral
+
+
+def scaffold_reconciliation(package_dir: Path) -> dict[str, Any]:
+    reconciliation, neutral = _reconciliation_scaffold_payloads(package_dir)
     write_json(package_dir / RECONCILIATION_SCAFFOLD_FILE, reconciliation)
     write_json(package_dir / NEUTRAL_QUEUE_FILE, neutral)
     write_json(package_dir / RECONCILIATION_FILE, reconciliation)
     write_json(package_dir / NEUTRAL_FILE, neutral)
     return {
         "status": "pass",
-        "comparisons": len(comparisons),
-        "neutral_verifications": len(neutral_queue),
+        "comparisons": len(as_list(reconciliation.get("comparisons"))),
+        "neutral_verifications": len(as_list(neutral.get("verifications"))),
         "reconciliation_file": RECONCILIATION_FILE,
         "neutral_file": NEUTRAL_FILE,
     }
@@ -448,6 +464,8 @@ def _neutral_errors(
     package_dir: Path, neutral: dict[str, Any], expected: dict[str, Any]
 ) -> list[str]:
     errors: list[str] = []
+    if set(neutral) != set(expected):
+        errors.append("neutral verification top-level schema differs from its queue")
     expected_rows = {
         str(row.get("verification_id") or ""): row
         for row in as_list(expected.get("verifications"))
@@ -473,6 +491,8 @@ def _neutral_errors(
         if not row:
             continue
         label = f"neutral verification {verification_id}"
+        if set(row) != set(expected_row):
+            errors.append(f"{label}: schema contains missing or undeclared fields")
         for field in (
             "verification_id",
             "obligation_id",
@@ -547,15 +567,21 @@ def finalize_reconciliation(
     package_dir: Path,
     reconciliation_path: Path | None = None,
     neutral_path: Path | None = None,
+    *,
+    _validate_only: bool = False,
 ) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     base_reconciliation_path = package_dir / RECONCILIATION_SCAFFOLD_FILE
     base_neutral_path = package_dir / NEUTRAL_QUEUE_FILE
     if not base_reconciliation_path.is_file() or not base_neutral_path.is_file():
         raise ValueError("reconciliation must be scaffolded first")
-    expected_reconciliation = json.loads(
+    expected_reconciliation, expected_neutral = _reconciliation_scaffold_payloads(
+        package_dir
+    )
+    stored_reconciliation = json.loads(
         base_reconciliation_path.read_text(encoding="utf-8")
     )
-    expected_neutral = json.loads(base_neutral_path.read_text(encoding="utf-8"))
+    stored_neutral = json.loads(base_neutral_path.read_text(encoding="utf-8"))
     reconciliation = json.loads(
         (reconciliation_path or package_dir / RECONCILIATION_FILE).read_text(
             encoding="utf-8"
@@ -564,7 +590,18 @@ def finalize_reconciliation(
     neutral = json.loads(
         (neutral_path or package_dir / NEUTRAL_FILE).read_text(encoding="utf-8")
     )
-    errors = _neutral_errors(package_dir, neutral, expected_neutral)
+    errors: list[str] = []
+    if stored_reconciliation != expected_reconciliation:
+        errors.append(
+            "reconciliation scaffold differs from deterministic sealed-audit reconstruction"
+        )
+    if stored_neutral != expected_neutral:
+        errors.append(
+            "neutral queue differs from deterministic sealed-audit reconstruction"
+        )
+    if set(reconciliation) != set(expected_reconciliation):
+        errors.append("reconciliation top-level schema differs from its scaffold")
+    errors.extend(_neutral_errors(package_dir, neutral, expected_neutral))
     expected_rows = {
         str(row.get("comparison_id") or ""): row
         for row in as_list(expected_reconciliation.get("comparisons"))
@@ -589,6 +626,8 @@ def finalize_reconciliation(
         if not row:
             continue
         label = f"reconciliation {comparison_id}"
+        if set(row) != set(expected):
+            errors.append(f"{label}: schema contains missing or undeclared fields")
         for field in (
             "comparison_id",
             "obligation_id",
@@ -704,12 +743,25 @@ def finalize_reconciliation(
         ),
     }
     record["reconciled_record_sha256"] = stable_hash(record, 64)
+    if _validate_only:
+        return record
     record_path = package_dir / RECONCILED_RECORD_FILE
     write_json(record_path, record)
     seal = {
         "kind": "gtm_reconciliation_seal",
         "schema_version": 1,
         "source_sha256": record.get("source_sha256"),
+        "audit_seal_sha256": record.get("audit_seal_sha256"),
+        "reconciliation_scaffold_sha256": expected_reconciliation.get(
+            "reconciliation_scaffold_sha256"
+        ),
+        "neutral_queue_sha256": expected_neutral.get("neutral_queue_sha256"),
+        "reconciliation_file_sha256": file_sha256(
+            reconciliation_path or package_dir / RECONCILIATION_FILE
+        ),
+        "neutral_file_sha256": file_sha256(
+            neutral_path or package_dir / NEUTRAL_FILE
+        ),
         "reconciled_record_sha256": record.get("reconciled_record_sha256"),
         "reconciled_file_sha256": file_sha256(record_path),
         "validator_status": "pass",
@@ -722,6 +774,55 @@ def finalize_reconciliation(
         "reconciled_record_sha256": record["reconciled_record_sha256"],
         "reconciliation_seal_sha256": seal["reconciliation_seal_sha256"],
     }
+
+
+def reconciliation_seal_errors(package_dir: Path) -> list[str]:
+    """Reconstruct the reconciled record and its exact seal from sealed authority."""
+
+    require_safe_package_root(package_dir)
+    record_path = package_dir / RECONCILED_RECORD_FILE
+    seal_path = package_dir / RECONCILIATION_SEAL_FILE
+    reconciliation_path = package_dir / RECONCILIATION_FILE
+    neutral_path = package_dir / NEUTRAL_FILE
+    required = (record_path, seal_path, reconciliation_path, neutral_path)
+    if not all(path.is_file() for path in required):
+        return ["sealed reconciled decision record or its authority files are missing"]
+    errors: list[str] = []
+    try:
+        expected_record = finalize_reconciliation(
+            package_dir,
+            reconciliation_path,
+            neutral_path,
+            _validate_only=True,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return [f"reconciliation reconstruction failed: {exc}"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if record != expected_record:
+        errors.append("reconciled decision record differs from deterministic reconstruction")
+    seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    expected_scaffold, expected_neutral = _reconciliation_scaffold_payloads(
+        package_dir
+    )
+    expected_seal = {
+        "kind": "gtm_reconciliation_seal",
+        "schema_version": 1,
+        "source_sha256": expected_record.get("source_sha256"),
+        "audit_seal_sha256": expected_record.get("audit_seal_sha256"),
+        "reconciliation_scaffold_sha256": expected_scaffold.get(
+            "reconciliation_scaffold_sha256"
+        ),
+        "neutral_queue_sha256": expected_neutral.get("neutral_queue_sha256"),
+        "reconciliation_file_sha256": file_sha256(reconciliation_path),
+        "neutral_file_sha256": file_sha256(neutral_path),
+        "reconciled_record_sha256": expected_record.get("reconciled_record_sha256"),
+        "reconciled_file_sha256": file_sha256(record_path),
+        "validator_status": "pass",
+    }
+    expected_seal["reconciliation_seal_sha256"] = stable_hash(expected_seal, 64)
+    if seal != expected_seal:
+        errors.append("reconciliation seal differs from exact reconstructed authority")
+    return errors
 
 
 def main() -> int:

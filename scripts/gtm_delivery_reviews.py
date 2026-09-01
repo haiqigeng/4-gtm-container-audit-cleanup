@@ -11,8 +11,12 @@ from typing import Any
 
 from gtm_canonical_record import canonical_record_seal_errors
 from gtm_cleanroom_audit import ISOLATION_MECHANISMS
-from gtm_delivery_mapper import DELIVERY_ROOT, editorial_seal_errors
-from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_delivery_mapper import (
+    DELIVERY_ROOT,
+    delivery_map_from_record,
+    editorial_seal_errors,
+)
+from gtm_lib import as_list, file_sha256, require_safe_package_root, stable_hash, write_json
 from gtm_reasoning_identity import (
     collect_reasoning_identity_registry,
     reasoning_identity_reuse_errors,
@@ -164,6 +168,7 @@ def _current_build(package_dir: Path) -> tuple[Path, dict[str, Any], list[str]]:
 
 
 def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     errors = canonical_record_seal_errors(package_dir)
     errors.extend(editorial_seal_errors(package_dir))
     build_dir, manifest, build_errors = _current_build(package_dir)
@@ -175,7 +180,13 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
         raise ValueError("delivery review bundles already exist for this build")
     reviews.mkdir()
     delivery = package_dir / DELIVERY_ROOT
-    delivery_map = _load(delivery / "delivery-map.json")
+    sealed_delivery_map = _load(delivery / "delivery-map.json")
+    canonical = _load(package_dir / "canonical-record.json")
+    delivery_map = delivery_map_from_record(
+        canonical, str(sealed_delivery_map.get("language") or "English")
+    )
+    if delivery_map != sealed_delivery_map:
+        raise ValueError("delivery map differs from canonical reconstruction")
     editorial = _load(delivery / "editorial.json")
     editorial_rows = {str(row.get("row_id") or ""): row for row in as_list(editorial.get("rows"))}
     row_locations = {
@@ -208,6 +219,7 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
         "kind": "gtm_workbook_fidelity_input",
         "schema_version": 1,
         "workbook_file_sha256": manifest.get("workbook_file_sha256"),
+        "canonical_record_sha256": canonical.get("canonical_record_sha256"),
         "delivery_map_sha256": delivery_map.get("delivery_map_sha256"),
         "rows": fidelity_rows,
         "overview_canonical": delivery_map.get("overview", {}),
@@ -445,6 +457,7 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
 
 
 def seal_delivery(package_dir: Path) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     build_dir, manifest, errors = _current_build(package_dir)
     errors.extend(canonical_record_seal_errors(package_dir))
     errors.extend(editorial_seal_errors(package_dir))

@@ -17,13 +17,29 @@ from gtm_audit_contract import (
     semantic_contract_errors,
 )
 from gtm_fixed_point import fixed_point_seal_errors
-from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_lib import as_list, file_sha256, require_safe_package_root, stable_hash, write_json
 from gtm_operation_model import operation_action_identity, operation_packet_sha256
 from gtm_target_synthesis import reconciliation_seal_errors
 
 CANONICAL_RECORD_FILE = "canonical-record.json"
 CANONICAL_MANIFEST_FILE = "canonical-record-manifest.json"
 CANONICAL_SEAL_FILE = "canonical-record-seal.json"
+CANONICAL_INPUTS = (
+    "audit-package-manifest.json",
+    "canonical-scan.json",
+    "scan-assurance.json",
+    "obligation-ledger.json",
+    "reconciled-decisions.json",
+    "reconciliation-seal.json",
+    "operation-packet.json",
+    "fixed-point/fixed-point-proof.json",
+    "fixed-point/fixed-point-seal.json",
+    "fixed-point/projection-decisions.json",
+    "fixed-point/replay/projected-container.json",
+    "fixed-point/replay/canonical-scan.json",
+    "fixed-point/replay/scan-assurance.json",
+    "fixed-point/replay/obligation-ledger.json",
+)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -208,13 +224,16 @@ def _object_directory(scan: dict[str, Any]) -> list[dict[str, Any]]:
     )
 
 
-def build_canonical_record(package_dir: Path) -> dict[str, Any]:
+def build_canonical_record(
+    package_dir: Path, *, _validate_only: bool = False
+) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     errors = reconciliation_seal_errors(package_dir)
     errors.extend(fixed_point_seal_errors(package_dir))
     if errors:
         raise ValueError("canonical seal prerequisites failed: " + "; ".join(errors))
     record_path = package_dir / CANONICAL_RECORD_FILE
-    if record_path.exists():
+    if record_path.exists() and not _validate_only:
         raise ValueError("canonical record already exists and is immutable")
     source_manifest = _load(package_dir / "audit-package-manifest.json")
     source_scan = _load(package_dir / "canonical-scan.json")
@@ -319,23 +338,9 @@ def build_canonical_record(package_dir: Path) -> dict[str, Any]:
         },
     }
     record["canonical_record_sha256"] = stable_hash(record, 64)
+    if _validate_only:
+        return record
     write_json(record_path, record)
-    inputs = [
-        "audit-package-manifest.json",
-        "canonical-scan.json",
-        "scan-assurance.json",
-        "obligation-ledger.json",
-        "reconciled-decisions.json",
-        "reconciliation-seal.json",
-        "operation-packet.json",
-        "fixed-point/fixed-point-proof.json",
-        "fixed-point/fixed-point-seal.json",
-        "fixed-point/projection-decisions.json",
-        "fixed-point/replay/projected-container.json",
-        "fixed-point/replay/canonical-scan.json",
-        "fixed-point/replay/scan-assurance.json",
-        "fixed-point/replay/obligation-ledger.json",
-    ]
     manifest = {
         "kind": "gtm_canonical_record_manifest",
         "schema_version": 1,
@@ -346,7 +351,7 @@ def build_canonical_record(package_dir: Path) -> dict[str, Any]:
                 "path": path,
                 "sha256": file_sha256(package_dir / path),
             }
-            for path in inputs
+            for path in CANONICAL_INPUTS
         ],
         "record_counts": {
             "audit_decisions": len(decisions),
@@ -381,6 +386,7 @@ def build_canonical_record(package_dir: Path) -> dict[str, Any]:
 
 
 def canonical_record_seal_errors(package_dir: Path) -> list[str]:
+    require_safe_package_root(package_dir)
     record_path = package_dir / CANONICAL_RECORD_FILE
     manifest_path = package_dir / CANONICAL_MANIFEST_FILE
     seal_path = package_dir / CANONICAL_SEAL_FILE
@@ -389,7 +395,13 @@ def canonical_record_seal_errors(package_dir: Path) -> list[str]:
     record = _load(record_path)
     manifest = _load(manifest_path)
     seal = _load(seal_path)
-    errors = []
+    errors: list[str] = []
+    try:
+        expected_record = build_canonical_record(package_dir, _validate_only=True)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return [f"canonical record reconstruction failed: {exc}"]
+    if record != expected_record:
+        errors.append("canonical record differs from deterministic reconstruction")
     if record.get("canonical_record_sha256") != _hash_without(
         record, "canonical_record_sha256"
     ):
@@ -420,12 +432,59 @@ def canonical_record_seal_errors(package_dir: Path) -> list[str]:
         errors.append("canonical seal is bound to another manifest")
     if seal.get("canonical_manifest_file_sha256") != file_sha256(manifest_path):
         errors.append("canonical manifest changed after sealing")
-    for item in as_list(manifest.get("inputs")):
+    input_rows = [
+        item for item in as_list(manifest.get("inputs")) if isinstance(item, dict)
+    ]
+    input_paths = [str(item.get("path") or "") for item in input_rows]
+    if input_paths != list(CANONICAL_INPUTS) or len(input_paths) != len(
+        set(input_paths)
+    ):
+        errors.append("canonical manifest input inventory is not the exact closed set")
+    for item in input_rows:
         path = package_dir / str(item.get("path") or "")
         if not path.is_file() or file_sha256(path) != item.get("sha256"):
             errors.append(f"canonical record input changed: {item.get('path')}")
     if seal.get("validator_status") != "pass":
         errors.append("canonical record validator did not pass")
+    expected_manifest = {
+        "kind": "gtm_canonical_record_manifest",
+        "schema_version": 1,
+        "canonical_record_sha256": expected_record.get("canonical_record_sha256"),
+        "canonical_record_file_sha256": file_sha256(record_path),
+        "inputs": [
+            {"path": path, "sha256": file_sha256(package_dir / path)}
+            for path in CANONICAL_INPUTS
+        ],
+        "record_counts": {
+            "audit_decisions": len(as_list(expected_record.get("audit_decisions"))),
+            "operations": len(as_list(expected_record.get("operations"))),
+            "owner_decisions": len(as_list(expected_record.get("owner_decision_ids"))),
+            "custom_code_decisions": len(
+                as_list(expected_record.get("custom_code_decision_ids"))
+            ),
+        },
+    }
+    expected_manifest["canonical_manifest_sha256"] = stable_hash(
+        expected_manifest, 64
+    )
+    if manifest != expected_manifest:
+        errors.append("canonical manifest differs from exact reconstructed inventory")
+    expected_seal = {
+        "kind": "gtm_canonical_record_seal",
+        "schema_version": 1,
+        "canonical_record_sha256": expected_record.get("canonical_record_sha256"),
+        "canonical_record_file_sha256": file_sha256(record_path),
+        "canonical_manifest_sha256": expected_manifest.get(
+            "canonical_manifest_sha256"
+        ),
+        "canonical_manifest_file_sha256": file_sha256(manifest_path),
+        "validator_status": "pass",
+    }
+    expected_seal["canonical_record_seal_sha256"] = _hash_without(
+        expected_seal, "canonical_record_seal_sha256"
+    )
+    if seal != expected_seal:
+        errors.append("canonical seal differs from deterministic reconstruction")
     return errors
 
 

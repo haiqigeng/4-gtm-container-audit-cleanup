@@ -15,7 +15,13 @@ from gtm_audit_contract import (
     semantic_contract_errors,
 )
 from gtm_cleanroom_audit import ISOLATION_MECHANISMS, operation_proposal_errors
-from gtm_lib import as_list, file_sha256, stable_hash, write_json
+from gtm_lib import (
+    as_list,
+    file_sha256,
+    require_safe_package_root,
+    stable_hash,
+    write_json,
+)
 from gtm_reasoning_identity import (
     collect_reasoning_identity_registry,
     reasoning_identity_reuse_errors,
@@ -98,6 +104,7 @@ def prepare_projection_reviews(
     cycle_number: int,
     delta_ledger: dict[str, Any],
 ) -> dict[str, Any]:
+    require_safe_package_root(cycle_dir.parents[1])
     root = cycle_dir / REVIEW_ROOT
     if root.exists():
         raise ValueError("projection review bundles already exist for this cycle")
@@ -215,6 +222,7 @@ def _manifest_errors(bundle: Path) -> list[str]:
 
 
 def validate_projection_review(cycle_dir: Path, review_id: str) -> list[str]:
+    require_safe_package_root(cycle_dir.parents[1])
     if review_id not in REVIEW_IDS:
         return [f"unsupported projection review: {review_id}"]
     bundle = cycle_dir / REVIEW_ROOT / review_id
@@ -313,6 +321,7 @@ def validate_projection_review(cycle_dir: Path, review_id: str) -> list[str]:
 
 
 def seal_projection_review(package_dir: Path, cycle_number: int, review_id: str) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     cycle_dir = package_dir / "fixed-point" / f"cycle-{cycle_number:02d}"
     errors = validate_projection_review(cycle_dir, review_id)
     if errors:
@@ -355,6 +364,7 @@ def seal_projection_review(package_dir: Path, cycle_number: int, review_id: str)
 
 
 def _sealed_review_errors(cycle_dir: Path) -> list[str]:
+    require_safe_package_root(cycle_dir.parents[1])
     errors = []
     contexts = []
     receipt_ids = []
@@ -379,7 +389,12 @@ def _sealed_review_errors(cycle_dir: Path) -> list[str]:
     return errors
 
 
-def scaffold_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
+def _projection_reconciliation_payloads(
+    cycle_dir: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Reconstruct the only valid projection scaffold from sealed reviews."""
+
+    require_safe_package_root(cycle_dir.parents[1])
     errors = _sealed_review_errors(cycle_dir)
     if errors:
         raise ValueError("projection review seals failed: " + "; ".join(errors))
@@ -488,14 +503,19 @@ def scaffold_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
     }
     reconciliation["reconciliation_scaffold_sha256"] = stable_hash(reconciliation, 64)
     neutral["neutral_queue_sha256"] = stable_hash(neutral, 64)
+    return reconciliation, neutral
+
+
+def scaffold_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
+    reconciliation, neutral = _projection_reconciliation_payloads(cycle_dir)
     write_json(cycle_dir / RECONCILIATION_SCAFFOLD_FILE, reconciliation)
     write_json(cycle_dir / RECONCILIATION_FILE, reconciliation)
     write_json(cycle_dir / NEUTRAL_QUEUE_FILE, neutral)
     write_json(cycle_dir / NEUTRAL_FILE, neutral)
     return {
         "status": "ready_for_projection_reconciliation",
-        "comparisons": len(comparisons),
-        "neutral_verifications": len(neutral_rows),
+        "comparisons": len(as_list(reconciliation.get("comparisons"))),
+        "neutral_verifications": len(as_list(neutral.get("verifications"))),
     }
 
 
@@ -503,6 +523,8 @@ def _neutral_errors(
     cycle_dir: Path, neutral: dict[str, Any], expected: dict[str, Any]
 ) -> list[str]:
     errors = []
+    if set(neutral) != set(expected):
+        errors.append("projection neutral top-level schema differs from its queue")
     expected_rows = {
         str(row.get("verification_id") or ""): row for row in as_list(expected.get("verifications"))
     }
@@ -522,6 +544,8 @@ def _neutral_errors(
         if not row:
             continue
         label = f"projection neutral verification {verification_id}"
+        if set(row) != set(expected_row):
+            errors.append(f"{label}: schema contains missing or undeclared fields")
         for field in (
             "verification_id",
             *LOCKED_DECISION_FIELDS,
@@ -554,16 +578,31 @@ def _neutral_errors(
     return errors
 
 
-def finalize_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
+def finalize_projection_reconciliation(
+    cycle_dir: Path, *, _validate_only: bool = False
+) -> dict[str, Any]:
+    require_safe_package_root(cycle_dir.parents[1])
     scaffold_path = cycle_dir / RECONCILIATION_SCAFFOLD_FILE
     neutral_queue_path = cycle_dir / NEUTRAL_QUEUE_FILE
     if not scaffold_path.is_file() or not neutral_queue_path.is_file():
         raise ValueError("projection reconciliation must be scaffolded first")
-    expected = json.loads(scaffold_path.read_text(encoding="utf-8"))
-    expected_neutral = json.loads(neutral_queue_path.read_text(encoding="utf-8"))
+    expected, expected_neutral = _projection_reconciliation_payloads(cycle_dir)
+    stored_scaffold = json.loads(scaffold_path.read_text(encoding="utf-8"))
+    stored_neutral = json.loads(neutral_queue_path.read_text(encoding="utf-8"))
     reconciliation = json.loads((cycle_dir / RECONCILIATION_FILE).read_text(encoding="utf-8"))
     neutral = json.loads((cycle_dir / NEUTRAL_FILE).read_text(encoding="utf-8"))
-    errors = _neutral_errors(cycle_dir, neutral, expected_neutral)
+    errors: list[str] = []
+    if stored_scaffold != expected:
+        errors.append(
+            "projection reconciliation scaffold differs from sealed-review reconstruction"
+        )
+    if stored_neutral != expected_neutral:
+        errors.append(
+            "projection neutral queue differs from sealed-review reconstruction"
+        )
+    if set(reconciliation) != set(expected):
+        errors.append("projection reconciliation top-level schema differs from its scaffold")
+    errors.extend(_neutral_errors(cycle_dir, neutral, expected_neutral))
     expected_rows = {
         str(row.get("comparison_id") or ""): row for row in as_list(expected.get("comparisons"))
     }
@@ -582,6 +621,8 @@ def finalize_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
         if not row:
             continue
         label = f"projection reconciliation {comparison_id}"
+        if set(row) != set(expected_row):
+            errors.append(f"{label}: schema contains missing or undeclared fields")
         for field in (
             "comparison_id",
             *LOCKED_DECISION_FIELDS,
@@ -645,12 +686,30 @@ def finalize_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
         ),
     }
     closure["projection_closure_sha256"] = stable_hash(closure, 64)
+    if _validate_only:
+        return closure
     closure_path = cycle_dir / CLOSURE_FILE
     write_json(closure_path, closure)
     seal = {
         "kind": "gtm_projection_closure_seal",
         "schema_version": 1,
         "cycle_number": expected.get("cycle_number"),
+        "review_seal_sha256": {
+            review_id: json.loads(
+                (cycle_dir / REVIEW_SEAL_ROOT / f"{review_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            ).get("review_seal_sha256")
+            for review_id in REVIEW_IDS
+        },
+        "reconciliation_scaffold_sha256": expected.get(
+            "reconciliation_scaffold_sha256"
+        ),
+        "neutral_queue_sha256": expected_neutral.get("neutral_queue_sha256"),
+        "reconciliation_file_sha256": file_sha256(
+            cycle_dir / RECONCILIATION_FILE
+        ),
+        "neutral_file_sha256": file_sha256(cycle_dir / NEUTRAL_FILE),
         "projection_closure_sha256": closure["projection_closure_sha256"],
         "projection_closure_file_sha256": file_sha256(closure_path),
         "validator_status": "pass",
@@ -666,6 +725,61 @@ def finalize_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
         ),
         "projection_closure_sha256": closure["projection_closure_sha256"],
     }
+
+
+def projection_closure_seal_errors(
+    cycle_dir: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    """Reconstruct one projection closure and its seal from review authority."""
+
+    require_safe_package_root(cycle_dir.parents[1])
+    closure_path = cycle_dir / CLOSURE_FILE
+    seal_path = cycle_dir / CLOSURE_SEAL_FILE
+    reconciliation_path = cycle_dir / RECONCILIATION_FILE
+    neutral_path = cycle_dir / NEUTRAL_FILE
+    required = (closure_path, seal_path, reconciliation_path, neutral_path)
+    if not all(path.is_file() for path in required):
+        return {}, ["sealed projection closure or its authority files are missing"]
+    try:
+        expected = finalize_projection_reconciliation(
+            cycle_dir, _validate_only=True
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return {}, [f"projection closure reconstruction failed: {exc}"]
+    closure = json.loads(closure_path.read_text(encoding="utf-8"))
+    errors: list[str] = []
+    if closure != expected:
+        errors.append("projection closure differs from deterministic reconstruction")
+    scaffold, neutral_queue = _projection_reconciliation_payloads(cycle_dir)
+    expected_seal = {
+        "kind": "gtm_projection_closure_seal",
+        "schema_version": 1,
+        "cycle_number": expected.get("cycle_number"),
+        "review_seal_sha256": {
+            review_id: json.loads(
+                (cycle_dir / REVIEW_SEAL_ROOT / f"{review_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            ).get("review_seal_sha256")
+            for review_id in REVIEW_IDS
+        },
+        "reconciliation_scaffold_sha256": scaffold.get(
+            "reconciliation_scaffold_sha256"
+        ),
+        "neutral_queue_sha256": neutral_queue.get("neutral_queue_sha256"),
+        "reconciliation_file_sha256": file_sha256(reconciliation_path),
+        "neutral_file_sha256": file_sha256(neutral_path),
+        "projection_closure_sha256": expected.get("projection_closure_sha256"),
+        "projection_closure_file_sha256": file_sha256(closure_path),
+        "validator_status": "pass",
+    }
+    expected_seal["projection_closure_seal_sha256"] = _hash_without(
+        expected_seal, "projection_closure_seal_sha256"
+    )
+    seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    if seal != expected_seal:
+        errors.append("projection closure seal differs from reconstructed authority")
+    return closure, errors
 
 
 def main() -> int:
