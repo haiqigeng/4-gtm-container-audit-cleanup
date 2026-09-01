@@ -21,6 +21,7 @@ FAKE_UNEXPECTED = "/".join(("scripts", "unexpected.py"))
 
 import build_skill_package  # noqa: E402
 import gtm_self_test  # noqa: E402
+import gtm_skill_identity as skill_identity  # noqa: E402
 import gtm_vendor_registry as vendor_registry  # noqa: E402
 from check_release import (  # noqa: E402
     coverage_profile_minimums,
@@ -52,6 +53,122 @@ def coverage_payload(
             "covered_branches": 4,
         },
     }
+
+
+def write_identity_fixture(root: Path, marker: str = "same") -> None:
+    (root / "agents").mkdir(parents=True)
+    (root / "references").mkdir()
+    (root / "scripts").mkdir()
+    (root / "SKILL.md").write_text(f"# Skill {marker}\n", encoding="utf-8")
+    (root / "LICENSE").write_text("MIT\n", encoding="utf-8")
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "fixture"\nversion = "2.0.0"\n', encoding="utf-8"
+    )
+    (root / "agents" / "openai.yaml").write_text("name: fixture\n", encoding="utf-8")
+    (root / "references" / "rule.md").write_text("# Rule\n", encoding="utf-8")
+    (root / "scripts" / "runtime.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+
+class RuntimeIdentityGateTests(unittest.TestCase):
+    def test_identity_verification_reports_exact_runtime_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            expected = root / "expected"
+            actual = root / "actual"
+            write_identity_fixture(expected)
+            write_identity_fixture(actual)
+            declared = skill_identity.write_manifest(actual)
+            declared["source_git_dirty"] = False
+            (actual / skill_identity.MANIFEST_NAME).write_text(
+                json.dumps(declared, indent=2) + "\n", encoding="utf-8"
+            )
+            report, errors = skill_identity.verify_identity(expected, actual)
+            self.assertEqual([], errors)
+            self.assertEqual("pass", report["status"])
+
+            (actual / "SKILL.md").write_text("# changed\n", encoding="utf-8")
+            (actual / "scripts" / "unexpected.py").write_text(
+                "VALUE = 2\n", encoding="utf-8"
+            )
+            (actual / "references" / "rule.md").unlink()
+            report, errors = skill_identity.verify_identity(expected, actual)
+            self.assertEqual(["references/rule.md"], report["missing_files"])
+            self.assertEqual(["scripts/unexpected.py"], report["unexpected_files"])
+            self.assertEqual(["SKILL.md"], report["changed_files"])
+            self.assertTrue(any("manifest" in error.lower() for error in errors))
+
+    def test_declared_identity_and_clean_git_fallback_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_identity_fixture(root)
+            report, errors = skill_identity.declared_identity_errors(root)
+            self.assertEqual("fail", report["status"])
+            self.assertTrue(any("missing" in error for error in errors))
+
+            report, errors = skill_identity.declared_identity_errors(
+                root, require_manifest=False
+            )
+            self.assertEqual([], errors)
+            self.assertEqual("pass", report["status"])
+
+            manifest_path = root / skill_identity.MANIFEST_NAME
+            manifest_path.write_text("not-json", encoding="utf-8")
+            _, errors = skill_identity.declared_identity_errors(root)
+            self.assertTrue(any("valid JSON" in error for error in errors))
+
+            declared = skill_identity.build_identity(root)
+            declared.update(
+                {
+                    "kind": "wrong",
+                    "schema_version": 99,
+                    "source_git_dirty": True,
+                    "runtime_file_count": -1,
+                }
+            )
+            manifest_path.write_text(
+                json.dumps(declared, indent=2) + "\n", encoding="utf-8"
+            )
+            _, errors = skill_identity.declared_identity_errors(root)
+            self.assertTrue(any("kind is invalid" in error for error in errors))
+            self.assertTrue(any("schema_version" in error for error in errors))
+            self.assertTrue(any("runtime_file_count" in error for error in errors))
+            self.assertTrue(any("dirty" in error for error in errors))
+
+    def test_clean_git_identity_errors_cover_every_provenance_boundary(self) -> None:
+        actual = {"files": {"SKILL.md": "hash", "scripts/new.py": "hash"}}
+        root = Path("fixture")
+        with mock.patch.object(skill_identity, "git_commit", return_value=""):
+            self.assertIn(
+                "no readable Git commit",
+                skill_identity.clean_git_identity_errors(root, actual)[0],
+            )
+        with (
+            mock.patch.object(skill_identity, "git_commit", return_value="commit"),
+            mock.patch.object(skill_identity, "git_dirty", return_value=True),
+        ):
+            self.assertIn(
+                "dirty", skill_identity.clean_git_identity_errors(root, actual)[0]
+            )
+        with (
+            mock.patch.object(skill_identity, "git_commit", return_value="commit"),
+            mock.patch.object(skill_identity, "git_dirty", return_value=False),
+            mock.patch.object(skill_identity, "git_tracked_files", return_value=None),
+        ):
+            self.assertIn(
+                "cannot be read",
+                skill_identity.clean_git_identity_errors(root, actual)[0],
+            )
+        with (
+            mock.patch.object(skill_identity, "git_commit", return_value="commit"),
+            mock.patch.object(skill_identity, "git_dirty", return_value=False),
+            mock.patch.object(
+                skill_identity, "git_tracked_files", return_value={"SKILL.md"}
+            ),
+        ):
+            self.assertIn(
+                "runtime files are not tracked",
+                skill_identity.clean_git_identity_errors(root, actual)[0],
+            )
 
 
 class CompleteCoverageGateTests(unittest.TestCase):

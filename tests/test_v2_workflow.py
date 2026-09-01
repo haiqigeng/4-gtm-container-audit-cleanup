@@ -703,6 +703,36 @@ class V2WorkflowTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_protected_tree_enumeration_never_crosses_redirects(self) -> None:
+        tree = self.root / "protected-tree"
+        nested = tree / "nested"
+        nested.mkdir(parents=True)
+        expected_file = nested / "evidence.json"
+        expected_file.write_text("{}\n", encoding="utf-8")
+        files, errors = cleanroom_audit._regular_tree_files(tree)
+        self.assertEqual([expected_file], files)
+        self.assertEqual([], errors)
+
+        external = self.root / "external-tree"
+        external.mkdir()
+        redirect = tree / "redirect"
+        create_directory_redirect(redirect, external)
+        try:
+            files, errors = cleanroom_audit._regular_tree_files(tree)
+            self.assertEqual([expected_file], files)
+            self.assertTrue(any("link or reparse point" in error for error in errors))
+            self.assertTrue(
+                cleanroom_audit._contained_child_errors(
+                    redirect, tree, "redirected child"
+                )
+            )
+        finally:
+            remove_directory_redirect(redirect)
+
+        with mock.patch.object(Path, "iterdir", side_effect=OSError("denied")):
+            _files, errors = cleanroom_audit._regular_tree_files(tree)
+        self.assertTrue(any("cannot enumerate protected tree" in error for error in errors))
+
     def test_package_root_redirect_is_rejected_before_any_write(self) -> None:
         empty_target = self.root / "external-empty-package-target"
         empty_target.mkdir()

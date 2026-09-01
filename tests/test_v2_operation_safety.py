@@ -18,9 +18,14 @@ from gtm_audit_contract import (  # noqa: E402
 from gtm_audit_work_units import (  # noqa: E402
     MAX_SINGLE_OBLIGATIONS,
     build_work_units,
+    declared_work_unit_files,
+    discovery_schema_errors,
     merge_work_units,
+    operation_proposal_schema_errors,
+    semantic_audit_decision_schema_errors,
     work_unit_completion_errors,
     work_unit_identity_hash,
+    workload_estimate_schema_errors,
 )
 from gtm_fixed_point import MAX_CYCLES, _block_non_convergent  # noqa: E402
 from gtm_lib import container_version, stable_hash  # noqa: E402
@@ -126,6 +131,56 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_recursive_work_unit_schema_type_failures_are_explicit(self) -> None:
+        self.assertTrue(workload_estimate_schema_errors(None))
+        malformed_workload = {
+            "obligation_count": True,
+            "object_count": -1,
+            "relationship_count": "one",
+            "custom_code_segment_count": 0,
+            "shared_dependency_count": 0,
+            "estimated_authored_tokens": 0,
+            "schema_ceiling": {
+                "single_obligations": 0,
+                "single_estimated_tokens": True,
+                "family_obligations": -1,
+                "foreign": 1,
+            },
+        }
+        workload_errors = workload_estimate_schema_errors(malformed_workload)
+        self.assertGreaterEqual(len(workload_errors), 6)
+
+        decision = work_unit_decision(1)
+        decision["subject_keys"] = "tag:1"
+        decision["semantic_repair_records"] = ["foreign"]
+        decision["operation_proposal"] = None
+        decision_errors = semantic_audit_decision_schema_errors(
+            decision, "malformed decision"
+        )
+        self.assertTrue(any("string list" in error for error in decision_errors))
+        self.assertTrue(any("object list" in error for error in decision_errors))
+        self.assertTrue(any("operation_proposal" in error for error in decision_errors))
+
+        self.assertTrue(discovery_schema_errors(None, "malformed discovery"))
+        discovery_errors = discovery_schema_errors(
+            {
+                "discovery_id": "DISC-1",
+                "area_id": "AREA-01",
+                "scope_level": "relationship",
+                "subject_keys": "tag:1",
+                "family_ids": [],
+                "source_coordinates": [],
+                "decision": None,
+            },
+            "malformed discovery",
+        )
+        self.assertTrue(any("string list" in error for error in discovery_errors))
+        self.assertTrue(any("semantic decision" in error for error in discovery_errors))
+
+        self.assertTrue(operation_proposal_schema_errors("delete", "proposal"))
+        _files, manifest_errors = declared_work_unit_files({})
+        self.assertTrue(any("closed schema" in error for error in manifest_errors))
+
     def test_all_supported_actions_apply_in_dependency_order(self) -> None:
         source = operation_fixture()
         first = operation(
