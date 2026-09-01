@@ -656,7 +656,9 @@ class V2WorkflowTests(unittest.TestCase):
     def test_cleanroom_checkpoints_cannot_reuse_one_reasoning_context(self) -> None:
         build_package(self.export, self.package)
         complete_checkpoint(self.package, "audit-a", "shared-context-test-001")
-        with self.assertRaisesRegex(ValueError, "cannot reuse one reasoning-context"):
+        with self.assertRaisesRegex(
+            ValueError, "reasoning context identity is already used"
+        ):
             complete_checkpoint(self.package, "audit-b", "shared-context-test-001")
 
     def test_neutral_verifier_cannot_reuse_a_source_audit_context(self) -> None:
