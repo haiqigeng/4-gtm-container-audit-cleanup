@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved eighteen issues:
+The repeated pre-release review found and resolved nineteen issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -504,6 +504,10 @@ The repeated pre-release review found and resolved eighteen issues:
     proves exact history counts, contiguous sequences, parent links, archived
     audit hashes, receipt-parent bindings, and unchanged checkpoint/release
     provenance through the full chain.
+19. A failed predecessor backup could leave a partial staging file that rollback
+    mistook for a valid backup. The transaction now records which current targets
+    were actually replaced, verifies every backup hash before commit and before
+    restoration, and preserves recovery evidence if rollback itself cannot finish.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

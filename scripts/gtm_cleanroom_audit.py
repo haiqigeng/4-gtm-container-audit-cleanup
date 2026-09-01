@@ -1105,11 +1105,20 @@ def _commit_audit_transition(
     staged_seal = staging / "next-seal.json"
     seal_existed = seal_path.is_file()
     audit_existed = canonical_path.is_file()
+    prior_seal_sha256 = file_sha256(seal_path) if seal_existed else ""
+    prior_audit_sha256 = file_sha256(canonical_path) if audit_existed else ""
+    audit_replaced = False
+    seal_replaced = False
+    preserve_staging = False
     try:
         if seal_existed:
             shutil.copy2(seal_path, prior_seal_backup)
+            if file_sha256(prior_seal_backup) != prior_seal_sha256:
+                raise OSError("prior audit seal backup verification failed")
         if audit_existed:
             shutil.copy2(canonical_path, prior_audit_backup)
+            if file_sha256(prior_audit_backup) != prior_audit_sha256:
+                raise OSError("prior completed audit backup verification failed")
         shutil.copy2(audit_path, staged_audit)
         write_json(staged_seal, seal)
         if file_sha256(staged_audit) != seal.get("completed_audit_sha256"):
@@ -1133,28 +1142,82 @@ def _commit_audit_transition(
             history_targets.append(history_audit)
 
         _atomic_replace(staged_audit, canonical_path)
+        audit_replaced = True
         _atomic_replace(staged_seal, seal_path)
-    except Exception:
-        if audit_existed and prior_audit_backup.is_file():
-            restore_audit = staging / "restore-audit.json"
-            shutil.copy2(prior_audit_backup, restore_audit)
-            _atomic_replace(restore_audit, canonical_path)
-        elif not audit_existed and canonical_path.exists():
-            canonical_path.unlink()
-        if seal_existed and prior_seal_backup.is_file():
-            restore_seal = staging / "restore-seal.json"
-            shutil.copy2(prior_seal_backup, restore_seal)
-            _atomic_replace(restore_seal, seal_path)
-        elif not seal_existed and seal_path.exists():
-            seal_path.unlink()
+        seal_replaced = True
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        if audit_replaced:
+            if audit_existed:
+                if (
+                    not prior_audit_backup.is_file()
+                    or file_sha256(prior_audit_backup) != prior_audit_sha256
+                ):
+                    rollback_errors.append("prior completed audit backup is invalid")
+                else:
+                    try:
+                        restore_audit = staging / "restore-audit.json"
+                        shutil.copy2(prior_audit_backup, restore_audit)
+                        _atomic_replace(restore_audit, canonical_path)
+                    except OSError as rollback_exc:
+                        rollback_errors.append(
+                            f"completed audit restoration failed: {rollback_exc}"
+                        )
+            elif canonical_path.exists():
+                try:
+                    canonical_path.unlink()
+                except OSError as rollback_exc:
+                    rollback_errors.append(
+                        f"new completed audit removal failed: {rollback_exc}"
+                    )
+        if seal_replaced:
+            if seal_existed:
+                if (
+                    not prior_seal_backup.is_file()
+                    or file_sha256(prior_seal_backup) != prior_seal_sha256
+                ):
+                    rollback_errors.append("prior audit seal backup is invalid")
+                else:
+                    try:
+                        restore_seal = staging / "restore-seal.json"
+                        shutil.copy2(prior_seal_backup, restore_seal)
+                        _atomic_replace(restore_seal, seal_path)
+                    except OSError as rollback_exc:
+                        rollback_errors.append(
+                            f"audit seal restoration failed: {rollback_exc}"
+                        )
+            elif seal_path.exists():
+                try:
+                    seal_path.unlink()
+                except OSError as rollback_exc:
+                    rollback_errors.append(
+                        f"new audit seal removal failed: {rollback_exc}"
+                    )
         for target in history_targets:
             if target.exists():
-                target.unlink()
+                try:
+                    target.unlink()
+                except OSError as rollback_exc:
+                    rollback_errors.append(
+                        f"partial history removal failed: {rollback_exc}"
+                    )
         if not history_existed and history.is_dir() and not any(history.iterdir()):
-            history.rmdir()
+            try:
+                history.rmdir()
+            except OSError as rollback_exc:
+                rollback_errors.append(
+                    f"empty history cleanup failed: {rollback_exc}"
+                )
+        if rollback_errors:
+            preserve_staging = True
+            raise RuntimeError(
+                "audit transition failed and rollback is incomplete; recovery "
+                f"artifacts remain at {staging}: " + "; ".join(rollback_errors)
+            ) from exc
         raise
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        if not preserve_staging:
+            shutil.rmtree(staging, ignore_errors=True)
 
 
 def seal_audit(
@@ -1338,6 +1401,9 @@ def _audit_history_errors(
 
 def sealed_audit_errors(package_dir: Path) -> list[str]:
     errors: list[str] = []
+    seal_root = package_dir / SEAL_DIRECTORY
+    if seal_root.is_dir() and any(seal_root.glob(".*-transition-*")):
+        errors.append("an incomplete audit transition staging directory remains")
     context_ids = []
     receipt_ids = []
     for audit_id in AUDIT_IDS:

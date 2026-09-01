@@ -756,6 +756,54 @@ class V2WorkflowTests(unittest.TestCase):
             context_id="fresh-amendment-context-001",
             receipt_id="fresh-amendment-receipt-001",
         )
+        original_copy2 = cleanroom_audit.shutil.copy2
+        for backup_name in ("prior-seal.json", "prior-audit.json"):
+            injected_backup = {"failed": False}
+
+            def fail_partial_backup_once(
+                source: Path,
+                target: Path,
+                *,
+                follow_symlinks: bool = True,
+                _backup_name: str = backup_name,
+                _injected_backup: dict[str, bool] = injected_backup,
+            ) -> str:
+                if (
+                    Path(target).name == _backup_name
+                    and not _injected_backup["failed"]
+                ):
+                    _injected_backup["failed"] = True
+                    Path(target).write_bytes(b"partial-backup")
+                    raise OSError(f"injected partial {_backup_name} failure")
+                return str(
+                    original_copy2(
+                        source,
+                        target,
+                        follow_symlinks=follow_symlinks,
+                    )
+                )
+
+            with (
+                self.subTest(backup=backup_name),
+                mock.patch(
+                    "gtm_cleanroom_audit.shutil.copy2",
+                    side_effect=fail_partial_backup_once,
+                ),
+                self.assertRaisesRegex(OSError, f"partial {backup_name}"),
+            ):
+                seal_audit(self.package, "audit-a", amendment_of=parent)
+            self.assertEqual(current_seal_before, seal_a_path.read_bytes())
+            self.assertEqual(canonical_audit_before, canonical_audit_path.read_bytes())
+            self.assertFalse((self.package / "audit-seals" / "history").exists())
+            self.assertEqual(
+                [],
+                list(
+                    (self.package / "audit-seals").glob(
+                        ".audit-a-transition-*"
+                    )
+                ),
+            )
+
         original_replace = cleanroom_audit._atomic_replace
         injected = {"failed": False}
 

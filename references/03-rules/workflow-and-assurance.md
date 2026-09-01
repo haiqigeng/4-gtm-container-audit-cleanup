@@ -119,6 +119,9 @@ must restore the prior current audit and seal byte-for-byte, remove partial
 history, and clear staging. Every later sealed-audit gate revalidates the complete
 contiguous parent chain and every archived audit, receipt, checkpoint, and release
 binding; missing history is a blocker.
+Restore only a target that the commit actually replaced, and only from a complete
+hash-verified backup. If restoration itself cannot finish, retain the recovery
+staging evidence and block all downstream work.
 
 One workflow-wide identity registry owns context IDs and host-receipt IDs across
 source checkpoints, current and historical source-audit seals, base neutrals,
