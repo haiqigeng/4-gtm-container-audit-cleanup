@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved twenty-two issues:
+The repeated pre-release review found and resolved twenty-six issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -521,6 +521,26 @@ The repeated pre-release review found and resolved twenty-two issues:
     completed shard files it used. Current and historical records validate only
     against their own immutable sequence snapshot, and the recoverable transition
     removes a new snapshot if any later commit step fails.
+23. Work-unit merge trusted the same embedded identity digest copied into the
+    manifest instead of recomputing an immutable contract, so forged audit,
+    source, ledger, or family fields could reach a seal. Unit identity now has an
+    explicit immutable-field projection, and both merge and final validation
+    recompute it and prove exact manifest and decision membership.
+24. A sealed sequence directory could be replaced by an NTFS junction to an
+    external copy while preserving content hashes. Snapshot generation, commit,
+    history inventory, and final validation now reject symlinks and Windows
+    reparse points, prove every resolved parent boundary, and enumerate only
+    self-contained regular trees.
+25. A forged post-merge audit could change one decision and recompute every hash
+    stored inside that same mutable audit while leaving its sealed shard evidence
+    unchanged. Final work-unit validation now deterministically reconstructs all
+    decisions and discoveries from every declared unit and requires exact equality
+    with both initial and amended audit artifacts.
+26. The retained naming reference still required a v1.13 cleanup-plan row and
+    hidden rename/proof tabs, conflicting with the v2 workbook contract. Naming
+    now resolves through its canonical semantic decision, one visible
+    Recommendations row per actionable operation, and row-bound comments; hidden
+    decision surfaces are explicitly prohibited.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

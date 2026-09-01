@@ -17,6 +17,28 @@ WORK_UNIT_MANIFEST = "work-unit-manifest.json"
 MAX_SINGLE_OBLIGATIONS = 420
 MAX_SINGLE_ESTIMATED_TOKENS = 180_000
 MAX_FAMILY_OBLIGATIONS = 700
+WORK_UNIT_MANIFEST_IDENTITY_FIELDS = (
+    "kind",
+    "schema_version",
+    "audit_id",
+    "source_sha256",
+    "obligation_ledger_sha256",
+    "strategy",
+    "workload_estimate",
+    "work_units",
+)
+WORK_UNIT_IDENTITY_FIELDS = (
+    "kind",
+    "schema_version",
+    "audit_id",
+    "source_sha256",
+    "obligation_ledger_sha256",
+    "work_unit_id",
+    "owner_family_id",
+    "shared_infrastructure_unit",
+    "decision_ids",
+    "obligation_ids",
+)
 
 
 def workload_estimate(
@@ -103,21 +125,105 @@ def _decision_owner_family(
 
 
 def work_unit_identity_hash(payload: dict[str, Any]) -> str:
-    return stable_hash(
-        {
-            key: value
-            for key, value in payload.items()
-            if key
-            not in {
-                "decisions",
-                "open_discoveries",
-                "coverage_closure",
-                "work_unit_identity_sha256",
-                "work_unit_manifest_sha256",
-            }
-        },
-        64,
+    """Hash only the explicit immutable fields for this artifact kind."""
+
+    kind = payload.get("kind")
+    if kind == "gtm_cleanroom_work_unit_manifest":
+        fields = WORK_UNIT_MANIFEST_IDENTITY_FIELDS
+    elif kind == "gtm_cleanroom_family_work_unit":
+        fields = WORK_UNIT_IDENTITY_FIELDS
+    else:
+        return ""
+    return stable_hash({field: payload.get(field) for field in fields}, 64)
+
+
+def declared_work_unit_files(
+    manifest: dict[str, Any],
+) -> tuple[set[str], list[str]]:
+    """Return the only files permitted in one generated work-unit directory."""
+
+    expected = {WORK_UNIT_MANIFEST}
+    errors: list[str] = []
+    records = as_list(manifest.get("work_units"))
+    strategy = manifest.get("strategy")
+    if strategy == "single_file":
+        if records:
+            errors.append("single-file manifest unexpectedly declares work units")
+        return expected, errors
+    if strategy != "family_sharded":
+        return expected, ["work-unit manifest strategy is invalid"]
+    if not records:
+        errors.append("family-sharded manifest declares no work units")
+    for record in records:
+        if not isinstance(record, dict):
+            errors.append("work-unit manifest record is malformed")
+            continue
+        filename = str(record.get("filename") or "")
+        relative = Path(filename)
+        if (
+            not filename
+            or relative.is_absolute()
+            or len(relative.parts) != 1
+            or relative.as_posix() != filename
+            or filename in expected
+        ):
+            errors.append("work-unit manifest filename is invalid or duplicated")
+            continue
+        expected.add(filename)
+    return expected, errors
+
+
+def work_unit_contract_errors(
+    unit: dict[str, Any],
+    record: dict[str, Any],
+    manifest: dict[str, Any],
+) -> list[str]:
+    """Recompute immutable identity and prove one unit belongs to its manifest."""
+
+    errors: list[str] = []
+    checks = (
+        ("kind", "gtm_cleanroom_family_work_unit"),
+        ("schema_version", 1),
+        ("audit_id", manifest.get("audit_id")),
+        ("source_sha256", manifest.get("source_sha256")),
+        (
+            "obligation_ledger_sha256",
+            manifest.get("obligation_ledger_sha256"),
+        ),
+        ("work_unit_id", record.get("work_unit_id")),
+        ("owner_family_id", record.get("owner_family_id")),
+        (
+            "shared_infrastructure_unit",
+            record.get("owner_family_id") == "shared-infrastructure",
+        ),
     )
+    for field, expected in checks:
+        if unit.get(field) != expected:
+            errors.append(f"immutable field {field} differs from its manifest")
+    declared_obligations = [
+        str(value) for value in as_list(record.get("obligation_ids"))
+    ]
+    if [str(value) for value in as_list(unit.get("obligation_ids"))] != (
+        declared_obligations
+    ):
+        errors.append("immutable obligation membership differs from its manifest")
+    decisions = [
+        row for row in as_list(unit.get("decisions")) if isinstance(row, dict)
+    ]
+    if [str(row.get("obligation_id") or "") for row in decisions] != (
+        declared_obligations
+    ):
+        errors.append("decision obligation membership differs from its manifest")
+    if [str(row.get("decision_id") or "") for row in decisions] != [
+        str(value) for value in as_list(unit.get("decision_ids"))
+    ]:
+        errors.append("decision identity membership differs from its immutable list")
+    embedded_identity = str(unit.get("work_unit_identity_sha256") or "")
+    if embedded_identity != str(record.get("work_unit_identity_sha256") or ""):
+        errors.append("embedded identity differs from its manifest")
+    if embedded_identity != work_unit_identity_hash(unit):
+        errors.append("immutable identity does not match the unit content")
+    return errors
 
 
 def build_work_units(
@@ -213,6 +319,9 @@ def merge_work_units(bundle: Path) -> dict[str, Any]:
         raise ValueError("work-unit manifest identity changed")
     if manifest.get("strategy") != "family_sharded":
         raise ValueError("single-file audit has no work units to merge")
+    _, declared_file_errors = declared_work_unit_files(manifest)
+    if declared_file_errors:
+        raise ValueError("; ".join(declared_file_errors))
     base = json.loads(audit_path.read_text(encoding="utf-8"))
     expected = {
         str(row.get("obligation_id") or "")
@@ -226,10 +335,12 @@ def merge_work_units(bundle: Path) -> dict[str, Any]:
         if not path.is_file():
             raise ValueError(f"work unit is missing: {path.name}")
         unit = json.loads(path.read_text(encoding="utf-8"))
-        if unit.get("work_unit_identity_sha256") != record.get(
-            "work_unit_identity_sha256"
-        ):
-            raise ValueError(f"work unit locked identity changed: {path.name}")
+        contract_errors = work_unit_contract_errors(unit, record, manifest)
+        if contract_errors:
+            raise ValueError(
+                f"work unit contract changed: {path.name}: "
+                + "; ".join(contract_errors)
+            )
         if not str(unit.get("unit_closure") or "").strip():
             raise ValueError(f"work unit is not closed: {path.name}")
         declared = [str(value) for value in as_list(record.get("obligation_ids"))]
@@ -311,6 +422,8 @@ def work_unit_completion_errors(
         str(row.get("work_unit_id") or ""): row
         for row in as_list(manifest.get("work_units"))
     }
+    if len(expected_units) != len(as_list(manifest.get("work_units"))):
+        errors.append("work-unit manifest contains duplicate work-unit identities")
     actual_units = {
         str(row.get("work_unit_id") or ""): row
         for row in as_list(completion.get("completed_units"))
@@ -319,24 +432,50 @@ def work_unit_completion_errors(
     if "" in expected_units or set(actual_units) != set(expected_units):
         errors.append("work-unit completion does not cover every declared unit exactly once")
     directory = work_unit_directory or bundle / WORK_UNIT_DIRECTORY
+    reconstructed_decisions: dict[str, dict[str, Any]] = {}
+    reconstructed_discoveries: list[Any] = []
     for work_unit_id, record in expected_units.items():
         unit_path = directory / str(record.get("filename") or "")
         if not unit_path.is_file():
             errors.append(f"completed work unit is missing: {work_unit_id}")
             continue
         unit = json.loads(unit_path.read_text(encoding="utf-8"))
+        errors.extend(
+            f"completed work unit {work_unit_id}: {error}"
+            for error in work_unit_contract_errors(unit, record, manifest)
+        )
+        if not str(unit.get("unit_closure") or "").strip():
+            errors.append(f"completed work unit {work_unit_id}: closure is missing")
+        for decision in as_list(unit.get("decisions")):
+            if not isinstance(decision, dict):
+                continue
+            obligation_id = str(decision.get("obligation_id") or "")
+            if obligation_id in reconstructed_decisions:
+                errors.append(
+                    f"completed work unit {work_unit_id}: obligation is duplicated"
+                )
+            else:
+                reconstructed_decisions[obligation_id] = decision
+        reconstructed_discoveries.extend(as_list(unit.get("open_discoveries")))
         if stable_hash(unit, 64) != (actual_units.get(work_unit_id) or {}).get(
             "completed_work_unit_sha256"
         ):
             errors.append(f"completed work unit changed after merge: {work_unit_id}")
+    reconstructed_rows = [
+        reconstructed_decisions[key] for key in sorted(reconstructed_decisions)
+    ]
+    if as_list(audit.get("decisions")) != reconstructed_rows:
+        errors.append("audit decisions are not the exact deterministic work-unit merge")
+    if as_list(audit.get("open_discoveries")) != reconstructed_discoveries:
+        errors.append("audit discoveries are not the exact deterministic work-unit merge")
     if completion.get("merged_decisions_sha256") != stable_hash(
-        as_list(audit.get("decisions")), 64
+        reconstructed_rows, 64
     ):
-        errors.append("merged audit decisions differ from the work-unit completion")
+        errors.append("merged decision proof differs from reconstructed work units")
     if completion.get("merged_discoveries_sha256") != stable_hash(
-        as_list(audit.get("open_discoveries")), 64
+        reconstructed_discoveries, 64
     ):
-        errors.append("merged audit discoveries differ from the work-unit completion")
+        errors.append("merged discovery proof differs from reconstructed work units")
     return errors
 
 

@@ -218,10 +218,15 @@ to the prior seal in both the audit artifact and its new host receipt, preserves
 the immutable source checkpoint, seals an exact immutable snapshot of every
 work-unit input used by that audit version, and writes append-only history before
 canonical sealing. Every current or historical audit is revalidated against its
-own snapshot, never against later live shard edits. After canonical sealing, a
-semantic or fidelity defect starts one immutable successor package bound to the
-predecessor record and same locked source, then reruns the whole workflow.
-Presentation-only defects create a new editorial artifact and rebuild.
+own self-contained regular-file snapshot, never against later live shard edits.
+Recompute each unit's explicit immutable audit, source, ledger, family, and
+membership identity, and deterministically reconstruct the audit decisions and
+discoveries from those units; do not trust embedded digests or self-rehashed
+merged-audit claims. Do not follow links, junctions, or reparse points. After
+canonical sealing, a semantic or fidelity defect starts one
+immutable successor package bound to the predecessor record and same locked
+source, then reruns the whole workflow. Presentation-only defects create a new
+editorial artifact and rebuild.
 
 Use `references/02-commands/validation-commands.md` for exact commands and
 `references/02-commands/forward-test-prompts.md` for release proof. Deliver only

@@ -99,7 +99,11 @@ python -B scripts/gtm_cleanroom_audit.py seal audit-package audit-b
 Each successful seal creates a sequence-addressed immutable snapshot beneath
 `audit-seals/work-unit-snapshots/<audit-id>/`. The sealed-audit gate checks the
 current audit and every archived predecessor against its own snapshot. Do not
-edit, copy forward, or prune these snapshots.
+edit, copy forward, link, redirect, or prune these snapshots. The validator
+recomputes each unit's immutable contract and rejects symlinks, junctions, reparse
+points, and any resolved path outside the sealed snapshot root. It also
+deterministically re-merges all decisions and discoveries from the snapshot and
+requires exact equality with the sealed audit.
 
 Before canonical sealing, an audit amendment uses a new context and binds
 `--amendment-of` to the current audit seal hash. After canonical sealing, use the

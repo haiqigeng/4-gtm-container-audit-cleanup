@@ -269,7 +269,12 @@ def complete_priority_removal_decision(row: dict) -> None:
     )
 
 
-def complete_audit(package: Path, audit_id: str, *, actionable_priority: bool = False) -> None:
+def finalize_audit(
+    package: Path,
+    audit_id: str,
+    *,
+    actionable_priority: bool = False,
+) -> None:
     path = package / "audit-bundles" / audit_id / "audit.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     for row in payload["decisions"]:
@@ -302,6 +307,14 @@ def complete_audit(package: Path, audit_id: str, *, actionable_priority: bool = 
         "host_scope_preserved_through_completion": True,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def complete_audit(package: Path, audit_id: str, *, actionable_priority: bool = False) -> None:
+    finalize_audit(
+        package,
+        audit_id,
+        actionable_priority=actionable_priority,
+    )
     seal_audit(package, audit_id)
 
 
@@ -326,6 +339,27 @@ def complete_sharded_work_units(package: Path, audit_id: str) -> None:
             json.dumps(unit, indent=2) + "\n", encoding="utf-8"
         )
     merge_work_units(bundle)
+
+
+def forge_post_merge_audit_only_drift(package: Path, audit_id: str) -> None:
+    path = package / "audit-bundles" / audit_id / "audit.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["decisions"][0]["current_behavior"] += (
+        " Forged directly in the merged audit without changing its work unit."
+    )
+    completion = payload["work_unit_completion"]
+    completion["merged_decisions_sha256"] = stable_hash(
+        payload["decisions"], 64
+    )
+    completion["work_unit_completion_sha256"] = stable_hash(
+        {
+            key: value
+            for key, value in completion.items()
+            if key != "work_unit_completion_sha256"
+        },
+        64,
+    )
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def write_audit_amendment(
@@ -1006,7 +1040,18 @@ class V2WorkflowTests(unittest.TestCase):
             )
         for audit_id in ("audit-a", "audit-b"):
             complete_sharded_work_units(self.package, audit_id)
-            complete_audit(self.package, audit_id)
+            finalize_audit(self.package, audit_id)
+            if audit_id == "audit-a":
+                forge_post_merge_audit_only_drift(self.package, audit_id)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "not the exact deterministic work-unit merge",
+                ):
+                    seal_audit(self.package, audit_id)
+                merge_work_units(
+                    self.package / "audit-bundles" / audit_id
+                )
+            seal_audit(self.package, audit_id)
 
         seal_path = self.package / "audit-seals" / "audit-a.json"
         initial_seal = json.loads(seal_path.read_text(encoding="utf-8"))
@@ -1049,6 +1094,17 @@ class V2WorkflowTests(unittest.TestCase):
             context_id="sharded-amendment-fresh-context-001",
             receipt_id="sharded-amendment-fresh-receipt-001",
         )
+        forge_post_merge_audit_only_drift(self.package, "audit-a")
+        with self.assertRaisesRegex(
+            ValueError,
+            "not the exact deterministic work-unit merge",
+        ):
+            seal_audit(
+                self.package,
+                "audit-a",
+                amendment_of=parent,
+            )
+        merge_work_units(bundle)
         amended_seal = seal_audit(
             self.package,
             "audit-a",
@@ -1111,6 +1167,50 @@ class V2WorkflowTests(unittest.TestCase):
             )
         )
         orphan_snapshot.rmdir()
+        self.assertEqual([], sealed_audit_errors(self.package))
+
+        current_snapshot = (
+            self.package
+            / "audit-seals"
+            / amended_seal["work_unit_snapshot_path"]
+        )
+        external_snapshot = self.root / "external-work-unit-snapshot"
+        current_snapshot.replace(external_snapshot)
+        try:
+            if os.name == "nt":
+                junction = subprocess.run(
+                    [
+                        "cmd",
+                        "/c",
+                        "mklink",
+                        "/J",
+                        str(current_snapshot),
+                        str(external_snapshot),
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(0, junction.returncode, junction.stderr)
+            else:
+                current_snapshot.symlink_to(
+                    external_snapshot,
+                    target_is_directory=True,
+                )
+            self.assertTrue(
+                any(
+                    "link or reparse point" in error
+                    or "leaves its sealed root" in error
+                    for error in sealed_audit_errors(self.package)
+                )
+            )
+        finally:
+            if current_snapshot.exists():
+                if os.name == "nt":
+                    current_snapshot.rmdir()
+                else:
+                    current_snapshot.unlink()
+            external_snapshot.replace(current_snapshot)
         self.assertEqual([], sealed_audit_errors(self.package))
 
     def test_neutral_verifier_cannot_reuse_a_source_audit_context(self) -> None:

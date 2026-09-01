@@ -62,6 +62,11 @@ Measure:
   append-only history, and byte-identical rollback after rejected reuse;
 - successful family-sharded amendment whose predecessor and successor each
   validate against their own immutable work-unit snapshot;
+- rejection of forged unit audit/source/ledger/family/membership fields even when
+  an embedded identity is retained or recomputed, and rejection of sealed
+  snapshot symlinks, NTFS junctions, reparse points, and resolved path escapes;
+- rejection of initial or amended audit-only decision/discovery drift even after
+  every completion hash inside the mutable audit is recomputed;
 - exact operation validity, dependency safety, target coherence, and fixed-point
   convergence/non-convergence blocking, with byte-identical rollback after a
   failed candidate cycle;

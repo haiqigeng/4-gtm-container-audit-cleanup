@@ -82,8 +82,11 @@
   amendment succeeds only with fresh globally unused identities, explicit prior-
   seal binding, unchanged checkpoint provenance, an exact immutable work-unit
   snapshot for every sealed sequence, and append-only prior history. Every
-  predecessor validates against its own snapshot; a failed amendment changes
-  none of those artifacts.
+  predecessor validates against its own snapshot; every unit's explicit immutable
+  identity is recomputed; the exact audit decisions and discoveries are
+  deterministically reconstructed from the units; every snapshot is a self-
+  contained regular tree with no link, junction, reparse, or path escape; and a
+  failed amendment changes none of those artifacts.
 - Every visible sheet is rendered and inspected; privacy and formula-injection
   scans pass.
 

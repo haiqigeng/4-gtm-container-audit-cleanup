@@ -17,9 +17,10 @@ from gtm_audit_work_units import (  # noqa: E402
     build_work_units,
     merge_work_units,
     work_unit_completion_errors,
+    work_unit_identity_hash,
 )
 from gtm_fixed_point import MAX_CYCLES, _block_non_convergent  # noqa: E402
-from gtm_lib import container_version  # noqa: E402
+from gtm_lib import container_version, stable_hash  # noqa: E402
 from gtm_operation_model import (  # noqa: E402
     apply_operations,
     dependency_order,
@@ -418,6 +419,29 @@ class V2OperationSafetyTests(unittest.TestCase):
             unit_record = manifest["work_units"][0]
             unit_path = bundle / "work-units" / unit_record["filename"]
             unit = json.loads(unit_path.read_text(encoding="utf-8"))
+            for field, forged_value, recompute_identity in (
+                ("audit_id", "audit-b", False),
+                ("source_sha256", "forged-source", False),
+                ("owner_family_id", "forged-owner", True),
+            ):
+                forged = copy.deepcopy(unit)
+                forged[field] = forged_value
+                forged["unit_closure"] = "Forged unit presented as complete."
+                if recompute_identity:
+                    forged["work_unit_identity_sha256"] = work_unit_identity_hash(
+                        forged
+                    )
+                unit_path.write_text(
+                    json.dumps(forged, indent=2) + "\n", encoding="utf-8"
+                )
+                with (
+                    self.subTest(forged_field=field),
+                    self.assertRaisesRegex(ValueError, "work unit contract changed"),
+                ):
+                    merge_work_units(bundle)
+            unit_path.write_text(
+                json.dumps(unit, indent=2) + "\n", encoding="utf-8"
+            )
             unit["unit_closure"] = (
                 "Every shared-infrastructure obligation in this complete work unit was reviewed."
             )
@@ -425,6 +449,28 @@ class V2OperationSafetyTests(unittest.TestCase):
             merge_work_units(bundle)
             merged = json.loads((bundle / "audit.json").read_text(encoding="utf-8"))
             self.assertEqual([], work_unit_completion_errors(bundle, merged, manifest))
+            forged_audit = copy.deepcopy(merged)
+            forged_audit["decisions"][0]["scope_level"] = "forged-after-merge"
+            forged_completion = forged_audit["work_unit_completion"]
+            forged_completion["merged_decisions_sha256"] = stable_hash(
+                forged_audit["decisions"], 64
+            )
+            forged_completion["work_unit_completion_sha256"] = stable_hash(
+                {
+                    key: value
+                    for key, value in forged_completion.items()
+                    if key != "work_unit_completion_sha256"
+                },
+                64,
+            )
+            self.assertTrue(
+                any(
+                    "not the exact deterministic work-unit merge" in error
+                    for error in work_unit_completion_errors(
+                        bundle, forged_audit, manifest
+                    )
+                )
+            )
             unit["unit_closure"] += " Changed after merge."
             unit_path.write_text(json.dumps(unit, indent=2) + "\n", encoding="utf-8")
             self.assertTrue(

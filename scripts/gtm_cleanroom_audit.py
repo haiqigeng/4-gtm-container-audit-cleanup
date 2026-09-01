@@ -8,6 +8,7 @@ import copy
 import json
 import re
 import shutil
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from gtm_audit_work_units import (
     WORK_UNIT_DIRECTORY,
     WORK_UNIT_MANIFEST,
     build_work_units,
+    declared_work_unit_files,
     work_unit_completion_errors,
     work_unit_identity_hash,
 )
@@ -62,6 +64,47 @@ def _hash_without(payload: dict[str, Any], *fields: str) -> str:
         {key: value for key, value in payload.items() if key not in set(fields)},
         64,
     )
+
+
+def _path_is_link_or_reparse(path: Path) -> bool:
+    """Reject symlinks and Windows reparse points, including NTFS junctions."""
+
+    try:
+        if path.is_symlink():
+            return True
+        attributes = int(getattr(path.lstat(), "st_file_attributes", 0))
+    except OSError:
+        return False
+    return bool(
+        attributes & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    )
+
+
+def _regular_tree_files(root: Path) -> tuple[list[Path], list[str]]:
+    """Enumerate one tree without crossing any link or reparse boundary."""
+
+    if _path_is_link_or_reparse(root):
+        return [], [f"path is a link or reparse point: {root}"]
+    files: list[Path] = []
+    pending = [root]
+    errors: list[str] = []
+    while pending:
+        directory = pending.pop()
+        try:
+            entries = sorted(directory.iterdir())
+        except OSError as exc:
+            errors.append(f"cannot enumerate protected tree {directory}: {exc}")
+            continue
+        for entry in entries:
+            if _path_is_link_or_reparse(entry):
+                errors.append(f"path is a link or reparse point: {entry}")
+            elif entry.is_dir():
+                pending.append(entry)
+            elif entry.is_file():
+                files.append(entry)
+            else:
+                errors.append(f"path is not a regular file or directory: {entry}")
+    return sorted(files), errors
 
 
 def _copy_locked(source: Path, target: Path, role: str) -> dict[str, Any]:
@@ -866,10 +909,22 @@ def _work_unit_snapshot_manifest(
     manifest_path = work_units / WORK_UNIT_MANIFEST
     if not manifest_path.is_file():
         raise ValueError("work-unit manifest is missing before audit sealing")
-    if any(path.is_symlink() for path in work_units.rglob("*")):
-        raise ValueError("work-unit snapshots cannot contain symbolic links")
+    files, tree_errors = _regular_tree_files(work_units)
+    if tree_errors:
+        raise ValueError(
+            "work-unit snapshot source is not a self-contained regular tree: "
+            + "; ".join(tree_errors)
+        )
     work_unit_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    files = [path for path in sorted(work_units.rglob("*")) if path.is_file()]
+    declared_files, declared_errors = declared_work_unit_files(work_unit_manifest)
+    actual_files = {
+        path.relative_to(work_units).as_posix() for path in files
+    }
+    if declared_errors or actual_files != declared_files:
+        raise ValueError(
+            "work-unit snapshot source differs from its declared files: "
+            + "; ".join(declared_errors or ["unexpected or missing files"])
+        )
     snapshot = {
         "kind": "gtm_cleanroom_work_unit_snapshot_manifest",
         "schema_version": 1,
@@ -906,10 +961,37 @@ def _sealed_work_unit_snapshot(
     expected_relative = _work_unit_snapshot_relative_path(audit_id, sequence)
     if sealed_seal.get("work_unit_snapshot_path") != expected_relative:
         errors.append("sealed audit work-unit snapshot path is invalid")
-    snapshot_dir = package_dir / SEAL_DIRECTORY / expected_relative
+    seal_dir = package_dir / SEAL_DIRECTORY
+    snapshot_root = seal_dir / WORK_UNIT_SNAPSHOT_ROOT
+    snapshot_audit_root = snapshot_root / audit_id
+    snapshot_dir = snapshot_audit_root / f"sequence-{sequence:03d}"
+    containment_checks = (
+        (snapshot_root, seal_dir),
+        (snapshot_audit_root, snapshot_root),
+        (snapshot_dir, snapshot_audit_root),
+    )
+    for path, expected_parent in containment_checks:
+        if _path_is_link_or_reparse(path):
+            errors.append("sealed work-unit snapshot path is a link or reparse point")
+        try:
+            if path.resolve().parent != expected_parent.resolve():
+                errors.append("sealed work-unit snapshot path leaves its sealed root")
+        except OSError:
+            errors.append("sealed work-unit snapshot path cannot be resolved")
+    if errors:
+        return snapshot_dir, {}, errors
     manifest_path = snapshot_dir / WORK_UNIT_SNAPSHOT_MANIFEST
     if not manifest_path.is_file():
         return snapshot_dir, {}, [*errors, "sealed work-unit snapshot is missing"]
+    snapshot_files, tree_errors = _regular_tree_files(snapshot_dir)
+    if tree_errors:
+        return snapshot_dir, {}, [
+            *errors,
+            *(
+                "sealed work-unit snapshot is not self-contained: " + error
+                for error in tree_errors
+            ),
+        ]
     snapshot = json.loads(manifest_path.read_text(encoding="utf-8"))
     if snapshot.get("work_unit_snapshot_sha256") != _hash_without(
         snapshot, "work_unit_snapshot_sha256"
@@ -935,8 +1017,8 @@ def _sealed_work_unit_snapshot(
     }
     actual = {
         path.relative_to(snapshot_dir).as_posix(): file_sha256(path)
-        for path in snapshot_dir.rglob("*")
-        if path.is_file() and path != manifest_path
+        for path in snapshot_files
+        if path != manifest_path
     }
     if (
         len(supplied) != len(supplied_records)
@@ -955,6 +1037,12 @@ def _sealed_work_unit_snapshot(
         "work_unit_manifest_sha256"
     ):
         errors.append("sealed work-unit snapshot contains another manifest")
+    declared_files, declared_errors = declared_work_unit_files(work_unit_manifest)
+    errors.extend(
+        "sealed work-unit manifest: " + error for error in declared_errors
+    )
+    if set(supplied) != declared_files:
+        errors.append("sealed work-unit snapshot contains undeclared files")
     return snapshot_dir, work_unit_manifest, errors
 
 
@@ -1035,6 +1123,10 @@ def validate_audit(
             work_unit_manifest
         ):
             errors.append("work-unit manifest identity changed")
+        errors.extend(
+            "work-unit manifest: " + error
+            for error in declared_work_unit_files(work_unit_manifest)[1]
+        )
     if not audit_path.is_file() or not ledger_path.is_file():
         errors.append("completed audit or obligation ledger is missing")
         return errors
@@ -1339,7 +1431,7 @@ def _commit_audit_transition(
             source = bundle / WORK_UNIT_DIRECTORY / relative_path
             if (
                 not source.is_file()
-                or source.is_symlink()
+                or _path_is_link_or_reparse(source)
                 or not source.resolve().is_relative_to(source_root)
                 or file_sha256(source) != expected_sha256
             ):
@@ -1378,8 +1470,14 @@ def _commit_audit_transition(
             raise ValueError("staged completed audit hash differs from its new seal")
 
         snapshot_audit_root.mkdir(parents=True, exist_ok=True)
-        if not snapshot_target.resolve().is_relative_to(snapshot_root.resolve()):
-            raise ValueError("work-unit snapshot target leaves its sealed root")
+        for path, expected_parent in (
+            (snapshot_root, seal_dir),
+            (snapshot_audit_root, snapshot_root),
+        ):
+            if _path_is_link_or_reparse(path) or (
+                path.resolve().parent != expected_parent.resolve()
+            ):
+                raise ValueError("work-unit snapshot target leaves its sealed root")
         _atomic_replace(staged_snapshot, snapshot_target)
         snapshot_replaced = True
 
@@ -1462,8 +1560,15 @@ def _commit_audit_transition(
                     )
         if snapshot_replaced and snapshot_target.exists():
             try:
-                if not snapshot_target.resolve().is_relative_to(
-                    snapshot_root.resolve()
+                if (
+                    _path_is_link_or_reparse(snapshot_root)
+                    or _path_is_link_or_reparse(snapshot_audit_root)
+                    or _path_is_link_or_reparse(snapshot_target)
+                    or snapshot_root.resolve().parent != seal_dir.resolve()
+                    or snapshot_audit_root.resolve().parent
+                    != snapshot_root.resolve()
+                    or snapshot_target.resolve().parent
+                    != snapshot_audit_root.resolve()
                 ):
                     raise OSError("snapshot target leaves its sealed root")
                 shutil.rmtree(snapshot_target)
@@ -1725,18 +1830,34 @@ def _audit_history_errors(
         snapshot_audit_root / f"sequence-{sequence:03d}"
         for sequence in range(current_sequence + 1)
     }
-    actual_snapshot_dirs = (
-        {path for path in snapshot_audit_root.iterdir() if path.is_dir()}
-        if snapshot_audit_root.is_dir()
-        else set()
-    )
+    snapshot_entries: list[Path] = []
+    snapshot_root = snapshot_audit_root.parent
+    if snapshot_audit_root.exists():
+        if _path_is_link_or_reparse(snapshot_audit_root) or (
+            snapshot_audit_root.resolve().parent != snapshot_root.resolve()
+        ):
+            errors.append(
+                f"{audit_id}: sealed work-unit snapshot history leaves its root"
+            )
+        else:
+            snapshot_entries = list(snapshot_audit_root.iterdir())
+    reparse_entries = [
+        path for path in snapshot_entries if _path_is_link_or_reparse(path)
+    ]
+    if reparse_entries:
+        errors.append(
+            f"{audit_id}: sealed work-unit snapshot history contains reparse points"
+        )
+    actual_snapshot_dirs = {
+        path
+        for path in snapshot_entries
+        if path.is_dir() and path not in reparse_entries
+    }
     if actual_snapshot_dirs != expected_snapshot_dirs:
         errors.append(
             f"{audit_id}: sealed work-unit snapshot history identity is incomplete"
         )
-    if snapshot_audit_root.is_dir() and any(
-        path.is_file() for path in snapshot_audit_root.iterdir()
-    ):
+    if any(path.is_file() for path in snapshot_entries):
         errors.append(
             f"{audit_id}: sealed work-unit snapshot history contains orphan artifacts"
         )
@@ -1884,11 +2005,22 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
     if len(receipt_ids) == 2 and len(set(receipt_ids)) != 2:
         errors.append("the two sealed audits reuse one host isolation receipt")
     snapshot_root = package_dir / SEAL_DIRECTORY / WORK_UNIT_SNAPSHOT_ROOT
-    if snapshot_root.is_dir():
+    seal_root = package_dir / SEAL_DIRECTORY
+    if snapshot_root.exists() and (
+        _path_is_link_or_reparse(snapshot_root)
+        or snapshot_root.resolve().parent != seal_root.resolve()
+    ):
+        errors.append("sealed work-unit snapshot root leaves the audit-seal directory")
+    elif snapshot_root.is_dir():
         snapshot_children = list(snapshot_root.iterdir())
-        if any(path.is_file() for path in snapshot_children) or {
-            path.name for path in snapshot_children if path.is_dir()
-        } - set(AUDIT_IDS):
+        if (
+            any(_path_is_link_or_reparse(path) for path in snapshot_children)
+            or any(path.is_file() for path in snapshot_children)
+            or {
+                path.name for path in snapshot_children if path.is_dir()
+            }
+            - set(AUDIT_IDS)
+        ):
             errors.append("sealed work-unit snapshots contain orphan audit identities")
     errors.extend(workflow_reasoning_identity_errors(package_dir))
     return errors

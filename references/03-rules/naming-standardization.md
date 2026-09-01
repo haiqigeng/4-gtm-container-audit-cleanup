@@ -7,7 +7,7 @@ not execute the rename.
 ## Contents
 
 - Decision Hierarchy
-- Cleanup Plan Requirement
+- Canonical Audit And Delivery
 - Default Patterns
 - Vendor Acronyms
 - Semantic Family Rules
@@ -36,28 +36,25 @@ are known, so remaining objects receive stable final names.
 7. If the local convention is missing, weak, or harmful, recommend
    `default-standardized` and use the integrated default patterns below.
 
-## Cleanup Plan Requirement
+## Canonical Audit And Delivery
 
-Every cleanup plan must include a visible naming and architecture row. The row
-must state:
+Every naming obligation receives one canonical semantic decision. Record the
+selected policy (`user-provided`, `local-normalized`, or `default-standardized`),
+the source evidence and confidence, representative compliant names, uniqueness
+status, and every owner blocker in that decision.
 
-- selected policy: user-provided, local-normalized, or default-standardized;
-- confidence and why that policy was selected;
-- examples of compliant final names;
-- whether detailed rename candidates are in the hidden deterministic or rename
-  map tab;
-- blockers when final names require owner clarification.
+When a rename is materially justified and exact, encode each object-level rename
+in the decision's operation proposal. Delivery maps that operation to exactly one
+visible Recommendations row, with before/after names, object identity, rationale,
+static verification, rollback, and row-bound technical comments. When no rename
+is justified, the canonical audit decision explains why the current naming is
+retained. When meaning is ambiguous, use an owner-decision or container-evidence-
+limit decision rather than inventing a target.
 
-The visible cleanup plan may group naming as one operation, but hidden proof
-tabs must keep object-level rename candidates and policy evidence. Do not omit
-naming just because rename candidates are not safe to execute yet.
-
-Object-level naming proof rows should include:
-
-- selected naming policy and target pattern;
-- proposed final name when it can be derived from existing tokens;
-- rename blocker when event, scope, vendor, or owner meaning is ambiguous;
-- uniqueness status inside the GTM layer.
+Do not create a separate cleanup-plan row, rename-map tab, deterministic proof
+tab, or hidden decision surface. Naming detail remains traceable through the
+canonical audit decision, its exact operation when actionable, and comments on
+the owning visible workbook row.
 
 Do not invent business tokens to fill a name. If a proposed name cannot be made
 unique without a new scope token, mark the row as owner-decision-needed rather
@@ -116,8 +113,8 @@ Variable type acronyms:
 - Use `CE` for Custom Event triggers, `PV` for pageview or URL/hostname
   triggers, `LC` for link-click triggers, `FORM` for form-submit triggers,
   `Block` for blocking triggers, and `TG` for trigger groups.
-- Flatten single-member trigger groups before final naming when the cleanup route
-  supports deletion.
+- Flatten single-member trigger groups before final naming only when the sealed
+  target architecture independently proves that deletion is safe.
 - Treat vendor/CMP names as vocabulary, not role names. If `Didomi - ...`,
   `Consent - ...`, and `Block - ...` triggers all block a vendor because consent
   is denied, standardize them under the blocking-trigger pattern. Keep `Didomi`
@@ -157,7 +154,7 @@ something else.
 
 ## Rename QA
 
-Before any rename:
+Before proposing any exact rename:
 
 - define the final convention for tags, triggers, variables, folders, and
   templates when relevant;
@@ -169,4 +166,5 @@ Before any rename:
   references, sequencing, trigger groups, and owner references where evidence is
   available;
 - record before name, after name, object ID, reason, expected behavior impact,
-  QA status, and blocker if owner confirmation is still required.
+  static verification, rollback, and any owner blocker in the canonical decision
+  and operation proposal.

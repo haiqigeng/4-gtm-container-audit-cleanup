@@ -116,7 +116,14 @@ seal also binds an exact immutable snapshot of the work-unit manifest and every
 completed family-shard file used for that audit version. Current and historical
 audits are always revalidated against their own sequence-addressed snapshots, so
 later amendment edits cannot alter predecessor evidence. Missing, changed,
-duplicated, or orphan snapshot identities block the complete chain. A
+duplicated, or orphan snapshot identities block the complete chain. Unit identity
+is independently recomputed from explicit immutable audit, source, ledger,
+family, and membership fields. Snapshot roots and contents must be regular,
+self-contained paths below the seal directory; symlinks, junctions, reparse
+points, and resolved path escapes block before any evidence is read. Reconstruct
+the exact sorted decisions and ordered discoveries from all declared units and
+compare that result directly with the candidate or sealed audit; hashes stored in
+the audit are supporting evidence, never the derivation proof. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
 closes this amendment path; later semantic repair uses a successor package.
 Stage the new audit, new seal, immutable work-unit snapshot, and predecessor
