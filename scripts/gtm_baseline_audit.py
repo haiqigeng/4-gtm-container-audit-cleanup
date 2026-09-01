@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build internal deterministic operational candidate evidence.
 
-The canonical v2 scan consumes these neutral candidates.  This module does not
+The canonical v2.1 scan consumes these neutral candidates.  This module does not
 own semantic verdicts and no longer exposes the standalone v1 scan command.
 """
 
@@ -1048,7 +1048,7 @@ class BaselineBuilder:
                         f"No deterministic findings produced by module {module_name} "
                         f"after scanning {module['objects_scanned']} object(s)."
                     ),
-                    "default_action": "No cleanup action from this module.",
+                    "default_action": "No optimisation action from this module.",
                     "source_lens": "deterministic",
                     "finding_class": "zero_result",
                     "deterministic_action_candidate": "not_applicable",
@@ -2007,7 +2007,7 @@ def add_missing_reference_findings(
                 f"Replace the corrupted reference with {repair['target_name']!r} at every "
                 "listed source path."
                 if repair["status"] == "unique_normalized_target"
-                else "Resolve reference before cleanup execution; use fresh readback or "
+                else "Resolve reference before applying the approved operation; use fresh readback or "
                 "restore/create the missing source."
             ),
             "cleanup_operation | documented_exception | owner_decision_needed",
@@ -2036,7 +2036,7 @@ def add_missing_reference_findings(
             [{"object_id": trigger_id, "object_name": trigger_id}],
             f"trigger:{trigger_id}",
             f"Trigger ID {trigger_id} is consumed but no trigger with that ID exists.",
-            "Resolve reference before cleanup execution; use fresh readback or restore/create the missing trigger.",
+            "Resolve reference before applying the approved operation; use fresh readback or restore/create the missing trigger.",
             "cleanup_operation | documented_exception | owner_decision_needed",
         )
 
@@ -2091,7 +2091,7 @@ def add_missing_reference_findings(
                             f"Remap the missing sequence name to peer-supported tag "
                             f"{target['object_key']} — {target['object_name']}."
                             if target
-                            else "Resolve sequencing reference before cleanup execution; "
+                            else "Resolve sequencing reference before applying the approved operation; "
                             "do not clear the sequencing edge by default."
                         ),
                         "cleanup_operation | documented_exception | owner_decision_needed",
@@ -2148,7 +2148,7 @@ def add_missing_reference_findings(
                     ],
                     f"template:{template_id}",
                     f"{layer} {item.get('name')!r} uses custom template {template_id}, but it is not in customTemplate.",
-                    "Restore or include the required custom template before cleanup execution.",
+                    "Restore or include the required custom template before applying the approved operation.",
                 )
 
 

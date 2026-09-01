@@ -1088,7 +1088,7 @@ def code_health_status(
     if security:
         return (
             "technical_risk_review_required",
-            "Harden before cleanup execution: remove risky browser APIs, keep only trusted "
+            "Harden before applying the approved operation: remove risky browser APIs, keep only trusted "
             "sources, and validate the resulting container configuration.",
         )
     if health or optimization:
@@ -1099,7 +1099,7 @@ def code_health_status(
         )
     return (
         "no_static_technical_issue",
-        "No technical cleanup signal from the static export; still review business purpose "
+        "No technical optimisation signal from the static export; still review business purpose "
         "separately.",
     )
 
@@ -1434,8 +1434,8 @@ def technical_exact_action(
         actions.append("No technical action is proposed from the static code scan.")
 
     prefix = {
-        "fix_required": "Fix before cleanup execution: ",
-        "harden_required": "Fix before cleanup execution: ",
+        "fix_required": "Fix before applying the approved operation: ",
+        "harden_required": "Fix before applying the approved operation: ",
         "consolidate_candidate": "Simplification candidate: ",
         "owner_decision_needed": "Decision needed: ",
         "keep": "Keep: ",
@@ -1455,13 +1455,13 @@ def technical_preconditions(layer: str, action: str) -> str:
         return "Identify the exact configured event, destination, payload, consent setting, and trigger route that must remain equivalent."
     if action == "owner_decision_needed":
         return "Owner must confirm keep, rebuild, delete, or documented-exception route."
-    return "No cleanup precondition from the technical scan."
+    return "No optimisation precondition from the technical scan."
 
 
 def technical_qa_steps(layer: str, row: dict[str, Any], action: str) -> str:
     if action == "keep":
         return (
-            "No technical container check is required unless approved cleanup changes this object."
+            "No technical container check is required unless the approved operation changes this object."
         )
     steps = [
         "re-export the workspace and compare the changed code and configuration with the approved operation",

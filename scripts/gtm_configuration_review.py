@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Extract internal configuration candidate evidence.
 
-This module is an implementation component of the canonical v2 scan.  The
+This module is an implementation component of the canonical v2.1 scan.  The
 standalone v1 review command was deliberately removed.
 """
 
@@ -215,7 +215,7 @@ SEMANTIC_TEXT_FIELDS = (
 VALID_LOGIC_CHECK_VERDICTS = {"Aligned", "Issue", "Unclear"}
 VALID_TECHNICAL_FINDING_VERDICTS = {
     "Confirmed issue",
-    "Cleanup opportunity",
+    "Optimisation opportunity",
     "No defect after review",
     "False positive",
     "Documented exception",

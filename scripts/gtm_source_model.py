@@ -2,7 +2,7 @@
 """Build a GTM source-model navigation map from an export.
 
 The source model is not a replacement for the raw GTM export/API evidence. It is
-the cross-reference map used by cleanup lenses to navigate back to object
+the cross-reference map used by optimization lenses to navigate back to object
 configuration, fields, variables, triggers, custom code, and unresolved edges.
 """
 

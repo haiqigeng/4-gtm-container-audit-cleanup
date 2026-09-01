@@ -84,7 +84,7 @@ INFERENCE_EVIDENCE = {
     "staging_hosts": "behavior-bearing development/staging/QA endpoint",
     "do_not_touch": "analyst-owned exact execution fence",
     "naming_policy": "analyst-owned policy or completed container-local naming analysis",
-    "requested_deliverable": "full-run contract: audit plus exact cleanup plan",
+    "requested_deliverable": "full-run contract: audit plus exact optimization plan",
 }
 STAGING_HOST_RE = re.compile(
     r"^(?:localhost|127\.0\.0\.1|"
@@ -423,7 +423,7 @@ def build_context_model(
         "website_url": website_url,
         "business_model": inferred_business_model(active_text),
         "container_type": container_type(cv),
-        "requested_deliverable": "audit_and_cleanup_plan",
+        "requested_deliverable": "audit_and_optimization_plan",
         "cmp": sorted(
             name for name, pattern in CMP_PATTERNS.items() if pattern.search(active_text)
         ),

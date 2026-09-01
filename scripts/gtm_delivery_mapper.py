@@ -618,7 +618,7 @@ def create_delivery_map(
         "language": language,
         "primary_audience": (
             "A web analyst reviewing, challenging, deciding on, and potentially handing "
-            "off the proposed GTM cleanup."
+            "off the proposed GTM optimization."
         ),
         "overview_audience": "A marketing or business owner who needs orientation and priorities.",
         "wording_rules": [

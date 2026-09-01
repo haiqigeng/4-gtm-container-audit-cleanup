@@ -102,7 +102,7 @@ provably equivalent anchored/contains regex patterns for comparison; keep the
 raw source as evidence.
 
 Trigger groups require member expansion and cycle checks. A group is not a
-simple OR: preserve GTM group semantics when designing cleanup.
+simple OR: preserve GTM group semantics when designing an optimisation.
 
 ## Variables
 

@@ -90,8 +90,9 @@ Measure:
 
 ## Release Decision
 
-Release only when v2 is equal or better for every retained capability, detects
-the new optimisation and consent/routing classes, preserves all seeded intentional
-distinctions, has no unsupported cleanup advice increase, blocks every isolation or
+Release only when the current v2.1 implementation is equal or better for every
+retained capability, detects the new optimisation and consent/routing classes,
+preserves all seeded intentional distinctions, has no unsupported optimisation
+advice increase, blocks every isolation or
 non-convergence adversary, and produces one trustworthy workbook. A deferred
 utility passes only by being absent.

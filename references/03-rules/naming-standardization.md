@@ -51,7 +51,7 @@ is justified, the canonical audit decision explains why the current naming is
 retained. When meaning is ambiguous, use an owner-decision or container-evidence-
 limit decision rather than inventing a target.
 
-Do not create a separate cleanup-plan row, rename-map tab, deterministic proof
+Do not create a separate optimisation-plan row, rename-map tab, deterministic proof
 tab, or hidden decision surface. Naming detail remains traceable through the
 canonical audit decision, its exact operation when actionable, and comments on
 the owning visible workbook row.

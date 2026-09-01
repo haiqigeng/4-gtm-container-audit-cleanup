@@ -698,6 +698,11 @@ The repeated pre-release review found and resolved sixty-two issues:
     the missing-source request the only frozen start message, added an early
     reuse of the existing workbook-runtime preflight, clarified shared-rule versus
     peer-judgment access, and bounded the static evidence and privacy wording.
+63. The v2.1.1 maintenance pass aligned remaining current-facing cleanup wording
+    with optimization terminology in inferred context, technical findings,
+    human workbook guidance, code guidance, and source navigation. Concrete
+    `cleanup_operation` labels and historical or legacy detector terms remain
+    where they describe actual removal semantics or source evidence.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.1.
