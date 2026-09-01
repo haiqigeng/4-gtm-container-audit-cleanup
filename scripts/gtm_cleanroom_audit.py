@@ -121,6 +121,14 @@ def _contained_child_errors(path: Path, parent: Path, label: str) -> list[str]:
     return errors
 
 
+def package_root_errors(package_dir: Path) -> list[str]:
+    """Reject a package root whose name redirects to another filesystem path."""
+
+    if _path_is_link_or_reparse(package_dir):
+        return ["audit package root is a link or reparse point"]
+    return []
+
+
 def _copy_locked(source: Path, target: Path, role: str) -> dict[str, Any]:
     shutil.copy2(source, target)
     return {
@@ -229,6 +237,9 @@ def prepare_audit_bundles(
     registry_path: Path,
     requirements_path: Path | None = None,
 ) -> dict[str, Any]:
+    root_errors = package_root_errors(package_dir)
+    if root_errors:
+        raise ValueError("; ".join(root_errors))
     bundles_root = package_dir / BUNDLE_DIRECTORY
     if bundles_root.exists():
         raise ValueError("clean-room audit bundles already exist")
@@ -655,6 +666,9 @@ def checkpoint_audit(
     audit_id: str,
     completed_checkpoint: Path | None = None,
 ) -> dict[str, Any]:
+    root_errors = package_root_errors(package_dir)
+    if root_errors:
+        raise ValueError("; ".join(root_errors))
     if audit_id not in AUDIT_IDS:
         raise ValueError(f"unsupported audit identity: {audit_id}")
     bundle = (package_dir / BUNDLE_DIRECTORY / audit_id).resolve()
@@ -1068,6 +1082,9 @@ def validate_audit(
     amendment_of: str | None = None,
     sealed_seal: dict[str, Any] | None = None,
 ) -> list[str]:
+    root_errors = package_root_errors(package_dir)
+    if root_errors:
+        return root_errors
     if audit_id not in AUDIT_IDS:
         return [f"unsupported audit identity: {audit_id}"]
     bundle_root = package_dir / BUNDLE_DIRECTORY
@@ -1428,6 +1445,9 @@ def _commit_audit_transition(
     seal_dir = seal_path.parent
     canonical_dir = canonical_path.parent
     package_dir = seal_dir.parent
+    root_errors = package_root_errors(package_dir)
+    if root_errors:
+        raise ValueError("; ".join(root_errors))
     history = seal_dir / HISTORY_DIRECTORY
     snapshot_root = seal_dir / WORK_UNIT_SNAPSHOT_ROOT
     snapshot_target = seal_dir / snapshot_relative_path
@@ -1703,6 +1723,9 @@ def seal_audit(
     *,
     amendment_of: str | None = None,
 ) -> dict[str, Any]:
+    root_errors = package_root_errors(package_dir)
+    if root_errors:
+        raise ValueError("; ".join(root_errors))
     bundle = package_dir / BUNDLE_DIRECTORY / audit_id
     audit_path = (completed_audit or bundle / AUDIT_FILE).resolve()
     if audit_path.parent != bundle.resolve():
@@ -2117,6 +2140,9 @@ def _sealed_audit_record_errors(package_dir: Path, audit_id: str) -> list[str]:
 
 
 def sealed_audit_errors(package_dir: Path) -> list[str]:
+    root_errors = package_root_errors(package_dir)
+    if root_errors:
+        return root_errors
     seal_root = package_dir / SEAL_DIRECTORY
     errors = [
         *_contained_child_errors(

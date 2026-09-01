@@ -129,7 +129,9 @@ merge or sealing. The nested decision, discovery, and completed-unit lists rejec
 non-object and duplicate rows, and the complete proof must equal one exact
 reconstructed object. Seal, history, snapshot, bundle, and canonical-audit roots
 must remain direct regular children of the package; no ancestor junction may
-redirect reads or writes. A
+redirect reads or writes. The package root itself must also be a regular directory
+name, not a symlink, junction, or reparse point; reject it before generation or
+any workflow read/write. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
 closes this amendment path; later semantic repair uses a successor package.
 Stage the new audit, new seal, immutable work-unit snapshot, and predecessor

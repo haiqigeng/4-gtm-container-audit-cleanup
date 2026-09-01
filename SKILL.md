@@ -226,7 +226,8 @@ merged-audit claims. Reject undeclared manifest, record, or unit fields. Do not
 filter malformed or duplicate nested evidence: the completion proof must equal
 one deterministically reconstructed closed object. Do not follow links,
 junctions, or reparse points at the package, seal, history, snapshot, bundle, or
-canonical-audit boundaries. After
+canonical-audit boundaries. Reject a redirected package root before package
+generation or any checkpoint, validation, seal, or amendment action. After
 canonical sealing, a semantic or fidelity defect starts one
 immutable successor package bound to the predecessor record and same locked
 source, then reruns the whole workflow. Presentation-only defects create a new

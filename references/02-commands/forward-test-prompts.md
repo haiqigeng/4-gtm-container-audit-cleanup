@@ -70,6 +70,8 @@ Measure:
 - rejection of audit-history and ancestor seal-root junction escapes before any
   external write, plus rejection of malformed, duplicate, non-object, unknown,
   or self-rehashed nested completion evidence;
+- rejection of a package-root symlink, junction, or reparse point before package
+  generation and before every checkpoint, validation, seal, or amendment write;
 - exact operation validity, dependency safety, target coherence, and fixed-point
   convergence/non-convergence blocking, with byte-identical rollback after a
   failed candidate cycle;

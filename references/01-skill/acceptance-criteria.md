@@ -91,7 +91,9 @@
   completion rows are object-only and exact-once; the whole completion proof
   equals its deterministic reconstruction. Package seal, history, bundle,
   snapshot, and canonical-audit boundaries cannot be redirected by an ancestor
-  link, junction, or reparse point.
+  link, junction, or reparse point. A redirected package root is rejected before
+  generation, checkpointing, validation, sealing, or amendment work and receives
+  no writes.
 - Every visible sheet is rendered and inspected; privacy and formula-injection
   scans pass.
 

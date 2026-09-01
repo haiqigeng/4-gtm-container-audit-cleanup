@@ -17,7 +17,7 @@ from gtm_canonical_record import (
     canonical_record_seal_errors,
 )
 from gtm_canonical_scan import build_canonical_scan
-from gtm_cleanroom_audit import prepare_audit_bundles
+from gtm_cleanroom_audit import package_root_errors, prepare_audit_bundles
 from gtm_lib import as_list, file_sha256, stable_hash, write_json
 from gtm_obligation_ledger import build_obligation_ledger
 from gtm_scan_assurance import assure_scan
@@ -38,6 +38,9 @@ REPAIRABLE_FIELDS = {
 
 
 def _ensure_empty_directory(path: Path) -> None:
+    root_errors = package_root_errors(path)
+    if root_errors:
+        raise RuntimeError("; ".join(root_errors))
     if path.exists():
         if not path.is_dir() or any(path.iterdir()):
             raise RuntimeError(
@@ -45,6 +48,9 @@ def _ensure_empty_directory(path: Path) -> None:
             )
     else:
         path.mkdir(parents=True)
+    root_errors = package_root_errors(path)
+    if root_errors:
+        raise RuntimeError("; ".join(root_errors))
 
 
 def _artifact_record(path: Path, role: str) -> dict[str, Any]:

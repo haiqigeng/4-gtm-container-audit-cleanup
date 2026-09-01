@@ -106,7 +106,8 @@ deterministically re-merges all decisions and discoveries from the snapshot and
 requires exact equality with the sealed audit and completion proof. Malformed,
 duplicate, unknown, or non-object nested rows block. The audit-seal, history,
 bundle, snapshot, and canonical-audit roots must remain direct regular package
-children and cannot be redirected.
+children and cannot be redirected. The package root itself must not be a symlink,
+junction, or reparse point.
 
 Before canonical sealing, an audit amendment uses a new context and binds
 `--amendment-of` to the current audit seal hash. After canonical sealing, use the

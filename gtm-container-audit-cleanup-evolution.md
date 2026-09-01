@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved twenty-nine issues:
+The repeated pre-release review found and resolved thirty issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -554,6 +554,11 @@ The repeated pre-release review found and resolved twenty-nine issues:
     Nested lists now reject malformed and duplicate rows, use closed field sets,
     and require the entire completion object to equal a deterministic
     reconstruction from all declared unit files.
+30. Child containment could still accept the package root itself as an NTFS
+    junction because every child resolved consistently under the external target.
+    Package generation, bundle preparation, checkpointing, audit validation,
+    sealing, amendment commit, and final sealed validation now reject a root-level
+    link or reparse point before any read or write.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

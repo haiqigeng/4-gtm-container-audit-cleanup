@@ -27,6 +27,7 @@ from gtm_cleanroom_audit import (  # noqa: E402
     checkpoint_audit,
     seal_audit,
     sealed_audit_errors,
+    validate_audit,
 )
 from gtm_delivery_mapper import create_delivery_map, seal_editorial  # noqa: E402
 from gtm_delivery_reviews import scaffold_delivery_reviews, seal_delivery  # noqa: E402
@@ -689,6 +690,58 @@ class V2WorkflowTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_package_root_redirect_is_rejected_before_any_write(self) -> None:
+        empty_target = self.root / "external-empty-package-target"
+        empty_target.mkdir()
+        redirected_package = self.root / "redirected-audit-package"
+        create_directory_redirect(redirected_package, empty_target)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "package root"):
+                build_package(self.export, redirected_package)
+            self.assertEqual([], list(empty_target.iterdir()))
+        finally:
+            remove_directory_redirect(redirected_package)
+            empty_target.rmdir()
+
+        guarded_package = self.root / "guarded-audit-package"
+        build_package(self.export, guarded_package)
+        external_package = self.root / "external-built-package-target"
+        guarded_package.replace(external_package)
+        before = {
+            path.relative_to(external_package).as_posix(): path.read_bytes()
+            for path in external_package.rglob("*")
+            if path.is_file()
+        }
+        create_directory_redirect(guarded_package, external_package)
+        try:
+            with self.assertRaisesRegex(ValueError, "package root"):
+                checkpoint_audit(guarded_package, "audit-a")
+            with self.assertRaisesRegex(ValueError, "package root"):
+                seal_audit(guarded_package, "audit-a")
+            self.assertTrue(
+                any(
+                    "package root" in error
+                    for error in validate_audit(guarded_package, "audit-a")
+                )
+            )
+            self.assertTrue(
+                any(
+                    "package root" in error
+                    for error in sealed_audit_errors(guarded_package)
+                )
+            )
+            self.assertEqual(
+                before,
+                {
+                    path.relative_to(external_package).as_posix(): path.read_bytes()
+                    for path in external_package.rglob("*")
+                    if path.is_file()
+                },
+            )
+        finally:
+            remove_directory_redirect(guarded_package)
+            external_package.replace(guarded_package)
 
     def test_material_optimisation_class_is_canonical_across_delivery(self) -> None:
         decision_class = "correct_but_materially_non_optimal"
