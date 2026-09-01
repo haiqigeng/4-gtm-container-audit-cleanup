@@ -279,6 +279,8 @@ def work_unit_completion_errors(
     bundle: Path,
     audit: dict[str, Any],
     manifest: dict[str, Any],
+    *,
+    work_unit_directory: Path | None = None,
 ) -> list[str]:
     """Prove a sharded audit was merged from every closed declared unit."""
 
@@ -316,7 +318,7 @@ def work_unit_completion_errors(
     }
     if "" in expected_units or set(actual_units) != set(expected_units):
         errors.append("work-unit completion does not cover every declared unit exactly once")
-    directory = bundle / WORK_UNIT_DIRECTORY
+    directory = work_unit_directory or bundle / WORK_UNIT_DIRECTORY
     for work_unit_id, record in expected_units.items():
         unit_path = directory / str(record.get("filename") or "")
         if not unit_path.is_file():

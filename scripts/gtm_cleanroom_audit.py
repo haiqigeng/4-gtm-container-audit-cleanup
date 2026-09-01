@@ -44,6 +44,8 @@ CHECKPOINT_SEAL_FILE = "source-checkpoint-seal.json"
 AUDIT_FILE = "audit.json"
 RELEASE_MANIFEST_FILE = "release-manifest.json"
 BUNDLE_MANIFEST_FILE = "bundle-manifest.json"
+WORK_UNIT_SNAPSHOT_ROOT = "work-unit-snapshots"
+WORK_UNIT_SNAPSHOT_MANIFEST = "snapshot-manifest.json"
 ISOLATION_MECHANISMS = {
     "orchestrator_scoped_context",
     "filesystem_acl_or_sandbox",
@@ -853,6 +855,109 @@ def _discovery_errors(
     return errors
 
 
+def _work_unit_snapshot_relative_path(audit_id: str, sequence: int) -> str:
+    return f"{WORK_UNIT_SNAPSHOT_ROOT}/{audit_id}/sequence-{sequence:03d}"
+
+
+def _work_unit_snapshot_manifest(
+    bundle: Path, audit_id: str, sequence: int
+) -> dict[str, Any]:
+    work_units = bundle / WORK_UNIT_DIRECTORY
+    manifest_path = work_units / WORK_UNIT_MANIFEST
+    if not manifest_path.is_file():
+        raise ValueError("work-unit manifest is missing before audit sealing")
+    if any(path.is_symlink() for path in work_units.rglob("*")):
+        raise ValueError("work-unit snapshots cannot contain symbolic links")
+    work_unit_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    files = [path for path in sorted(work_units.rglob("*")) if path.is_file()]
+    snapshot = {
+        "kind": "gtm_cleanroom_work_unit_snapshot_manifest",
+        "schema_version": 1,
+        "audit_id": audit_id,
+        "amendment_sequence": sequence,
+        "work_unit_manifest_sha256": work_unit_manifest.get(
+            "work_unit_manifest_sha256"
+        ),
+        "files": [
+            {
+                "path": path.relative_to(work_units).as_posix(),
+                "sha256": file_sha256(path),
+            }
+            for path in files
+        ],
+    }
+    snapshot["work_unit_snapshot_sha256"] = _hash_without(
+        snapshot, "work_unit_snapshot_sha256"
+    )
+    return snapshot
+
+
+def _sealed_work_unit_snapshot(
+    package_dir: Path,
+    audit_id: str,
+    sealed_seal: dict[str, Any],
+) -> tuple[Path, dict[str, Any], list[str]]:
+    errors: list[str] = []
+    try:
+        sequence = int(sealed_seal.get("amendment_sequence") or 0)
+    except (TypeError, ValueError):
+        sequence = 0
+        errors.append("sealed work-unit snapshot sequence is invalid")
+    expected_relative = _work_unit_snapshot_relative_path(audit_id, sequence)
+    if sealed_seal.get("work_unit_snapshot_path") != expected_relative:
+        errors.append("sealed audit work-unit snapshot path is invalid")
+    snapshot_dir = package_dir / SEAL_DIRECTORY / expected_relative
+    manifest_path = snapshot_dir / WORK_UNIT_SNAPSHOT_MANIFEST
+    if not manifest_path.is_file():
+        return snapshot_dir, {}, [*errors, "sealed work-unit snapshot is missing"]
+    snapshot = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if snapshot.get("work_unit_snapshot_sha256") != _hash_without(
+        snapshot, "work_unit_snapshot_sha256"
+    ):
+        errors.append("sealed work-unit snapshot manifest hash is invalid")
+    if sealed_seal.get("work_unit_snapshot_sha256") != snapshot.get(
+        "work_unit_snapshot_sha256"
+    ):
+        errors.append("audit seal is bound to another work-unit snapshot")
+    if (
+        snapshot.get("kind") != "gtm_cleanroom_work_unit_snapshot_manifest"
+        or snapshot.get("schema_version") != 1
+        or snapshot.get("audit_id") != audit_id
+        or snapshot.get("amendment_sequence") != sequence
+    ):
+        errors.append("sealed work-unit snapshot identity is invalid")
+    supplied_records = [
+        row for row in as_list(snapshot.get("files")) if isinstance(row, dict)
+    ]
+    supplied = {
+        str(row.get("path") or ""): str(row.get("sha256") or "")
+        for row in supplied_records
+    }
+    actual = {
+        path.relative_to(snapshot_dir).as_posix(): file_sha256(path)
+        for path in snapshot_dir.rglob("*")
+        if path.is_file() and path != manifest_path
+    }
+    if (
+        len(supplied) != len(supplied_records)
+        or "" in supplied
+        or supplied != actual
+    ):
+        errors.append("sealed work-unit snapshot files differ from their manifest")
+    work_unit_manifest_path = snapshot_dir / WORK_UNIT_MANIFEST
+    if not work_unit_manifest_path.is_file():
+        errors.append("sealed work-unit manifest is missing from its snapshot")
+        return snapshot_dir, {}, errors
+    work_unit_manifest = json.loads(
+        work_unit_manifest_path.read_text(encoding="utf-8")
+    )
+    if snapshot.get("work_unit_manifest_sha256") != work_unit_manifest.get(
+        "work_unit_manifest_sha256"
+    ):
+        errors.append("sealed work-unit snapshot contains another manifest")
+    return snapshot_dir, work_unit_manifest, errors
+
+
 def validate_audit(
     package_dir: Path,
     audit_id: str,
@@ -903,11 +1008,27 @@ def validate_audit(
         if not path.is_file() or file_sha256(path) != record.get("sha256"):
             errors.append(f"released immutable input changed: {path.name}")
     work_unit_record = release.get("work_units") or {}
-    work_unit_manifest_path = bundle / str(work_unit_record.get("manifest") or "")
+    work_unit_directory = bundle / WORK_UNIT_DIRECTORY
+    work_unit_manifest: dict[str, Any] = {}
+    if sealed_seal is not None:
+        (
+            work_unit_directory,
+            work_unit_manifest,
+            snapshot_errors,
+        ) = _sealed_work_unit_snapshot(package_dir, audit_id, sealed_seal)
+        errors.extend(snapshot_errors)
+        work_unit_manifest_path = work_unit_directory / WORK_UNIT_MANIFEST
+    else:
+        work_unit_manifest_path = bundle / str(
+            work_unit_record.get("manifest") or ""
+        )
     if not work_unit_manifest_path.is_file():
         errors.append("work-unit manifest is missing")
     else:
-        work_unit_manifest = json.loads(work_unit_manifest_path.read_text(encoding="utf-8"))
+        if not work_unit_manifest:
+            work_unit_manifest = json.loads(
+                work_unit_manifest_path.read_text(encoding="utf-8")
+            )
         if work_unit_manifest.get("work_unit_manifest_sha256") != work_unit_record.get(
             "work_unit_manifest_sha256"
         ) or work_unit_manifest.get("work_unit_manifest_sha256") != work_unit_identity_hash(
@@ -920,7 +1041,14 @@ def validate_audit(
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     if work_unit_manifest_path.is_file():
-        errors.extend(work_unit_completion_errors(bundle, audit, work_unit_manifest))
+        errors.extend(
+            work_unit_completion_errors(
+                bundle,
+                audit,
+                work_unit_manifest,
+                work_unit_directory=work_unit_directory,
+            )
+        )
     checks = (
         ("kind", "gtm_cleanroom_semantic_audit"),
         ("schema_version", 1),
@@ -1135,11 +1263,14 @@ def _atomic_replace(source: Path, target: Path) -> None:
 def _commit_audit_transition(
     *,
     audit_id: str,
+    bundle: Path,
     audit_path: Path,
     canonical_path: Path,
     seal_path: Path,
     seal: dict[str, Any],
     previous: dict[str, Any] | None,
+    snapshot_relative_path: str,
+    snapshot_manifest: dict[str, Any],
 ) -> None:
     """Stage one audit/seal transition and restore every prior artifact on failure."""
 
@@ -1157,14 +1288,82 @@ def _commit_audit_transition(
     prior_audit_backup = staging / "prior-audit.json"
     staged_audit = staging / "next-audit.json"
     staged_seal = staging / "next-seal.json"
+    staged_snapshot = staging / "next-work-unit-snapshot"
+    snapshot_root = seal_dir / WORK_UNIT_SNAPSHOT_ROOT
+    snapshot_target = seal_dir / snapshot_relative_path
+    snapshot_audit_root = snapshot_target.parent
+    snapshot_root_existed = snapshot_root.exists()
+    snapshot_audit_root_existed = snapshot_audit_root.exists()
     seal_existed = seal_path.is_file()
     audit_existed = canonical_path.is_file()
     prior_seal_sha256 = file_sha256(seal_path) if seal_existed else ""
     prior_audit_sha256 = file_sha256(canonical_path) if audit_existed else ""
     audit_replaced = False
     seal_replaced = False
+    snapshot_replaced = False
     preserve_staging = False
     try:
+        expected_snapshot_target = seal_dir / _work_unit_snapshot_relative_path(
+            audit_id, int(seal.get("amendment_sequence") or 0)
+        )
+        if snapshot_target != expected_snapshot_target:
+            raise ValueError("work-unit snapshot target identity is invalid")
+        if snapshot_target.exists():
+            raise ValueError("work-unit snapshot identity already exists")
+        if snapshot_manifest.get("work_unit_snapshot_sha256") != _hash_without(
+            snapshot_manifest, "work_unit_snapshot_sha256"
+        ):
+            raise ValueError("work-unit snapshot manifest identity is invalid")
+        if seal.get("work_unit_snapshot_sha256") != snapshot_manifest.get(
+            "work_unit_snapshot_sha256"
+        ):
+            raise ValueError("new audit seal is bound to another work-unit snapshot")
+
+        staged_snapshot.mkdir()
+        source_root = (bundle / WORK_UNIT_DIRECTORY).resolve()
+        declared_files: dict[str, str] = {}
+        for record in as_list(snapshot_manifest.get("files")):
+            if not isinstance(record, dict):
+                raise ValueError("work-unit snapshot file record is malformed")
+            relative_text = str(record.get("path") or "")
+            relative_path = Path(relative_text)
+            if (
+                not relative_text
+                or relative_path.is_absolute()
+                or ".." in relative_path.parts
+                or relative_path.as_posix() != relative_text
+                or relative_text in declared_files
+            ):
+                raise ValueError("work-unit snapshot file identity is invalid")
+            expected_sha256 = str(record.get("sha256") or "")
+            source = bundle / WORK_UNIT_DIRECTORY / relative_path
+            if (
+                not source.is_file()
+                or source.is_symlink()
+                or not source.resolve().is_relative_to(source_root)
+                or file_sha256(source) != expected_sha256
+            ):
+                raise ValueError(
+                    f"work-unit snapshot source changed: {relative_text}"
+                )
+            target = staged_snapshot / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            if file_sha256(target) != expected_sha256:
+                raise OSError(
+                    f"staged work-unit snapshot verification failed: {relative_text}"
+                )
+            declared_files[relative_text] = expected_sha256
+        write_json(staged_snapshot / WORK_UNIT_SNAPSHOT_MANIFEST, snapshot_manifest)
+        staged_files = {
+            path.relative_to(staged_snapshot).as_posix(): file_sha256(path)
+            for path in staged_snapshot.rglob("*")
+            if path.is_file()
+            and path != staged_snapshot / WORK_UNIT_SNAPSHOT_MANIFEST
+        }
+        if staged_files != declared_files:
+            raise OSError("staged work-unit snapshot files differ from their manifest")
+
         if seal_existed:
             shutil.copy2(seal_path, prior_seal_backup)
             if file_sha256(prior_seal_backup) != prior_seal_sha256:
@@ -1177,6 +1376,12 @@ def _commit_audit_transition(
         write_json(staged_seal, seal)
         if file_sha256(staged_audit) != seal.get("completed_audit_sha256"):
             raise ValueError("staged completed audit hash differs from its new seal")
+
+        snapshot_audit_root.mkdir(parents=True, exist_ok=True)
+        if not snapshot_target.resolve().is_relative_to(snapshot_root.resolve()):
+            raise ValueError("work-unit snapshot target leaves its sealed root")
+        _atomic_replace(staged_snapshot, snapshot_target)
+        snapshot_replaced = True
 
         if previous:
             history.mkdir(exist_ok=True)
@@ -1255,6 +1460,17 @@ def _commit_audit_transition(
                     rollback_errors.append(
                         f"partial history removal failed: {rollback_exc}"
                     )
+        if snapshot_replaced and snapshot_target.exists():
+            try:
+                if not snapshot_target.resolve().is_relative_to(
+                    snapshot_root.resolve()
+                ):
+                    raise OSError("snapshot target leaves its sealed root")
+                shutil.rmtree(snapshot_target)
+            except OSError as rollback_exc:
+                rollback_errors.append(
+                    f"new work-unit snapshot removal failed: {rollback_exc}"
+                )
         if not history_existed and history.is_dir() and not any(history.iterdir()):
             try:
                 history.rmdir()
@@ -1262,6 +1478,17 @@ def _commit_audit_transition(
                 rollback_errors.append(
                     f"empty history cleanup failed: {rollback_exc}"
                 )
+        for directory, existed in (
+            (snapshot_audit_root, snapshot_audit_root_existed),
+            (snapshot_root, snapshot_root_existed),
+        ):
+            if not existed and directory.is_dir() and not any(directory.iterdir()):
+                try:
+                    directory.rmdir()
+                except OSError as rollback_exc:
+                    rollback_errors.append(
+                        f"empty work-unit snapshot cleanup failed: {rollback_exc}"
+                    )
         if rollback_errors:
             preserve_staging = True
             raise RuntimeError(
@@ -1316,6 +1543,8 @@ def seal_audit(
         raise ValueError("audit validator failed: " + "; ".join(errors))
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     sequence = int(previous.get("amendment_sequence", 0)) + 1 if previous else 0
+    snapshot_relative_path = _work_unit_snapshot_relative_path(audit_id, sequence)
+    snapshot_manifest = _work_unit_snapshot_manifest(bundle, audit_id, sequence)
     checkpoint_seal = json.loads((bundle / CHECKPOINT_SEAL_FILE).read_text(encoding="utf-8"))
     release = json.loads((bundle / RELEASE_MANIFEST_FILE).read_text(encoding="utf-8"))
     seal = {
@@ -1336,15 +1565,22 @@ def seal_audit(
         "amendment_parent_seal_sha256": (
             str(previous.get("audit_seal_sha256") or "") if previous else ""
         ),
+        "work_unit_snapshot_path": snapshot_relative_path,
+        "work_unit_snapshot_sha256": snapshot_manifest[
+            "work_unit_snapshot_sha256"
+        ],
     }
     seal["audit_seal_sha256"] = _hash_without(seal, "audit_seal_sha256")
     _commit_audit_transition(
         audit_id=audit_id,
+        bundle=bundle,
         audit_path=audit_path,
         canonical_path=canonical_path,
         seal_path=seal_path,
         seal=seal,
         previous=previous,
+        snapshot_relative_path=snapshot_relative_path,
+        snapshot_manifest=snapshot_manifest,
     )
     return seal
 
@@ -1482,6 +1718,28 @@ def _audit_history_errors(
         errors.append(f"{audit_id}: current amendment parent chain is invalid")
     if set(audit_paths) != expected_audit_paths:
         errors.append(f"{audit_id}: amendment history contains orphan audit artifacts")
+    snapshot_audit_root = (
+        package_dir / SEAL_DIRECTORY / WORK_UNIT_SNAPSHOT_ROOT / audit_id
+    )
+    expected_snapshot_dirs = {
+        snapshot_audit_root / f"sequence-{sequence:03d}"
+        for sequence in range(current_sequence + 1)
+    }
+    actual_snapshot_dirs = (
+        {path for path in snapshot_audit_root.iterdir() if path.is_dir()}
+        if snapshot_audit_root.is_dir()
+        else set()
+    )
+    if actual_snapshot_dirs != expected_snapshot_dirs:
+        errors.append(
+            f"{audit_id}: sealed work-unit snapshot history identity is incomplete"
+        )
+    if snapshot_audit_root.is_dir() and any(
+        path.is_file() for path in snapshot_audit_root.iterdir()
+    ):
+        errors.append(
+            f"{audit_id}: sealed work-unit snapshot history contains orphan artifacts"
+        )
     return errors
 
 
@@ -1625,6 +1883,13 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
         errors.append("the two sealed audits reuse one reasoning context")
     if len(receipt_ids) == 2 and len(set(receipt_ids)) != 2:
         errors.append("the two sealed audits reuse one host isolation receipt")
+    snapshot_root = package_dir / SEAL_DIRECTORY / WORK_UNIT_SNAPSHOT_ROOT
+    if snapshot_root.is_dir():
+        snapshot_children = list(snapshot_root.iterdir())
+        if any(path.is_file() for path in snapshot_children) or {
+            path.name for path in snapshot_children if path.is_dir()
+        } - set(AUDIT_IDS):
+            errors.append("sealed work-unit snapshots contain orphan audit identities")
     errors.extend(workflow_reasoning_identity_errors(package_dir))
     return errors
 

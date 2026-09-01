@@ -60,6 +60,8 @@ Measure:
   reviewer, or workbook-only reader reuses any earlier context or receipt ID;
 - successful fresh source-audit amendment with unchanged checkpoint provenance,
   append-only history, and byte-identical rollback after rejected reuse;
+- successful family-sharded amendment whose predecessor and successor each
+  validate against their own immutable work-unit snapshot;
 - exact operation validity, dependency safety, target coherence, and fixed-point
   convergence/non-convergence blocking, with byte-identical rollback after a
   failed candidate cycle;

@@ -21,6 +21,7 @@ from gtm_audit_contract import (  # noqa: E402
     OPERATION_ACTION_FIELDS,
 )
 from gtm_audit_package_build import build_package  # noqa: E402
+from gtm_audit_work_units import merge_work_units  # noqa: E402
 from gtm_canonical_record import build_canonical_record  # noqa: E402
 from gtm_cleanroom_audit import (  # noqa: E402
     checkpoint_audit,
@@ -302,6 +303,29 @@ def complete_audit(package: Path, audit_id: str, *, actionable_priority: bool = 
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     seal_audit(package, audit_id)
+
+
+def complete_sharded_work_units(package: Path, audit_id: str) -> None:
+    bundle = package / "audit-bundles" / audit_id
+    work_units = bundle / "work-units"
+    manifest = json.loads(
+        (work_units / "work-unit-manifest.json").read_text(encoding="utf-8")
+    )
+    if manifest.get("strategy") != "family_sharded":
+        raise AssertionError("fixture did not produce family-sharded work units")
+    for record in manifest["work_units"]:
+        unit_path = work_units / record["filename"]
+        unit = json.loads(unit_path.read_text(encoding="utf-8"))
+        for decision in unit["decisions"]:
+            complete_semantic_decision(decision)
+        unit["unit_closure"] = (
+            "Every declared obligation in this complete family unit received an "
+            "independent fixture decision before the deterministic merge."
+        )
+        unit_path.write_text(
+            json.dumps(unit, indent=2) + "\n", encoding="utf-8"
+        )
+    merge_work_units(bundle)
 
 
 def write_audit_amendment(
@@ -852,6 +876,15 @@ class V2WorkflowTests(unittest.TestCase):
             [],
             list((self.package / "audit-seals").glob(".audit-a-transition-*")),
         )
+        self.assertFalse(
+            (
+                self.package
+                / "audit-seals"
+                / "work-unit-snapshots"
+                / "audit-a"
+                / "sequence-001"
+            ).exists()
+        )
 
         amended = seal_audit(self.package, "audit-a", amendment_of=parent)
         self.assertEqual(1, amended["amendment_sequence"])
@@ -954,6 +987,130 @@ class V2WorkflowTests(unittest.TestCase):
         )
         checkpoint_seal_path.write_bytes(checkpoint_seal_before)
         release_path.write_bytes(release_before)
+        self.assertEqual([], sealed_audit_errors(self.package))
+
+    def test_family_sharded_amendment_preserves_each_sealed_work_unit_snapshot(
+        self,
+    ) -> None:
+        build_package(self.export, self.package)
+        with mock.patch("gtm_audit_work_units.MAX_SINGLE_OBLIGATIONS", 0):
+            complete_checkpoint(
+                self.package,
+                "audit-a",
+                "sharded-amendment-source-a-context",
+            )
+            complete_checkpoint(
+                self.package,
+                "audit-b",
+                "sharded-amendment-source-b-context",
+            )
+        for audit_id in ("audit-a", "audit-b"):
+            complete_sharded_work_units(self.package, audit_id)
+            complete_audit(self.package, audit_id)
+
+        seal_path = self.package / "audit-seals" / "audit-a.json"
+        initial_seal = json.loads(seal_path.read_text(encoding="utf-8"))
+        parent = initial_seal["audit_seal_sha256"]
+        initial_snapshot = (
+            self.package
+            / "audit-seals"
+            / initial_seal["work_unit_snapshot_path"]
+        )
+        initial_snapshot_before = {
+            path.relative_to(initial_snapshot).as_posix(): path.read_bytes()
+            for path in initial_snapshot.rglob("*")
+            if path.is_file()
+        }
+
+        bundle = self.package / "audit-bundles" / "audit-a"
+        work_units = bundle / "work-units"
+        manifest = json.loads(
+            (work_units / "work-unit-manifest.json").read_text(encoding="utf-8")
+        )
+        amended_unit_path = work_units / manifest["work_units"][0]["filename"]
+        amended_unit = json.loads(amended_unit_path.read_text(encoding="utf-8"))
+        amended_unit["decisions"][0]["current_behavior"] += (
+            " This independently authored amendment clarifies the same bounded "
+            "source-visible behavior."
+        )
+        amended_unit["unit_closure"] = (
+            "Every obligation in this family unit was independently reread and "
+            "resealed for the amendment."
+        )
+        amended_unit_path.write_text(
+            json.dumps(amended_unit, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        merge_work_units(bundle)
+        write_audit_amendment(
+            self.package,
+            "audit-a",
+            parent_seal_sha256=parent,
+            context_id="sharded-amendment-fresh-context-001",
+            receipt_id="sharded-amendment-fresh-receipt-001",
+        )
+        amended_seal = seal_audit(
+            self.package,
+            "audit-a",
+            amendment_of=parent,
+        )
+
+        self.assertEqual(1, amended_seal["amendment_sequence"])
+        self.assertEqual(
+            initial_snapshot_before,
+            {
+                path.relative_to(initial_snapshot).as_posix(): path.read_bytes()
+                for path in initial_snapshot.rglob("*")
+                if path.is_file()
+            },
+        )
+        snapshot_root = self.package / "audit-seals" / "work-unit-snapshots"
+        self.assertEqual(
+            {"sequence-000", "sequence-001"},
+            {
+                path.name
+                for path in (snapshot_root / "audit-a").iterdir()
+                if path.is_dir()
+            },
+        )
+        self.assertEqual(
+            {"sequence-000"},
+            {
+                path.name
+                for path in (snapshot_root / "audit-b").iterdir()
+                if path.is_dir()
+            },
+        )
+        self.assertEqual([], sealed_audit_errors(self.package))
+
+        initial_unit_snapshot = next(
+            path
+            for path in initial_snapshot.rglob("unit-*.json")
+            if path.is_file()
+        )
+        initial_unit_before = initial_unit_snapshot.read_bytes()
+        tampered_unit = json.loads(initial_unit_before.decode("utf-8"))
+        tampered_unit["unit_closure"] += " Tampered after sealing."
+        initial_unit_snapshot.write_text(
+            json.dumps(tampered_unit, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any(
+                "work-unit snapshot files differ from their manifest" in error
+                for error in sealed_audit_errors(self.package)
+            )
+        )
+        initial_unit_snapshot.write_bytes(initial_unit_before)
+        orphan_snapshot = snapshot_root / "audit-a" / "sequence-999"
+        orphan_snapshot.mkdir()
+        self.assertTrue(
+            any(
+                "snapshot history identity is incomplete" in error
+                for error in sealed_audit_errors(self.package)
+            )
+        )
+        orphan_snapshot.rmdir()
         self.assertEqual([], sealed_audit_errors(self.package))
 
     def test_neutral_verifier_cannot_reuse_a_source_audit_context(self) -> None:

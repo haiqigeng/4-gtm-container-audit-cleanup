@@ -112,13 +112,19 @@ amendment uses a fresh context bound to the prior seal and archives the previous
 artifact and seal in append-only history.
 Its audit artifact and fresh host receipt both cite the current prior audit-seal
 hash while retaining the immutable source checkpoint and bundle identity. A
+seal also binds an exact immutable snapshot of the work-unit manifest and every
+completed family-shard file used for that audit version. Current and historical
+audits are always revalidated against their own sequence-addressed snapshots, so
+later amendment edits cannot alter predecessor evidence. Missing, changed,
+duplicated, or orphan snapshot identities block the complete chain. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
 closes this amendment path; later semantic repair uses a successor package.
-Stage the new audit, new seal, and predecessor history together. A failed commit
-must restore the prior current audit and seal byte-for-byte, remove partial
-history, and clear staging. Every later sealed-audit gate revalidates the complete
-contiguous parent chain and every archived audit, receipt, checkpoint, and release
-binding; missing history is a blocker.
+Stage the new audit, new seal, immutable work-unit snapshot, and predecessor
+history together. A failed commit must restore the prior current audit and seal
+byte-for-byte, remove the new snapshot and partial history, and clear staging.
+Every later sealed-audit gate revalidates the complete contiguous parent chain
+and every archived audit, receipt, checkpoint, release binding, and versioned
+work-unit snapshot; missing history is a blocker.
 Restore only a target that the commit actually replaced, and only from a complete
 hash-verified backup. If restoration itself cannot finish, retain the recovery
 staging evidence and block all downstream work.

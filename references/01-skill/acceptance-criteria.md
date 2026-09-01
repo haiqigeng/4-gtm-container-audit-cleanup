@@ -80,8 +80,10 @@
   context or host-isolation receipt anywhere in the workflow.
 - Source checkpoints are immutable after sealing. A pre-canonical audit
   amendment succeeds only with fresh globally unused identities, explicit prior-
-  seal binding, unchanged checkpoint provenance, and append-only prior history;
-  a failed amendment changes none of those artifacts.
+  seal binding, unchanged checkpoint provenance, an exact immutable work-unit
+  snapshot for every sealed sequence, and append-only prior history. Every
+  predecessor validates against its own snapshot; a failed amendment changes
+  none of those artifacts.
 - Every visible sheet is rendered and inspected; privacy and formula-injection
   scans pass.
 

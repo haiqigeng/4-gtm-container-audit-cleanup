@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved twenty-one issues:
+The repeated pre-release review found and resolved twenty-two issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -515,6 +515,12 @@ The repeated pre-release review found and resolved twenty-one issues:
     predecessor chain. Before staging, the owner-scoped sealed-audit gate now
     revalidates the current audit, complete history, checkpoint, bundle, released
     inputs, and release manifest; stale provenance fails without any audit write.
+22. A family-sharded amendment could not pass predecessor preflight after its
+    live unit files changed, because the prior audit was revalidated against the
+    new shard contents. Every seal now versions the exact work-unit manifest and
+    completed shard files it used. Current and historical records validate only
+    against their own immutable sequence snapshot, and the recoverable transition
+    removes a new snapshot if any later commit step fails.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

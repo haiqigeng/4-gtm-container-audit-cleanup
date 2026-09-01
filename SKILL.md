@@ -215,11 +215,13 @@ and ownership compatibility determine the verdict.
 
 Sealed semantic artifacts are immutable. An amendment uses a fresh context bound
 to the prior seal in both the audit artifact and its new host receipt, preserves
-the immutable source checkpoint, and writes append-only history before canonical sealing. After
-canonical sealing, a semantic or fidelity defect starts one immutable successor
-package bound to the predecessor record and same locked source, then reruns the
-whole workflow. Presentation-only defects create a new editorial artifact and
-rebuild.
+the immutable source checkpoint, seals an exact immutable snapshot of every
+work-unit input used by that audit version, and writes append-only history before
+canonical sealing. Every current or historical audit is revalidated against its
+own snapshot, never against later live shard edits. After canonical sealing, a
+semantic or fidelity defect starts one immutable successor package bound to the
+predecessor record and same locked source, then reruns the whole workflow.
+Presentation-only defects create a new editorial artifact and rebuild.
 
 Use `references/02-commands/validation-commands.md` for exact commands and
 `references/02-commands/forward-test-prompts.md` for release proof. Deliver only
