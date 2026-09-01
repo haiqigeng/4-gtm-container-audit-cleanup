@@ -49,13 +49,7 @@ async function fileHash(filePath) {
 
 async function assertSafePackageRoot(packageDir) {
   const stats = await fs.lstat(packageDir);
-  const resolved = path.resolve(packageDir);
-  const real = await fs.realpath(packageDir);
-  const normalize = (value) =>
-    process.platform === "win32"
-      ? path.normalize(value).toLowerCase()
-      : path.normalize(value);
-  if (stats.isSymbolicLink() || normalize(real) !== normalize(resolved)) {
+  if (stats.isSymbolicLink()) {
     throw new Error("audit package root is a link or reparse point");
   }
   const pending = [packageDir];

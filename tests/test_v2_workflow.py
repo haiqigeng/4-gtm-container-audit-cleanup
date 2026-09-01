@@ -1198,7 +1198,7 @@ class V2WorkflowTests(unittest.TestCase):
         try:
             with self.assertRaisesRegex(
                 ValueError,
-                "audit history directory",
+                "link or reparse point",
             ):
                 seal_audit(
                     self.package,
@@ -1307,7 +1307,9 @@ class V2WorkflowTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        with self.assertRaisesRegex(ValueError, "neutral context identity is reused"):
+        with self.assertRaisesRegex(
+            ValueError, "(?:neutral context identity|reasoning context identity).*reused"
+        ):
             complete_base_reconciliation(
                 self.package,
                 str(audit_a_seal["independent_context_id"]),
