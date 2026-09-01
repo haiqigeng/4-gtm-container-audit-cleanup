@@ -316,6 +316,20 @@ def operation_write_conflicts(operations: list[dict[str, Any]]) -> list[str]:
                         f"{operation_id} and {previous[0]} both write {key}"
                     )
                 writes[key] = (operation_id, field, value)
+        for field, json_path, value_field in (
+            ("renames", "$.name", "after"),
+            ("pauses", "$.paused", "after"),
+        ):
+            for action in as_list(operation.get(field)):
+                if not isinstance(action, dict):
+                    continue
+                key = (str(action.get("object_key") or ""), json_path)
+                previous = writes.get(key)
+                if previous:
+                    errors.append(
+                        f"{operation_id} and {previous[0]} both write {key}"
+                    )
+                writes[key] = (operation_id, field, action.get(value_field))
         for action in as_list(operation.get("deletions")):
             if isinstance(action, dict):
                 deleted[str(action.get("object_key") or "")] = operation_id
@@ -442,6 +456,15 @@ def validate_operations(
                 errors.append(f"{operation_id}: rename before value differs for {key}")
             if not str(action.get("after") or "").strip():
                 errors.append(f"{operation_id}: rename target is blank")
+            if str(action.get("before") or "") == str(action.get("after") or ""):
+                errors.append(f"{operation_id}: rename is a no-op")
+            write_key = (key, "$.name")
+            previous = writes.get(write_key)
+            if previous:
+                errors.append(
+                    f"{operation_id}: conflicting writes to {key} $.name with {previous[0]}"
+                )
+            writes[write_key] = (operation_id, "renames", action.get("after"))
         for action in as_list(operation.get("pauses")):
             if not isinstance(action, dict):
                 errors.append(f"{operation_id}: pause is malformed")
@@ -453,6 +476,15 @@ def validate_operations(
                 errors.append(f"{operation_id}: pause before value differs for {key}")
             if not isinstance(action.get("after"), bool):
                 errors.append(f"{operation_id}: pause after must be Boolean")
+            if isinstance(action.get("before"), bool) and action.get("before") == action.get("after"):
+                errors.append(f"{operation_id}: pause is a no-op")
+            write_key = (key, "$.paused")
+            previous = writes.get(write_key)
+            if previous:
+                errors.append(
+                    f"{operation_id}: conflicting writes to {key} $.paused with {previous[0]}"
+                )
+            writes[write_key] = (operation_id, "pauses", action.get("after"))
         for action in as_list(operation.get("remaps")):
             if not isinstance(action, dict):
                 errors.append(f"{operation_id}: remap is malformed")

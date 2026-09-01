@@ -99,8 +99,6 @@ def _regular_tree_files(root: Path) -> tuple[list[Path], list[str]]:
             else:
                 errors.append(f"path is not a regular file or directory: {entry}")
     return sorted(files), errors
-
-
 def _contained_child_errors(path: Path, parent: Path, label: str) -> list[str]:
     """Prove one package child is direct, regular, and not redirected."""
 

@@ -751,18 +751,25 @@ def _raw_setting_reference(
 def _independent_effective_google_settings(
     objects: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    variables_by_name: dict[str, dict[str, Any]] = {}
+    variables_by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in objects:
         scope = SETTINGS_VARIABLE_TYPES.get(str(row.get("object_type") or ""))
         if row.get("layer") != "variable" or not scope:
             continue
-        variables_by_name[str(row.get("object_name") or "")] = {
-            "object_key": row["object_key"],
-            "scope": scope,
-            "settings": _raw_setting_table_rows(
-                row["object"], SETTINGS_TABLE_KEYS[scope], row["source_json_path"]
-            ),
-        }
+        name = str(row.get("object_name") or "")
+        if name:
+            variables_by_name[name].append(
+                {
+                    "object_key": row["object_key"],
+                    "scope": scope,
+                    "source_json_path": row["source_json_path"],
+                    "settings": _raw_setting_table_rows(
+                        row["object"],
+                        SETTINGS_TABLE_KEYS[scope],
+                        row["source_json_path"],
+                    ),
+                }
+            )
 
     surfaces = []
     for row in objects:
@@ -793,8 +800,40 @@ def _independent_effective_google_settings(
             inherited = []
             resolved = []
             unresolved = []
+            ambiguous = []
+            candidate_inherited = []
             for name in reference.get("referenced_variable_names", []):
-                variable = variables_by_name.get(name)
+                candidates = variables_by_name.get(name, [])
+                if len(candidates) > 1:
+                    ambiguous.append(
+                        {
+                            "variable_name": name,
+                            "candidate_object_keys": sorted(
+                                str(candidate["object_key"])
+                                for candidate in candidates
+                            ),
+                            "candidate_settings_scopes": sorted(
+                                {str(candidate["scope"]) for candidate in candidates}
+                            ),
+                            "candidate_source_json_paths": sorted(
+                                str(candidate["source_json_path"])
+                                for candidate in candidates
+                            ),
+                        }
+                    )
+                    for candidate in candidates:
+                        candidate_inherited.extend(
+                            {
+                                **setting,
+                                "referenced_variable_name": name,
+                                "candidate_object_key": candidate["object_key"],
+                                "candidate_settings_scope": candidate["scope"],
+                                "origin": "ambiguous_inherited_candidate",
+                            }
+                            for setting in candidate["settings"]
+                        )
+                    continue
+                variable = candidates[0] if candidates else None
                 if not variable or variable["scope"] != scope:
                     unresolved.append(name)
                     continue
@@ -860,6 +899,62 @@ def _independent_effective_google_settings(
                     "settings_reference": reference,
                     "resolved_settings_variable_keys": sorted(resolved),
                     "unresolved_settings_variable_names": sorted(unresolved),
+                    "ambiguous_settings_variable_references": sorted(
+                        ambiguous,
+                        key=lambda item: item["variable_name"],
+                    ),
+                    "candidate_inherited_settings": [
+                        {
+                            "referenced_variable_name": str(
+                                item.get("referenced_variable_name") or ""
+                            ),
+                            "candidate_object_key": str(
+                                item.get("candidate_object_key") or ""
+                            ),
+                            "candidate_settings_scope": str(
+                                item.get("candidate_settings_scope") or ""
+                            ),
+                            "parameter_name": str(item.get("parameter_name") or ""),
+                            "value_sha256": str(item.get("value_sha256") or ""),
+                            "origin": str(item.get("origin") or ""),
+                            "source_json_paths": [
+                                str(item.get("source_json_path") or "")
+                            ],
+                            "is_consent_setting": bool(
+                                CONSENT_FIELD_RE.search(
+                                    str(item.get("parameter_name") or "")
+                                )
+                                or CONSENT_FIELD_RE.search(
+                                    str(item.get("_configured_value") or "")
+                                )
+                            ),
+                            "route_hosts": sorted(
+                                {
+                                    (urlparse(url).hostname or "").casefold()
+                                    for url in URL_RE.findall(
+                                        str(item.get("_configured_value") or "")
+                                    )
+                                    if (urlparse(url).hostname or "")
+                                }
+                            )
+                            if re.sub(
+                                r"[^a-z0-9]",
+                                "",
+                                str(item.get("parameter_name") or "").casefold(),
+                            )
+                            in ROUTE_PARAMETER_NAMES
+                            else [],
+                        }
+                        for item in sorted(
+                            candidate_inherited,
+                            key=lambda candidate: (
+                                str(candidate.get("referenced_variable_name") or ""),
+                                str(candidate.get("candidate_object_key") or ""),
+                                str(candidate.get("parameter_name") or ""),
+                                str(candidate.get("source_json_path") or ""),
+                            ),
+                        )
+                    ],
                     "effective_settings": effective,
                 }
             )
@@ -898,6 +993,81 @@ def _scan_effective_google_settings(scan: dict[str, Any]) -> list[dict[str, Any]
                         surface.get("unresolved_settings_variable_names")
                     )
                 ),
+                "ambiguous_settings_variable_references": sorted(
+                    (
+                        {
+                            "variable_name": str(item.get("variable_name") or ""),
+                            "candidate_object_keys": sorted(
+                                str(value)
+                                for value in as_list(
+                                    item.get("candidate_object_keys")
+                                )
+                            ),
+                            "candidate_settings_scopes": sorted(
+                                str(value)
+                                for value in as_list(
+                                    item.get("candidate_settings_scopes")
+                                )
+                            ),
+                            "candidate_source_json_paths": sorted(
+                                str(value)
+                                for value in as_list(
+                                    item.get("candidate_source_json_paths")
+                                )
+                            ),
+                        }
+                        for item in as_list(
+                            surface.get("ambiguous_settings_variable_references")
+                        )
+                        if isinstance(item, dict)
+                    ),
+                    key=lambda item: item["variable_name"],
+                ),
+                "candidate_inherited_settings": [
+                    {
+                        "referenced_variable_name": str(
+                            item.get("referenced_variable_name") or ""
+                        ),
+                        "candidate_object_key": str(
+                            item.get("candidate_object_key") or ""
+                        ),
+                        "candidate_settings_scope": str(
+                            item.get("candidate_settings_scope") or ""
+                        ),
+                        "parameter_name": str(item.get("parameter_name") or ""),
+                        "value_sha256": str(item.get("value_sha256") or ""),
+                        "origin": str(item.get("origin") or ""),
+                        "source_json_paths": [
+                            str(item.get("source_json_path") or "")
+                        ],
+                        "is_consent_setting": bool(
+                            CONSENT_FIELD_RE.search(
+                                str(item.get("parameter_name") or "")
+                            )
+                            or CONSENT_FIELD_RE.search(
+                                str(item.get("configured_value") or "")
+                            )
+                        ),
+                        "route_hosts": sorted(
+                            {
+                                (urlparse(url).hostname or "").casefold()
+                                for url in URL_RE.findall(
+                                    str(item.get("configured_value") or "")
+                                )
+                                if (urlparse(url).hostname or "")
+                            }
+                        )
+                        if re.sub(
+                            r"[^a-z0-9]",
+                            "",
+                            str(item.get("parameter_name") or "").casefold(),
+                        )
+                        in ROUTE_PARAMETER_NAMES
+                        else [],
+                    }
+                    for item in as_list(surface.get("candidate_inherited_settings"))
+                    if isinstance(item, dict)
+                ],
                 "effective_settings": [
                     {
                         "parameter_name": str(item.get("parameter_name") or ""),
@@ -1098,32 +1268,38 @@ def _independent_route_hosts_from_object(obj: dict[str, Any]) -> set[str]:
 
 def _independent_effective_object_route_hosts(
     obj: dict[str, Any],
-    variables_by_name: dict[str, dict[str, Any]],
+    variables_by_name: dict[str, list[dict[str, Any]]],
 ) -> set[str]:
     hosts = set(_independent_route_hosts_from_object(obj))
     queue = sorted(
         set(REF_RE.findall(json.dumps(obj.get("parameter", []), ensure_ascii=False)))
     )
-    visited: set[str] = set()
+    visited_names: set[str] = set()
+    visited_candidates: set[str] = set()
     while queue:
         name = queue.pop(0)
-        if name in visited:
+        if name in visited_names:
             continue
-        visited.add(name)
-        variable = variables_by_name.get(name)
-        if variable is None:
-            continue
-        hosts.update(_independent_route_hosts_from_object(variable))
-        queue.extend(
-            sorted(
-                set(
-                    REF_RE.findall(
-                        json.dumps(variable.get("parameter", []), ensure_ascii=False)
+        visited_names.add(name)
+        for variable in variables_by_name.get(name, []):
+            candidate_id = stable_hash(variable, 32)
+            if candidate_id in visited_candidates:
+                continue
+            visited_candidates.add(candidate_id)
+            hosts.update(_independent_route_hosts_from_object(variable))
+            queue.extend(
+                sorted(
+                    set(
+                        REF_RE.findall(
+                            json.dumps(
+                                variable.get("parameter", []),
+                                ensure_ascii=False,
+                            )
+                        )
                     )
+                    - visited_names
                 )
-                - visited
             )
-        )
     return hosts
 
 
@@ -1134,14 +1310,15 @@ def _effective_route_consent_topology(
     for row in effective_settings:
         settings_by_tag[str(row.get("object_key") or "")].extend(
             item
-            for item in as_list(row.get("effective_settings"))
+            for field in ("effective_settings", "candidate_inherited_settings")
+            for item in as_list(row.get(field))
             if isinstance(item, dict)
         )
-    variables_by_name = {
-        str(row.get("object_name") or ""): row["object"]
-        for row in objects
-        if row.get("layer") == "variable" and str(row.get("object_name") or "")
-    }
+    variables_by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in objects:
+        name = str(row.get("object_name") or "")
+        if row.get("layer") == "variable" and name:
+            variables_by_name[name].append(row["object"])
     base_hosts_by_key: dict[str, set[str]] = {}
     destinations_by_key: dict[str, set[str]] = {}
     for obj in objects:
@@ -1856,8 +2033,46 @@ def assure_scan(
         scan, {row["object_key"] for row in objects}, valid_paths
     )
     branches = _branch_identities(scan, raw_leaf_index)
-    coverage_ids = sorted(str(row.get("area_id") or "") for row in as_list(scan.get("coverage_ledger")))
+    coverage_rows = [
+        row
+        for row in as_list(scan.get("coverage_ledger"))
+        if isinstance(row, dict)
+    ]
+    coverage_ids = sorted(str(row.get("area_id") or "") for row in coverage_rows)
     expected_coverage_ids = sorted(str(row["area_id"]) for row in AUDIT_AREAS)
+    expected_raw_scope_coverage = [
+        {
+            "area_id": "AREA-20",
+            "source_count": (
+                raw_counts.get("tag", 0)
+                + raw_counts.get("variable", 0)
+                + raw_counts.get("transformation", 0)
+                + raw_counts.get("gtagConfig", 0)
+                + raw_counts.get("customTemplate", 0)
+                + len(raw_code_keys)
+            ),
+        },
+        {
+            "area_id": "AREA-23",
+            "source_count": sum(raw_counts.values()),
+        },
+    ]
+    for row in expected_raw_scope_coverage:
+        row["applicability"] = (
+            "applicable" if row["source_count"] else "source_counted_zero"
+        )
+    observed_raw_scope_coverage = sorted(
+        (
+            {
+                "area_id": str(row.get("area_id") or ""),
+                "source_count": row.get("source_count"),
+                "applicability": row.get("applicability"),
+            }
+            for row in coverage_rows
+            if str(row.get("area_id") or "") in {"AREA-20", "AREA-23"}
+        ),
+        key=lambda row: row["area_id"],
+    )
 
     checks = [
         _check("source_sha256", file_sha256(export_path), scan.get("source_sha256")),
@@ -1893,6 +2108,11 @@ def assure_scan(
         _check("custom_code_parser_coverage", raw_code_keys, parser_keys),
         _vendor_coverage_check(vendor_ownership, scan_vendor_ownership),
         _check("coverage_ledger_membership", expected_coverage_ids, coverage_ids),
+        _check(
+            "raw_scope_area_applicability",
+            expected_raw_scope_coverage,
+            observed_raw_scope_coverage,
+        ),
     ]
     if candidates["errors"]:
         checks.append(

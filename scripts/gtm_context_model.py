@@ -356,7 +356,6 @@ def context_content_hash(
     inferred_context: dict[str, Any] | None = None,
     provided_context: dict[str, Any] | None = None,
     provided_fields: list[str] | None = None,
-    unresolved_questions: list[str] | None = None,
     context_evidence: dict[str, Any] | None = None,
     intake_questions: list[dict[str, Any]] | None = None,
     intake_status: str = "",
@@ -368,7 +367,6 @@ def context_content_hash(
             "inferred_context": inferred_context or {},
             "provided_context": provided_context or {},
             "provided_fields": sorted(provided_fields or []),
-            "unresolved_questions": unresolved_questions or [],
             "context_evidence": context_evidence or {},
             "intake_questions": intake_questions or [],
             "intake_status": intake_status,
@@ -398,6 +396,12 @@ def build_context_model(
         )
     cv = container_version(data)
     provided = dict(provided_context or load_provided(provided_path))
+    unsupported_fields = sorted(set(provided) - set(INTAKE_FIELDS))
+    if unsupported_fields:
+        raise ValueError(
+            "provided context contains unsupported fields: "
+            + ", ".join(unsupported_fields)
+        )
     if "advanced_consent_mode_approvals" in provided:
         provided["advanced_consent_mode_approvals"] = (
             normalize_advanced_consent_mode_approvals(
@@ -608,28 +612,6 @@ def build_context_model(
                 "exact target-state protection; audit depth is unchanged",
             )
         )
-    for index, value in enumerate(as_list(provided.get("unresolved_questions")), start=1):
-        question = str(value or "").strip()
-        if question and question not in {
-            item["question"] for item in intake_questions
-        }:
-            intake_questions.append(
-                intake_question(
-                    f"INTAKE-PROVIDED-{index:03d}",
-                    "analyst_unresolved",
-                    question,
-                    True,
-                    "analyst-declared audit interpretation",
-                )
-            )
-    # The legacy unresolved list feeds owner-decision/readiness gates, so it must
-    # contain only material questions. The structured intake list keeps every
-    # unresolved question visible, including non-blocking context requests.
-    questions = [
-        str(item["question"])
-        for item in intake_questions
-        if bool(item.get("material"))
-    ]
     intake_status = (
         "confirmation_required"
         if any(bool(item.get("material")) for item in intake_questions)
@@ -646,7 +628,6 @@ def build_context_model(
         "context_evidence": evidence,
         "intake_questions": intake_questions,
         "intake_status": intake_status,
-        "unresolved_questions": questions,
     }
     payload["context_sha256"] = context_content_hash(
         payload["source_sha256"],
@@ -654,7 +635,6 @@ def build_context_model(
         inferred,
         provided,
         payload["provided_fields"],
-        questions,
         evidence,
         intake_questions,
         intake_status,

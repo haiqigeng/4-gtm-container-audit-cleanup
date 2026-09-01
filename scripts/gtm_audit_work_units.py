@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from gtm_audit_contract import CANONICAL_DECISION_FIELDS, OPERATION_ACTION_FIELDS
-from gtm_lib import as_list, stable_hash, write_json
+from gtm_lib import as_list, require_safe_package_root, stable_hash, write_json
 
 WORK_UNIT_DIRECTORY = "work-units"
 WORK_UNIT_MANIFEST = "work-unit-manifest.json"
@@ -613,6 +613,12 @@ def build_work_units(
 
 
 def merge_work_units(bundle: Path) -> dict[str, Any]:
+    guard_root = (
+        bundle.parent.parent
+        if bundle.parent.name == "audit-bundles"
+        else bundle
+    )
+    require_safe_package_root(guard_root)
     directory = bundle / WORK_UNIT_DIRECTORY
     manifest_path = directory / WORK_UNIT_MANIFEST
     audit_path = bundle / "audit.json"
@@ -694,6 +700,7 @@ def merge_work_units(bundle: Path) -> dict[str, Any]:
     }
     completion["work_unit_completion_sha256"] = stable_hash(completion, 64)
     base["work_unit_completion"] = completion
+    require_safe_package_root(guard_root)
     write_json(audit_path, base)
     return {
         "status": "pass",

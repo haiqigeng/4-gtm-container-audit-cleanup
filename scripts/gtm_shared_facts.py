@@ -944,7 +944,8 @@ def build_shared_facts(
         "inferred_context": context.get("inferred_context", {}),
         "provided_context": context.get("provided_context", {}),
         "provided_context_fields": context.get("provided_fields", []),
-        "unresolved_context_questions": context.get("unresolved_questions", []),
+        "intake_questions": context.get("intake_questions", []),
+        "intake_status": context.get("intake_status", ""),
         "fact_contract": (
             "Immutable source-derived facts shared across verdict engines; no cleanup verdicts."
         ),

@@ -211,8 +211,8 @@ def _setting_reference(
 
 def _settings_variables(
     cv: dict[str, Any], root_path: str
-) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
-    by_name: dict[str, dict[str, Any]] = {}
+) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
     rows: list[dict[str, Any]] = []
     for index, variable in enumerate(as_list(cv.get("variable"))):
         if not isinstance(variable, dict):
@@ -242,8 +242,8 @@ def _settings_variables(
         }
         rows.append(record)
         if name:
-            by_name[name] = record
-    return by_name, rows
+            by_name[name].append(record)
+    return dict(by_name), rows
 
 
 def _event_names(obj: dict[str, Any]) -> list[str]:
@@ -261,14 +261,48 @@ def _effective_settings_for_tag(
     tag_key: str,
     tag_path: str,
     scope: str,
-    variables_by_name: dict[str, dict[str, Any]],
+    variables_by_name: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
     reference = _setting_reference(tag, scope, tag_path)
     inherited_rows: list[dict[str, Any]] = []
     resolved_keys: list[str] = []
     unresolved_names: list[str] = []
+    ambiguous_references: list[dict[str, Any]] = []
+    candidate_inherited_rows: list[dict[str, Any]] = []
     for name in (reference or {}).get("referenced_variable_names", []):
-        variable = variables_by_name.get(name)
+        candidates = variables_by_name.get(name, [])
+        if len(candidates) > 1:
+            ambiguous_references.append(
+                {
+                    "variable_name": name,
+                    "candidate_object_keys": sorted(
+                        str(candidate["object_key"]) for candidate in candidates
+                    ),
+                    "candidate_settings_scopes": sorted(
+                        {
+                            str(candidate.get("settings_scope") or "")
+                            for candidate in candidates
+                        }
+                    ),
+                    "candidate_source_json_paths": sorted(
+                        str(candidate.get("source_json_path") or "")
+                        for candidate in candidates
+                    ),
+                }
+            )
+            for candidate in candidates:
+                candidate_inherited_rows.extend(
+                    {
+                        **setting,
+                        "referenced_variable_name": name,
+                        "candidate_object_key": candidate["object_key"],
+                        "candidate_settings_scope": candidate["settings_scope"],
+                        "origin": "ambiguous_inherited_candidate",
+                    }
+                    for setting in candidate.get("settings", [])
+                )
+            continue
+        variable = candidates[0] if candidates else None
         if not variable or variable.get("settings_scope") != scope:
             unresolved_names.append(name)
             continue
@@ -319,14 +353,39 @@ def _effective_settings_for_tag(
         "settings_reference": reference or {},
         "resolved_settings_variable_keys": sorted(resolved_keys),
         "unresolved_settings_variable_names": sorted(unresolved_names),
+        "ambiguous_settings_variable_references": sorted(
+            ambiguous_references,
+            key=lambda row: row["variable_name"],
+        ),
+        "candidate_inherited_settings": sorted(
+            candidate_inherited_rows,
+            key=lambda row: (
+                str(row.get("referenced_variable_name") or ""),
+                str(row.get("candidate_object_key") or ""),
+                str(row.get("parameter_name") or ""),
+                str(row.get("source_json_path") or ""),
+            ),
+        ),
         "inherited_settings": inherited_rows,
         "local_settings": local_rows,
         "effective_settings": effective_rows,
         "effective_settings_sha256": stable_hash(
-            [
-                (row["parameter_name"], row["value_sha256"], row["origin"])
-                for row in effective_rows
-            ],
+            {
+                "effective": [
+                    (row["parameter_name"], row["value_sha256"], row["origin"])
+                    for row in effective_rows
+                ],
+                "ambiguous_references": ambiguous_references,
+                "candidate_inherited": [
+                    (
+                        row.get("referenced_variable_name"),
+                        row.get("candidate_object_key"),
+                        row.get("parameter_name"),
+                        row.get("value_sha256"),
+                    )
+                    for row in candidate_inherited_rows
+                ],
+            },
             32,
         ),
     }
@@ -1108,6 +1167,11 @@ def build_optimization_facts(
     effective_settings_by_tag: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for surface in effective_settings:
         for setting in as_list(surface.get("effective_settings")):
+            if isinstance(setting, dict):
+                effective_settings_by_tag[str(surface.get("object_key") or "")].append(
+                    {**setting, "settings_scope": surface.get("settings_scope")}
+                )
+        for setting in as_list(surface.get("candidate_inherited_settings")):
             if isinstance(setting, dict):
                 effective_settings_by_tag[str(surface.get("object_key") or "")].append(
                     {**setting, "settings_scope": surface.get("settings_scope")}
