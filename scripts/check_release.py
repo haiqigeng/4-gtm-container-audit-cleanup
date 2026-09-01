@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from typing import Any
 
 MAX_SKILL_LINES = 500
 LONG_REFERENCE_LINES = 100
@@ -67,10 +69,222 @@ ALLOWED_ROOT_ENTRIES = {
     "scripts",
     "tests",
 }
+COVERAGE_PROFILES = ("code-only", "release-complete")
+CODE_ONLY_PYTHON_COVERAGE_MINIMUMS = {
+    "scripts/build_skill_package.py": 75,
+    "scripts/check_release.py": 32,
+    "scripts/gtm_architecture_review.py": 73,
+    "scripts/gtm_audit_contract.py": 78,
+    "scripts/gtm_audit_package_build.py": 71,
+    "scripts/gtm_audit_work_units.py": 77,
+    "scripts/gtm_baseline_audit.py": 60,
+    "scripts/gtm_canonical_record.py": 72,
+    "scripts/gtm_canonical_scan.py": 88,
+    "scripts/gtm_cleanroom_audit.py": 67,
+    "scripts/gtm_configuration_facts.py": 46,
+    "scripts/gtm_configuration_review.py": 63,
+    "scripts/gtm_configuration_review_groups.py": 78,
+    "scripts/gtm_consent_model.py": 84,
+    "scripts/gtm_context_model.py": 66,
+    "scripts/gtm_custom_code_extract.py": 59,
+    "scripts/gtm_delivery_mapper.py": 66,
+    "scripts/gtm_delivery_reviews.py": 7,
+    "scripts/gtm_fixed_point.py": 66,
+    "scripts/gtm_lib.py": 68,
+    "scripts/gtm_obligation_ledger.py": 73,
+    "scripts/gtm_operation_model.py": 70,
+    "scripts/gtm_operational_review.py": 47,
+    "scripts/gtm_optimization_facts.py": 86,
+    "scripts/gtm_privacy.py": 76,
+    "scripts/gtm_projection_review.py": 69,
+    "scripts/gtm_reasoning_identity.py": 88,
+    "scripts/gtm_reconciliation.py": 66,
+    "scripts/gtm_relationships.py": 69,
+    "scripts/gtm_requirement_evidence.py": 13,
+    "scripts/gtm_scan_assurance.py": 84,
+    "scripts/gtm_self_test.py": 80,
+    "scripts/gtm_shared_facts.py": 67,
+    "scripts/gtm_skill_identity.py": 51,
+    "scripts/gtm_source_model.py": 86,
+    "scripts/gtm_target_synthesis.py": 76,
+    "scripts/gtm_vendor_registry.py": 64,
+}
+RELEASE_COMPLETE_COVERAGE_OVERRIDES = {
+    "scripts/gtm_delivery_mapper.py": 70,
+    "scripts/gtm_delivery_reviews.py": 70,
+    "scripts/gtm_reasoning_identity.py": 93,
+    "scripts/gtm_self_test.py": 85,
+}
+TOTAL_COVERAGE_MINIMUMS = {
+    "code-only": 65.0,
+    "release-complete": 66.0,
+}
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def coverage_profile_minimums(profile: str) -> tuple[float, dict[str, int]]:
+    if profile not in COVERAGE_PROFILES:
+        raise ValueError(f"unknown coverage profile: {profile}")
+    minimums = dict(CODE_ONLY_PYTHON_COVERAGE_MINIMUMS)
+    if profile == "release-complete":
+        minimums.update(RELEASE_COMPLETE_COVERAGE_OVERRIDES)
+    return TOTAL_COVERAGE_MINIMUMS[profile], minimums
+
+
+def normalized_coverage_path(root: Path, value: str) -> str:
+    rendered = value.replace("\\", "/")
+    path = Path(rendered)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            return rendered
+    while rendered.startswith("./"):
+        rendered = rendered[2:]
+    return rendered
+
+
+def python_trust_boundary_coverage_report(
+    root: Path,
+    payload: dict[str, Any],
+    *,
+    profile: str,
+    total_minimum: float | None = None,
+    module_minimums: dict[str, int] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    """Validate exact, branch-aware coverage of the Python trust boundary."""
+
+    configured_total, configured_modules = coverage_profile_minimums(profile)
+    required_total = configured_total if total_minimum is None else total_minimum
+    required_modules = configured_modules if module_minimums is None else module_minimums
+    expected = {
+        path.relative_to(root).as_posix()
+        for path in (root / "scripts").rglob("*.py")
+        if path.is_file() and "__pycache__" not in path.parts
+    }
+    errors: list[str] = []
+    threshold_paths = set(required_modules)
+    if threshold_paths != expected:
+        missing_thresholds = sorted(expected - threshold_paths)
+        stale_thresholds = sorted(threshold_paths - expected)
+        if missing_thresholds:
+            errors.append(
+                "Python trust-boundary coverage thresholds are missing: "
+                + ", ".join(missing_thresholds)
+            )
+        if stale_thresholds:
+            errors.append(
+                "Python trust-boundary coverage thresholds are stale: "
+                + ", ".join(stale_thresholds)
+            )
+
+    meta = payload.get("meta")
+    files = payload.get("files")
+    totals = payload.get("totals")
+    if not isinstance(meta, dict) or meta.get("branch_coverage") is not True:
+        errors.append("coverage evidence is not branch-aware")
+    if not isinstance(files, dict):
+        errors.append("coverage evidence has no file map")
+        files = {}
+    if not isinstance(totals, dict):
+        errors.append("coverage evidence has no totals")
+        totals = {}
+
+    measured: dict[str, dict[str, Any]] = {}
+    for raw_path, value in files.items():
+        path = normalized_coverage_path(root, str(raw_path))
+        if path in measured:
+            errors.append(f"coverage evidence repeats Python path: {path}")
+            continue
+        measured[path] = value if isinstance(value, dict) else {}
+    measured_paths = set(measured)
+    missing_files = sorted(expected - measured_paths)
+    unexpected_files = sorted(measured_paths - expected)
+    if missing_files:
+        errors.append(
+            "trust-boundary Python files missing from coverage: "
+            + ", ".join(missing_files)
+        )
+    if unexpected_files:
+        errors.append(
+            "unexpected Python files changed the coverage denominator: "
+            + ", ".join(unexpected_files)
+        )
+
+    total_coverage = totals.get("percent_covered")
+    if not isinstance(total_coverage, (int, float)) or isinstance(total_coverage, bool):
+        errors.append("coverage evidence has no numeric total percentage")
+        total_coverage = 0.0
+    if total_coverage < required_total:
+        errors.append(
+            f"complete trust-boundary coverage {total_coverage:.2f}% is below "
+            f"the {profile} minimum {required_total:.2f}%"
+        )
+    if not isinstance(totals.get("num_branches"), int) or totals.get("num_branches", 0) <= 0:
+        errors.append("coverage evidence contains no measured branches")
+
+    module_coverage: dict[str, float] = {}
+    for path in sorted(expected & measured_paths & threshold_paths):
+        summary = measured[path].get("summary")
+        if not isinstance(summary, dict):
+            errors.append(f"{path}: coverage summary is missing")
+            continue
+        percentage = summary.get("percent_covered")
+        if not isinstance(percentage, (int, float)) or isinstance(percentage, bool):
+            errors.append(f"{path}: coverage percentage is missing")
+            continue
+        module_coverage[path] = float(percentage)
+        minimum = required_modules[path]
+        if percentage < minimum:
+            errors.append(
+                f"{path}: branch-aware coverage {percentage:.2f}% is below "
+                f"the {profile} minimum {minimum}%"
+            )
+
+    report = {
+        "kind": "gtm_complete_python_coverage_gate",
+        "schema_version": 1,
+        "status": "pass" if not errors else "fail",
+        "profile": profile,
+        "trust_boundary_python_files": len(expected),
+        "measured_trust_boundary_python_files": len(expected & measured_paths),
+        "total_percent_covered": round(float(total_coverage), 4),
+        "minimum_total_percent_covered": required_total,
+        "total_branches": totals.get("num_branches", 0),
+        "covered_branches": totals.get("covered_branches", 0),
+        "module_percent_covered": module_coverage,
+        "errors": errors,
+    }
+    return report, errors
+
+
+def check_coverage_json(
+    root: Path, path: Path, profile: str
+) -> tuple[dict[str, Any], list[str]]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        error = f"coverage JSON cannot be read: {path}: {exc}"
+        return {
+            "kind": "gtm_complete_python_coverage_gate",
+            "schema_version": 1,
+            "status": "fail",
+            "profile": profile,
+            "errors": [error],
+        }, [error]
+    if not isinstance(raw, dict):
+        error = f"coverage JSON root must be an object: {path}"
+        return {
+            "kind": "gtm_complete_python_coverage_gate",
+            "schema_version": 1,
+            "status": "fail",
+            "profile": profile,
+            "errors": [error],
+        }, [error]
+    return python_trust_boundary_coverage_report(root, raw, profile=profile)
 
 
 def text_files(root: Path) -> list[Path]:
@@ -405,6 +619,17 @@ def main() -> int:
         type=Path,
         help="Validate human-readable release notes before publishing.",
     )
+    parser.add_argument(
+        "--coverage-json",
+        type=Path,
+        help="Fail closed against branch-aware coverage JSON for the full Python tree.",
+    )
+    parser.add_argument(
+        "--coverage-profile",
+        choices=COVERAGE_PROFILES,
+        default="code-only",
+        help="Coverage baseline expected from the test environment.",
+    )
     args = parser.parse_args()
 
     root = repo_root()
@@ -448,6 +673,14 @@ def main() -> int:
     errors.extend(check_project_version(root, args.tag))
     errors.extend(check_clean_tagged_checkout(root, args.tag))
     errors.extend(check_release_notes(args.release_notes))
+    if args.coverage_json is not None:
+        coverage_report, coverage_errors = check_coverage_json(
+            root,
+            args.coverage_json,
+            args.coverage_profile,
+        )
+        errors.extend(coverage_errors)
+        print(json.dumps(coverage_report, ensure_ascii=False, sort_keys=True))
 
     if errors:
         for error in errors:

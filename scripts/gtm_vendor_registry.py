@@ -179,8 +179,18 @@ def official_url_error(url: str, timeout: int = 12) -> str | None:
 def validate_registry(
     path: Path, online: bool = False, max_age_days: int = 180
 ) -> tuple[list[str], list[str]]:
+    errors, warnings, _ = validate_registry_report(path, online, max_age_days)
+    return errors, warnings
+
+
+def validate_registry_report(
+    path: Path, online: bool = False, max_age_days: int = 180
+) -> tuple[list[str], list[str], dict[str, int]]:
+    """Validate the registry and return explicit official-source outcomes."""
+
     errors: list[str] = []
     warnings: list[str] = []
+    source_counts = {"attempted": 0, "succeeded": 0, "failed": 0}
     registry = load_registry(path)
     schema_version = registry.get("schema_version")
     if schema_version not in {1, 2}:
@@ -362,10 +372,24 @@ def validate_registry(
                         errors.append(f"{rule_prefix} has invalid pattern: {exc}")
         if online:
             for url in docs:
-                url_error = official_url_error(url)
+                source_counts["attempted"] += 1
+                if not isinstance(url, str) or not re.fullmatch(r"https://[^\s]+", url):
+                    source_counts["failed"] += 1
+                    continue
+                try:
+                    url_error = official_url_error(url)
+                except Exception as exc:  # A release source check must fail closed.
+                    url_error = f"{type(exc).__name__}: {exc}"
                 if url_error:
-                    warnings.append(f"{name}: official URL check failed: {url}: {url_error}")
-    return errors, warnings
+                    source_counts["failed"] += 1
+                    errors.append(
+                        f"{name}: required official URL check failed: {url}: {url_error}"
+                    )
+                else:
+                    source_counts["succeeded"] += 1
+    if online and source_counts["attempted"] == 0:
+        errors.append("online validation attempted no required official sources")
+    return errors, warnings, source_counts
 
 
 def main() -> int:
@@ -374,15 +398,33 @@ def main() -> int:
     parser.add_argument("--online", action="store_true")
     parser.add_argument("--max-age-days", type=int, default=120)
     args = parser.parse_args()
-    errors, warnings = validate_registry(args.registry, args.online, args.max_age_days)
+    try:
+        errors, warnings, source_counts = validate_registry_report(
+            args.registry,
+            args.online,
+            args.max_age_days,
+        )
+    except Exception as exc:
+        errors = [f"registry validation failed: {args.registry}: {exc}"]
+        warnings = []
+        source_counts = {"attempted": 0, "succeeded": 0, "failed": 0}
     for warning in warnings:
         print(f"WARNING: {warning}")
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps({"status": "pass", "warnings": len(warnings)}))
-    return 0
+    print(
+        json.dumps(
+            {
+                "status": "fail" if errors else "pass",
+                "online": args.online,
+                "warnings": len(warnings),
+                "official_sources": source_counts,
+            },
+            sort_keys=True,
+        )
+    )
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

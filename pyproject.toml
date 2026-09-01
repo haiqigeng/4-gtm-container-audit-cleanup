@@ -28,18 +28,9 @@ select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM"]
 
 [tool.coverage.run]
 branch = true
-include = [
-    "scripts/gtm_audit_contract.py",
-    "scripts/gtm_canonical_scan.py",
-    "scripts/gtm_consent_model.py",
-    "scripts/gtm_obligation_ledger.py",
-    "scripts/gtm_operation_model.py",
-    "scripts/gtm_optimization_facts.py",
-    "scripts/gtm_relationships.py",
-    "scripts/gtm_scan_assurance.py",
-    "scripts/gtm_source_model.py",
-]
+source = ["scripts"]
+relative_files = true
 
 [tool.coverage.report]
-fail_under = 72
+fail_under = 65
 show_missing = true

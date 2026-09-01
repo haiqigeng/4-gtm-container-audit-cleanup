@@ -3,6 +3,7 @@ name: Validate skill
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -35,13 +36,29 @@ jobs:
         run: python -m vulture scripts tests --min-confidence 80
       - name: Code-only self-test (bundled workbook runtime is host-provided)
         run: python -B scripts/gtm_self_test.py --code-only
-      - name: Vendor registry
+      - name: Offline vendor registry
         run: python -B scripts/gtm_vendor_registry.py
       - name: Release structure
         run: python -B scripts/check_release.py
+      - name: Unit tests
+        run: python -B -m coverage run --data-file="${{ runner.temp }}/gtm-python-coverage.data" --branch -m unittest discover -s tests -v
+      - name: Complete Python trust-boundary coverage evidence
+        run: python -m coverage json --data-file="${{ runner.temp }}/gtm-python-coverage.data" --fail-under=0 -o "${{ runner.temp }}/gtm-python-coverage.json"
+      - name: Fail-closed complete Python coverage gate
+        run: python -B scripts/check_release.py --coverage-json "${{ runner.temp }}/gtm-python-coverage.json" --coverage-profile code-only
       - name: Compile Python sources
         run: python -B -m compileall -q scripts tests
-      - name: Unit tests
-        run: python -B -m coverage run --branch -m unittest discover -s tests -v
-      - name: Correctness-kernel coverage gate
-        run: python -m coverage report
+
+  release-online-vendor-gate:
+    name: Strict online vendor release gate
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Require every official vendor source to respond
+        run: python -B scripts/gtm_vendor_registry.py --online --max-age-days 120

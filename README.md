@@ -102,10 +102,12 @@ plus one `.xlsx` workbook with:
 ```powershell
 python -B scripts/gtm_skill_identity.py write --root .
 python -B -m unittest discover -s tests -v
-python -B -m coverage run --branch -m unittest discover -s tests
-python -B -m coverage report --fail-under=72
+python -B -m coverage run --data-file="$env:TEMP\gtm-python-coverage.data" --branch -m unittest discover -s tests
+python -B -m coverage json --data-file="$env:TEMP\gtm-python-coverage.data" --fail-under=0 -o "$env:TEMP\gtm-python-coverage.json"
+python -B scripts/check_release.py --coverage-json "$env:TEMP\gtm-python-coverage.json" --coverage-profile release-complete
 python -B -m ruff check --no-cache scripts tests
 python -B scripts/gtm_vendor_registry.py --max-age-days 365
+python -B scripts/gtm_vendor_registry.py --online --max-age-days 120
 python -B scripts/gtm_self_test.py --artifact-node $env:CODEX_NODE --artifact-node-modules $env:CODEX_ARTIFACT_NODE_MODULES
 python -B scripts/check_release.py
 git diff --check
@@ -117,6 +119,8 @@ the workspace dependency loader before release validation. CI deliberately runs
 `gtm_self_test.py --code-only` because the bundled workbook runtime is
 host-provided; only the release-complete local self-test may claim workbook
 validation. If that runtime is unavailable, workbook delivery blocks rather than
-falling back to a second authoring implementation.
+falling back to a second authoring implementation. The online registry command is
+the explicit release gate: every declared official source must respond, and any
+required-source failure returns nonzero with attempted/succeeded/failed counts.
 
 Licensed under the MIT License.
