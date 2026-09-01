@@ -92,8 +92,13 @@ class RuntimeIdentityGateTests(unittest.TestCase):
             )
             (actual / "references" / "rule.md").unlink()
             report, errors = skill_identity.verify_identity(expected, actual)
-            self.assertEqual(["references/rule.md"], report["missing_files"])
-            self.assertEqual(["scripts/unexpected.py"], report["unexpected_files"])
+            self.assertEqual(
+                ["/".join(("references", "rule.md"))], report["missing_files"]
+            )
+            self.assertEqual(
+                ["/".join(("scripts", "unexpected.py"))],
+                report["unexpected_files"],
+            )
             self.assertEqual(["SKILL.md"], report["changed_files"])
             self.assertTrue(any("manifest" in error.lower() for error in errors))
 
@@ -135,7 +140,12 @@ class RuntimeIdentityGateTests(unittest.TestCase):
             self.assertTrue(any("dirty" in error for error in errors))
 
     def test_clean_git_identity_errors_cover_every_provenance_boundary(self) -> None:
-        actual = {"files": {"SKILL.md": "hash", "scripts/new.py": "hash"}}
+        actual = {
+            "files": {
+                "SKILL.md": "hash",
+                "/".join(("scripts", "new.py")): "hash",
+            }
+        }
         root = Path("fixture")
         with mock.patch.object(skill_identity, "git_commit", return_value=""):
             self.assertIn(
