@@ -153,6 +153,13 @@ checkpoint command creates `work-units/work-unit-manifest.json`; only then may
 the agent review and complete the declared work units. Use each manifest
 record's exact `filename` field and never inspect the peer audit.
 
+Semantic-audit execution is closed-command. Read only the exact assigned bundle
+files, the locked shared rules, and the declared work-unit filenames. The audit
+contract and JSON scaffolds are the complete schema. Do not search implementation
+source with `rg`, `grep`, or another discovery command; do not run exploratory
+shell commands. The only executable commands in these stages are the documented
+checkpoint, merge, validate, seal, and post-seal validate gates.
+
 Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B
 must use distinct agent and context labels.

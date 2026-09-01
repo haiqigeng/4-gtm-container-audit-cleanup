@@ -103,6 +103,10 @@ not yet exist. The checkpoint command creates it. After release, read each
 work-unit path from the manifest record's exact `filename` field. Do not add
 optional shell inspection pipelines or guess artifact filenames; the documented
 validators are the gates.
+Do not use `rg`, `grep`, repository search, or exploratory shell commands during
+semantic audit execution. Read the exact assigned bundle files directly. The
+locked `audit-contract.json`, checkpoint scaffold, work-unit manifest, and unit
+scaffolds are the complete authoring schema.
 For actionable decisions, write `operation_family` as a human-readable phrase of
 at least two words, such as `Remove redundant priority`, never as an underscore
 token such as `remove_priority`.
