@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved forty-four issues:
+The repeated pre-release review found and resolved fifty-one issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -605,6 +605,35 @@ The repeated pre-release review found and resolved forty-four issues:
 44. One invalid work-unit strategy could stop validation before sibling schema
     defects were reported. Validation now retains the complete deterministic
     error set so malformed evidence cannot hide another obligation failure.
+45. Areas 20 and 23 could be marked inapplicable when optional Transformation,
+    Zone, or Google-settings layers were absent even though behavior-bearing
+    objects still carried semantic or portability obligations. Applicability is
+    now counted from the complete relevant raw scope and independently assured.
+46. Duplicate Configuration or Event Settings variable names were collapsed to
+    one export-order owner. Effective-settings facts and assurance now preserve
+    every candidate, identify the reference as ambiguous, and conservatively
+    retain every candidate route and consent value until semantic audit resolves
+    ownership.
+47. The public family-work-unit merge entrypoint was the final workflow command
+    without its own complete-package redirect preflight. It now guards before
+    every read and again before the merged audit write.
+48. Rename and pause actions did not participate in the shared write-conflict
+    model. They now conflict on `$.name` and `$.paused`, reject contradictory
+    packets, and reject blank or no-op operations.
+49. A legacy `unresolved_questions` context channel remained as a compatibility
+    path beside structured intake questions. It was removed; unknown provided
+    context fields now fail the closed contract and only typed `intake_questions`
+    plus `intake_status` persist.
+50. Correctly rehashed workbook, editorial, audit, canonical, projection, or
+    review manifests could carry `..` or drive-qualified paths and cause reads or
+    writes outside the package. One closed canonical-relative-path contract now
+    protects every manifest-controlled path in Python and workbook JavaScript
+    before I/O, with adversarial outside-file preservation tests.
+51. Runtime package verification compared package bytes but did not bind the
+    package's declared source commit and complete identity to the expected source
+    checkout. Verification now requires a clean full Git commit and exact equality
+    of version, tree hash, file count, file map, clean-state flag, and commit across
+    source, manifest, and package.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

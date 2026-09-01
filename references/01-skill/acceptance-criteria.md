@@ -103,7 +103,13 @@
   equals its deterministic reconstruction. Every public workflow and workbook
   command enumerates the complete package tree without following redirects and
   rejects any root or descendant link, junction, or reparse point before package
-  evidence is used or output is written.
+  evidence is used or output is written. Every path read from a rehashable
+  manifest is also a canonical contained relative path; traversal, absolute,
+  drive-qualified, and alternate-data-stream paths block before I/O.
+- A release package carries one complete runtime manifest whose version, file
+  inventory, file count, tree hash, clean-state flag, and full source Git commit
+  exactly match both the actual package bytes and the expected clean source
+  checkout.
 - Every visible sheet is rendered and inspected; privacy and formula-injection
   scans pass.
 

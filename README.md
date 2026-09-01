@@ -68,7 +68,9 @@ Every authority transition is independently reconstructed from sealed
 predecessors: reconciliation scaffolds, operation packet, projected replay,
 canonical record, and delivery map cannot be replaced by a merely self-consistent
 rehash. Every public workflow and workbook command also rejects redirects
-anywhere in the complete package tree before package I/O.
+anywhere in the complete package tree before package I/O. Manifest-carried paths
+are separately required to be canonical contained relative paths, and release
+packages are bound to the exact clean source commit and runtime inventory.
 
 The workflow ends at workbook delivery. It does not mutate GTM, create/apply an
 import, create a version, publish, certify runtime behaviour, generate a change

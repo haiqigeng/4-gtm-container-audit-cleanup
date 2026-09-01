@@ -139,7 +139,11 @@ redirect reads or writes. The package root itself must also be a regular directo
 name, not a symlink, junction, or reparse point. Before every public workflow
 read or write, enumerate the complete package tree without following redirects;
 any redirected descendant blocks the command before it can use package evidence
-or create output. A
+or create output. Every manifest-carried file, build, workbook, editorial,
+work-unit, or locked-review path must additionally be one non-blank canonical
+forward-slash relative path with no absolute prefix, drive, empty component,
+`.` component, `..` component, or alternate-data-stream separator. Rehashing a
+manifest never authorises a path outside its owning package directory. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
 closes this amendment path; later semantic repair uses a successor package.
 Stage the new audit, new seal, immutable work-unit snapshot, and predecessor
@@ -201,6 +205,8 @@ Operations support creates, additions, changes, named-field removals, remaps,
 renames, pauses, and deletions with stable IDs, dependencies, exact source-bound
 values, static
 verification, and rollback. The synthesiser cannot make a new semantic choice.
+Every write surface, including name and paused state, participates in the same
+cross-operation conflict model. Blank or no-op rename/pause actions block.
 The complete operation packet is a pure projection of sealed reconciliation;
 every downstream gate rebuilds it and requires exact semantic equality rather
 than trusting a locally consistent packet seal.

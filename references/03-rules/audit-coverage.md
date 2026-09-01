@@ -193,6 +193,9 @@ downstream server-container enforcement is outside this audit.”
   Settings, Event Settings, inherited settings, local event tags, and overrides;
   retain provenance, value, type, lifetime, consumers, destination, consent, and
   route.
+- Treat a referenced settings-variable name with multiple candidate objects as
+  ambiguous. Retain every candidate object, field, source coordinate, consent
+  value, and route in the audit facts; never select one owner by export order.
 - Put configuration-wide values with one configuration owner, genuinely shared
   event parameters in one Event Settings owner, and event-specific values locally.
   Remove repeated identical inline values and preserve justified overrides.
@@ -236,6 +239,9 @@ downstream server-container enforcement is outside this audit.”
 - Preserve meaning; do not flatten, coerce, select, or default without an evidenced
   contract. Fix the real source instead of retaining compensating transforms when
   possible.
+- This area is applicable to any behavior-bearing tag, variable, settings owner,
+  transformation, custom template, or executable-code segment; it does not become
+  inapplicable merely because the export has no Transformation object.
 
 ### 21. First-Party Data, Identity, And Privacy-Sensitive Fields
 
@@ -260,6 +266,8 @@ downstream server-container enforcement is outside this audit.”
   permissions, environments, embedded IDs/hosts, and production defaults.
 - Require least necessary scope and explicit routing; preserve meaningful
   environment/child separation and state unseen child containers as boundaries.
+- Evaluate portability for every configured object. An export without Zones or
+  `gtagConfig` still has environment, embedded-identity, and portability scope.
 
 ### 24. Naming, Folders, Notes, And Documentation
 
