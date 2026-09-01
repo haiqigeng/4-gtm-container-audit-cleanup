@@ -235,6 +235,9 @@ downstream server-container enforcement is outside this audit.”
 - Determine applicability only from raw behavior-bearing container objects and
   executable template code. Official event contracts describe how to audit a
   visible implementation; they do not prove that ecommerce exists.
+- Preserve this boundary when obligations are built: classify a configuration
+  obligation from its exact raw source evidence anchors, never from registry
+  statements, contract topics, conclusion terms, or official-document metadata.
 
 ### 19. Ads, Floodlight, And Other Vendor Tags
 
@@ -264,6 +267,8 @@ downstream server-container enforcement is outside this audit.”
   hashing, and report legal/policy questions as external decisions.
 - Determine applicability from the same raw behavior-bearing boundary; vendor or
   registry guidance must not create a sensitive-data implementation by itself.
+- The downstream obligation ledger must retain the source-counted result and may
+  not recreate applicability from enriched review metadata.
 
 ### 22. Custom Templates And Custom Code
 

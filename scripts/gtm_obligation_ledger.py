@@ -166,24 +166,35 @@ def _operational_area(candidate: dict[str, Any]) -> str:
 
 
 def _configuration_area(obj: dict[str, Any], obligation: dict[str, Any]) -> str:
-    text = json.dumps(
+    evidence_anchors = {
+        str(value)
+        for value in as_list(obligation.get("evidence_anchors"))
+        if str(value)
+    }
+    anchored_source_facts = [
+        fact
+        for fact in as_list(obj.get("source_facts"))
+        if isinstance(fact, dict)
+        and str(fact.get("json_path") or "") in evidence_anchors
+    ]
+    raw_text = json.dumps(
         {
             "layer": obj.get("layer"),
             "type": obj.get("object_type"),
-            "obligation": obligation,
+            "source_facts": anchored_source_facts,
         },
         ensure_ascii=False,
     )
-    lowered = text.casefold()
-    if CONSENT_RE.search(text):
+    lowered = raw_text.casefold()
+    if CONSENT_RE.search(raw_text):
         return "AREA-09"
     if "firingtrigger" in lowered or "blockingtrigger" in lowered or "condition" in lowered:
         return "AREA-07"
     if any(term in lowered for term in ("priority", "schedule", "setuptag", "teardowntag")):
         return "AREA-08"
-    if ECOMMERCE_RE.search(text):
+    if ECOMMERCE_RE.search(raw_text):
         return "AREA-18"
-    if SENSITIVE_RE.search(text):
+    if SENSITIVE_RE.search(raw_text):
         return "AREA-21"
     if obj.get("layer") == "variable":
         return "AREA-14"

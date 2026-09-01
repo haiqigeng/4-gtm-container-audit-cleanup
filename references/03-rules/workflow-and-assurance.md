@@ -75,6 +75,11 @@ Any mismatch blocks semantic review. A mechanism may be inapplicable only with a
 source-counted zero; it is never silently skipped. Assurance is intentionally a
 critical-invariant recomputation, not a second full scanner.
 
+Obligation construction preserves the assured applicability result. Domain
+routing for a configuration obligation is derived only from the raw source facts
+named by its evidence anchors; registry-enriched statements and contract metadata
+are never an applicability source.
+
 Area ownership is explicit: area 1 is the evidence and assurance gate, areas
 2–26 are complete semantic-audit obligations, and area 27 is the exact-operation,
 projection, replay, and fixed-point control. Gate/control outcomes do not receive

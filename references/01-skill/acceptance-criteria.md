@@ -26,6 +26,9 @@
 - Areas 18 and 21 derive only from raw behavior-bearing web-container evidence,
   never registry-enriched review metadata, and every Custom Event literal is
   present in the independently assured trigger-control inventory.
+- The obligation ledger preserves that boundary: enriched contract text cannot
+  route a configuration obligation into a semantic area unless its exact raw
+  source evidence anchors contain the corresponding signal.
 - The typed obligation ledger accounts for every object, chain, family,
   relationship, singleton, source-owned branch/leaf/trace, code segment, and
   container-level method.

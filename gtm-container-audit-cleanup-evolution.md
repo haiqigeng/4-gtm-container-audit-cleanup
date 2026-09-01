@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved fifty-one issues:
+The repeated pre-release review found and resolved fifty-eight issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -655,6 +655,21 @@ The repeated pre-release review found and resolved fifty-one issues:
     paired operands, publishes one complete trigger-control inventory, and the
     independent scan assurance hashes each configured event literal so omission
     or tampering blocks the workflow.
+56. Raw ecommerce and sensitive-data applicability was correct in the canonical
+    scan, but the obligation ledger could route registry-enriched configuration
+    text back into Areas 18 or 21. Configuration obligations are now classified
+    only from the exact raw source facts bound by their evidence anchors, and an
+    end-to-end regression proves that enriched Google contract metadata cannot
+    create object-level obligations in a non-ecommerce, non-sensitive container.
+57. Release evidence bookkeeping lagged behind the implementation: the resolution
+    count stopped at 51 and the notes called combined coverage branch coverage.
+    The count now matches this complete list, and release evidence distinguishes
+    aggregate combined coverage from the independently reported branch rate.
+58. The approved-requirement evidence reader had only a 13% module coverage floor.
+    A dependency-free unit suite now covers deterministic JSON/CSV normalization,
+    exact-only object links, XLSX header discovery through the existing runtime
+    contract, duplicate identity rejection, and CLI success/failure paths; the
+    fail-closed per-module release floor is now 95%.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

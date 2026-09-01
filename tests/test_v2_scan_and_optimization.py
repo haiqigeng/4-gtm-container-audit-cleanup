@@ -863,6 +863,18 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
             vendor_registry_path=self.registry,
         )
         self.assertEqual("pass", assurance["status"])
+        ledger = build_obligation_ledger(scan, assurance)
+        for area_id in ("AREA-18", "AREA-21"):
+            area_obligations = [
+                row
+                for row in ledger["obligations"]
+                if row["area_id"] == area_id
+            ]
+            self.assertEqual(1, len(area_obligations))
+            self.assertEqual("coverage", area_obligations[0]["scope_level"])
+            self.assertEqual(
+                "source_counted_zero", area_obligations[0]["applicability"]
+            )
 
     def test_custom_event_literals_are_topology_facts_and_tamper_evident(self) -> None:
         trigger = next(

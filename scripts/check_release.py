@@ -100,7 +100,7 @@ CODE_ONLY_PYTHON_COVERAGE_MINIMUMS = {
     "scripts/gtm_reasoning_identity.py": 88,
     "scripts/gtm_reconciliation.py": 66,
     "scripts/gtm_relationships.py": 69,
-    "scripts/gtm_requirement_evidence.py": 13,
+    "scripts/gtm_requirement_evidence.py": 95,
     "scripts/gtm_scan_assurance.py": 84,
     "scripts/gtm_self_test.py": 80,
     "scripts/gtm_shared_facts.py": 67,
