@@ -22,17 +22,28 @@ from gtm_audit_contract import (  # noqa: E402
 )
 from gtm_audit_package_build import build_package  # noqa: E402
 from gtm_audit_work_units import merge_work_units  # noqa: E402
-from gtm_canonical_record import build_canonical_record  # noqa: E402
+from gtm_canonical_record import (  # noqa: E402
+    build_canonical_record,
+    canonical_record_seal_errors,
+)
 from gtm_cleanroom_audit import (  # noqa: E402
     checkpoint_audit,
     seal_audit,
     sealed_audit_errors,
     validate_audit,
 )
-from gtm_delivery_mapper import create_delivery_map, seal_editorial  # noqa: E402
+from gtm_delivery_mapper import (  # noqa: E402
+    create_delivery_map,
+    seal_editorial,
+    validate_editorial,
+)
 from gtm_delivery_reviews import scaffold_delivery_reviews, seal_delivery  # noqa: E402
-from gtm_fixed_point import advance_fixed_point, start_fixed_point  # noqa: E402
-from gtm_lib import stable_hash  # noqa: E402
+from gtm_fixed_point import (  # noqa: E402
+    advance_fixed_point,
+    fixed_point_seal_errors,
+    start_fixed_point,
+)
+from gtm_lib import file_sha256, stable_hash  # noqa: E402
 from gtm_projection_review import (  # noqa: E402
     finalize_projection_reconciliation,
     scaffold_projection_reconciliation,
@@ -41,6 +52,7 @@ from gtm_projection_review import (  # noqa: E402
 from gtm_reconciliation import (  # noqa: E402
     canonical_matches_allowed,
     finalize_reconciliation,
+    reconciliation_seal_errors,
     scaffold_reconciliation,
 )
 from gtm_target_synthesis import compile_operation_packet  # noqa: E402
@@ -1514,6 +1526,134 @@ class V2WorkflowTests(unittest.TestCase):
         record_path.write_text(json.dumps(canonical, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "canonical record gate failed"):
             create_delivery_map(self.package)
+
+    def test_reconciliation_rebuilds_scaffolds_and_rejects_expected_answers(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "fixture-a-context-001")
+        complete_checkpoint(self.package, "audit-b", "fixture-b-context-001")
+        complete_audit(self.package, "audit-a")
+        complete_audit(self.package, "audit-b")
+        complete_base_reconciliation(self.package)
+
+        scaffold_path = self.package / "reconciliation-scaffold.json"
+        scaffold = json.loads(scaffold_path.read_text(encoding="utf-8"))
+        scaffold["comparisons"][0]["audit_decisions"]["audit-a"][
+            "current_behavior"
+        ] = "Invented mutable scaffold authority."
+        scaffold["reconciliation_scaffold_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in scaffold.items()
+                if key != "reconciliation_scaffold_sha256"
+            },
+            64,
+        )
+        scaffold_path.write_text(
+            json.dumps(scaffold, indent=2) + "\n", encoding="utf-8"
+        )
+
+        queue_path = self.package / "neutral-verification-queue.json"
+        queue = json.loads(queue_path.read_text(encoding="utf-8"))
+        queue["expected_answer"] = "Delete every configured tag."
+        queue["neutral_queue_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in queue.items()
+                if key != "neutral_queue_sha256"
+            },
+            64,
+        )
+        queue_path.write_text(json.dumps(queue, indent=2) + "\n", encoding="utf-8")
+        errors = reconciliation_seal_errors(self.package)
+        self.assertTrue(any("reconstruction" in error for error in errors))
+
+    def test_rehashed_replay_and_canonical_forgery_are_rejected(self) -> None:
+        self.run_actionable_to_editorial()
+        replay_path = (
+            self.package / "fixed-point" / "replay" / "projected-container.json"
+        )
+        replay_before = replay_path.read_bytes()
+        replay = json.loads(replay_path.read_text(encoding="utf-8"))
+        replay["containerVersion"]["tag"][0]["name"] = "Forged replay tag"
+        replay_path.write_text(json.dumps(replay, indent=2) + "\n", encoding="utf-8")
+        fixed_seal_path = self.package / "fixed-point" / "fixed-point-seal.json"
+        fixed_seal_before = fixed_seal_path.read_bytes()
+        fixed_seal = json.loads(fixed_seal_path.read_text(encoding="utf-8"))
+        fixed_seal["stable_projected_container_sha256"] = file_sha256(replay_path)
+        fixed_seal["fixed_point_seal_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in fixed_seal.items()
+                if key != "fixed_point_seal_sha256"
+            },
+            64,
+        )
+        fixed_seal_path.write_text(
+            json.dumps(fixed_seal, indent=2) + "\n", encoding="utf-8"
+        )
+        self.assertTrue(
+            any("differs from reconstruction" in error for error in fixed_point_seal_errors(self.package))
+        )
+        replay_path.write_bytes(replay_before)
+        fixed_seal_path.write_bytes(fixed_seal_before)
+
+        record_path = self.package / "canonical-record.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        record["audit_decisions"][0]["decision"][
+            "target_direction"
+        ] = "Replace every tag with an unsupported placeholder."
+        record["canonical_record_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in record.items()
+                if key != "canonical_record_sha256"
+            },
+            64,
+        )
+        record_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        self.assertTrue(
+            any("deterministic reconstruction" in error for error in canonical_record_seal_errors(self.package))
+        )
+
+    def test_rehashed_delivery_map_cannot_detach_workbook_semantics(self) -> None:
+        self.run_actionable_to_editorial()
+        map_path = self.package / "delivery" / "delivery-map.json"
+        delivery_map = json.loads(map_path.read_text(encoding="utf-8"))
+        recommendation = next(
+            row
+            for row in delivery_map["rows"]
+            if row["primary_sheet"] == "02 Recommendations"
+        )
+        recommendation["locked"][
+            "exact_target_state"
+        ] = "Replace every configured tag with one blank placeholder."
+        delivery_map["delivery_map_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in delivery_map.items()
+                if key != "delivery_map_sha256"
+            },
+            64,
+        )
+        map_path.write_text(
+            json.dumps(delivery_map, indent=2) + "\n", encoding="utf-8"
+        )
+        seal_path = self.package / "delivery" / "delivery-map-seal.json"
+        seal = json.loads(seal_path.read_text(encoding="utf-8"))
+        seal["delivery_map_sha256"] = delivery_map["delivery_map_sha256"]
+        seal["delivery_map_file_sha256"] = file_sha256(map_path)
+        seal["delivery_map_seal_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in seal.items()
+                if key != "delivery_map_seal_sha256"
+            },
+            64,
+        )
+        seal_path.write_text(json.dumps(seal, indent=2) + "\n", encoding="utf-8")
+        self.assertTrue(
+            any("canonical reconstruction" in error for error in validate_editorial(self.package))
+        )
 
     def test_sealed_semantic_repair_starts_a_bound_successor_package(self) -> None:
         self.run_to_editorial()

@@ -574,6 +574,9 @@ def _neutral_errors(
     errors = []
     if set(neutral) != set(expected):
         errors.append("projection neutral top-level schema differs from its queue")
+    for field in set(expected) - {"status", "verifications"}:
+        if neutral.get(field) != expected.get(field):
+            errors.append(f"projection neutral locked field {field} changed")
     expected_rows = {
         str(row.get("verification_id") or ""): row for row in as_list(expected.get("verifications"))
     }
@@ -651,6 +654,9 @@ def finalize_projection_reconciliation(
         )
     if set(reconciliation) != set(expected):
         errors.append("projection reconciliation top-level schema differs from its scaffold")
+    for field in set(expected) - {"status", "comparisons"}:
+        if reconciliation.get(field) != expected.get(field):
+            errors.append(f"projection reconciliation locked field {field} changed")
     errors.extend(_neutral_errors(cycle_dir, neutral, expected_neutral))
     expected_rows = {
         str(row.get("comparison_id") or ""): row for row in as_list(expected.get("comparisons"))

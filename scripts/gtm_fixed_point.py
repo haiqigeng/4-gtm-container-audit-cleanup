@@ -504,6 +504,7 @@ def fixed_point_seal_errors(package_dir: Path) -> list[str]:
         ):
             errors.append("fixed-point stable cycle content hash is invalid")
     expected_history = []
+    reconstructed_projection_rows: list[dict[str, Any]] = []
     for row in as_list(state.get("cycle_history")):
         cycle_number = int((row or {}).get("cycle_number") or 0)
         history_path = _cycle_directory(package_dir, cycle_number) / "cycle-state.json"
@@ -523,8 +524,34 @@ def fixed_point_seal_errors(package_dir: Path) -> list[str]:
                 "status": history_cycle.get("status"),
             }
         )
+        closure_path = _cycle_directory(package_dir, cycle_number) / "projection-closure.json"
+        if closure_path.is_file():
+            closure, closure_errors = projection_closure_seal_errors(
+                _cycle_directory(package_dir, cycle_number)
+            )
+            errors.extend(
+                f"fixed-point cycle {cycle_number}: {error}"
+                for error in closure_errors
+            )
+            reconstructed_projection_rows.extend(
+                {**decision, "owning_cycle": cycle_number}
+                for decision in as_list(closure.get("canonical_decisions"))
+                if isinstance(decision, dict)
+            )
     if as_list(state.get("cycle_history")) != expected_history:
         errors.append("fixed-point cycle history differs from exact cycle records")
+    expected_projection_decisions = {
+        "kind": "gtm_projection_canonical_decisions",
+        "schema_version": 1,
+        "canonical_decisions": reconstructed_projection_rows,
+    }
+    expected_projection_decisions["projection_decisions_sha256"] = _hash_without(
+        expected_projection_decisions, "projection_decisions_sha256"
+    )
+    if projection_decisions != expected_projection_decisions:
+        errors.append(
+            "projection decisions differ from deterministic sealed-closure reconstruction"
+        )
     try:
         source = _load(package_dir / "locked-source.json")
         projected = apply_operations(source, as_list(packet.get("operations")))
