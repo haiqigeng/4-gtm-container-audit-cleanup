@@ -12,8 +12,8 @@ from typing import Any
 from gtm_audit_contract import (
     ACTIONABLE_DECISION_CLASSES,
     AREA_BY_ID,
-    CANONICAL_DECISION_FIELDS,
     HUMAN_DECISION_LABELS,
+    required_decision_fields,
     semantic_contract_errors,
 )
 from gtm_fixed_point import fixed_point_seal_errors
@@ -128,9 +128,10 @@ def _canonical_decision_rows(package_dir: Path) -> list[dict[str, Any]]:
         errors.extend(semantic_contract_errors(decision, decision_id))
         missing = [
             field
-            for field in CANONICAL_DECISION_FIELDS
-            if field not in {"owner_question", "evidence_boundary"}
-            and not str(decision.get(field) or "").strip()
+            for field in required_decision_fields(
+                str(decision.get("decision_class") or "")
+            )
+            if not str(decision.get(field) or "").strip()
         ]
         if missing:
             errors.append(

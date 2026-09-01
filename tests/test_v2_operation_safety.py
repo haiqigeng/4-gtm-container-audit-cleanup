@@ -14,6 +14,7 @@ sys.path.insert(0, str(SCRIPTS))
 from gtm_audit_contract import (  # noqa: E402
     CANONICAL_DECISION_FIELDS,
     OPERATION_ACTION_FIELDS,
+    semantic_contract_errors,
 )
 from gtm_audit_work_units import (  # noqa: E402
     MAX_SINGLE_OBLIGATIONS,
@@ -132,6 +133,20 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_non_actionable_decision_uses_compact_class_specific_fields(self) -> None:
+        decision = {
+            "decision_class": "justified_as_is",
+            "criteria_assessment": "The locked evidence supports the configured distinction.",
+            "priority": "None",
+            "confidence": "High",
+        }
+        self.assertEqual([], semantic_contract_errors(decision, "decision"))
+
+        actionable = {**decision, "decision_class": "defect"}
+        errors = semantic_contract_errors(actionable, "decision")
+        self.assertIn("decision: current_behavior is missing", errors)
+        self.assertIn("decision: rollback is missing", errors)
+
     def test_operation_family_requires_a_human_readable_phrase(self) -> None:
         decision = {"decision_id": "AUDIT-A-DECISION-1"}
         proposal = {

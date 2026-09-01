@@ -308,6 +308,54 @@ CANONICAL_DECISION_FIELDS = (
     "rollback",
 )
 
+BASE_REQUIRED_DECISION_FIELDS = (
+    "decision_class",
+    "criteria_assessment",
+    "priority",
+    "confidence",
+)
+
+CLASS_REQUIRED_DECISION_FIELDS = {
+    "defect": (
+        "current_behavior",
+        "consequence_or_benefit",
+        "preserved_distinctions",
+        "target_direction",
+        "next_step",
+        "static_verification",
+        "rollback",
+    ),
+    "correct_but_materially_non_optimal": (
+        "current_behavior",
+        "consequence_or_benefit",
+        "preserved_distinctions",
+        "target_direction",
+        "next_step",
+        "static_verification",
+        "rollback",
+    ),
+    "owner_decision": (
+        "current_behavior",
+        "consequence_or_benefit",
+        "owner_question",
+        "next_step",
+    ),
+    "container_evidence_limit": (
+        "current_behavior",
+        "evidence_boundary",
+        "next_step",
+    ),
+    "justified_as_is": (),
+    "not_applicable": (),
+}
+
+
+def required_decision_fields(decision_class: str) -> tuple[str, ...]:
+    return (
+        *BASE_REQUIRED_DECISION_FIELDS,
+        *CLASS_REQUIRED_DECISION_FIELDS.get(decision_class, ()),
+    )
+
 
 def audit_contract_payload() -> dict[str, Any]:
     payload = {
@@ -337,21 +385,9 @@ def semantic_contract_errors(decision: dict[str, Any], label: str) -> list[str]:
         errors.append(f"{label}: priority is invalid")
     if decision.get("confidence") not in CONFIDENCE_LEVELS:
         errors.append(f"{label}: confidence is invalid")
-    for field in CANONICAL_DECISION_FIELDS:
-        if field in {"owner_question", "evidence_boundary"}:
-            continue
+    for field in required_decision_fields(decision_class):
         if not str(decision.get(field) or "").strip():
             errors.append(f"{label}: {field} is missing")
-    if decision_class == "owner_decision" and not str(
-        decision.get("owner_question") or ""
-    ).strip():
-        errors.append(f"{label}: owner_decision requires one precise owner_question")
-    if decision_class == "container_evidence_limit" and not str(
-        decision.get("evidence_boundary") or ""
-    ).strip():
-        errors.append(
-            f"{label}: container_evidence_limit requires an explicit evidence_boundary"
-        )
     if decision_class in ACTIONABLE_DECISION_CLASSES:
         proposal = decision.get("operation_proposal")
         if not isinstance(proposal, dict) or not str(

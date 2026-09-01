@@ -321,15 +321,10 @@ def workload_estimate(
         len(as_list(row.get("execution_dependency_traces")))
         for row in as_list(scan.get("objects"))
     )
-    # The estimate is deliberately simple and fixed. It is used only to choose
-    # the schema shape, never to reduce audit scope or reviewer count.
-    estimated_tokens = (
-        obligations * 240
-        + objects * 120
-        + relationships * 180
-        + code_segments * 320
-        + shared_dependencies * 100
-    )
+    # Only semantic decisions require authored text. Objects, relationships,
+    # source code lines, and dependency traces are locked evidence already
+    # represented by those decisions and must not be charged a second time.
+    estimated_tokens = obligations * 90
     return {
         "object_count": objects,
         "obligation_count": obligations,

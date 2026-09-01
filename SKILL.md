@@ -163,6 +163,15 @@ size. Validate and immutably seal both audits. If the AI environment cannot run
 the required separate fresh agent contexts, block with a concise capability
 message.
 
+Author decision fields by class. Every decision needs its class, concise
+criteria assessment, priority, confidence, and locked evidence citations.
+Recommendations additionally need current behavior, material consequence or
+benefit, preserved distinctions, target direction, next step, static
+verification, rollback, and one exact operation. Owner decisions and evidence
+limits need only their class-specific question or boundary plus the context
+required to act. Do not pad appropriate-as-configured or not-applicable records
+with repetitive delivery prose.
+
 ### 4. Reconcile And Verify Neutrally
 
 Use `scripts/gtm_reconciliation.py`. Compare atomic decisions by exact obligation,

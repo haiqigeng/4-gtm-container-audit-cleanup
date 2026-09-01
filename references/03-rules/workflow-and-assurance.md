@@ -99,6 +99,12 @@ obligation in areas 2–26 using the same decision schema. Literal object and
 branch completeness is proven once by the scan assurance and compact checkpoint,
 not restated as repetitive per-object prose.
 
+The decision schema is class-specific. All decisions carry a concise criteria
+assessment, priority, confidence, and citations. Exact target, verification,
+rollback, and operation fields are mandatory for actionable recommendations;
+owner questions and evidence boundaries are mandatory only for their respective
+classes. Appropriate-as-configured and not-applicable decisions stay compact.
+
 Before approved external requirements are released, each audit seals a
 source-only checkpoint. Audit B is also generated-candidate-blind until its
 checkpoint. Later released candidates and requirements may add work, but cannot
