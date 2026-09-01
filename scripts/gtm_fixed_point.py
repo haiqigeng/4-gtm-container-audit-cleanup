@@ -29,7 +29,10 @@ from gtm_projection_review import (
     projection_closure_seal_errors,
 )
 from gtm_scan_assurance import assure_scan
-from gtm_target_synthesis import server_consent_gate_regression_errors
+from gtm_target_synthesis import (
+    build_operation_packet_payloads,
+    server_consent_gate_regression_errors,
+)
 
 FIXED_POINT_ROOT = "fixed-point"
 STATE_FILE = "state.json"
@@ -441,7 +444,7 @@ def _write_global_state(package_dir: Path, state: dict[str, Any]) -> None:
 
 
 def _packet_errors(package_dir: Path, packet: dict[str, Any]) -> list[str]:
-    errors = []
+    errors: list[str] = []
     source_path = package_dir / "locked-source.json"
     if packet.get("source_sha256") != file_sha256(source_path):
         errors.append("operation packet source identity differs from locked original")
@@ -454,6 +457,31 @@ def _packet_errors(package_dir: Path, packet: dict[str, Any]) -> list[str]:
         "fixed_point_iteration",
     }:
         errors.append("operation packet is not ready for fixed-point projection")
+    try:
+        expected_packet, expected_initial_projection = build_operation_packet_payloads(
+            package_dir
+        )
+        projection_rows = [
+            row
+            for row in _projection_decisions(package_dir)
+            if isinstance(row, dict)
+            and (row.get("decision") or {}).get("decision_class")
+            in ACTIONABLE_DECISION_CLASSES
+        ]
+        if projection_rows:
+            expected_packet = _packet_with_projection_operations(
+                package_dir, expected_packet, projection_rows
+            )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"operation packet reconstruction failed: {exc}")
+        return errors
+    if packet != expected_packet:
+        errors.append("operation packet differs from sealed semantic reconstruction")
+    initial_projection_path = package_dir / "projected-container.json"
+    if not initial_projection_path.is_file():
+        errors.append("initial projected container is missing")
+    elif _load(initial_projection_path) != expected_initial_projection:
+        errors.append("initial projected container differs from base packet reconstruction")
     return errors
 
 
@@ -999,6 +1027,10 @@ def _seal_stable_fixed_point(
 def advance_fixed_point(package_dir: Path) -> dict[str, Any]:
     require_safe_package_root(package_dir)
     state = _global_state(package_dir)
+    current_packet = _load(package_dir / "operation-packet.json")
+    packet_errors = _packet_errors(package_dir, current_packet)
+    if packet_errors:
+        raise ValueError("operation packet gate failed: " + "; ".join(packet_errors))
     if state.get("status") in {"pass", "stable_replayed"}:
         raise ValueError("fixed-point proof is already complete")
     if state.get("status") == "non_convergent_target_state":
@@ -1020,7 +1052,7 @@ def advance_fixed_point(package_dir: Path) -> dict[str, Any]:
         if (row.get("decision") or {}).get("decision_class")
         in ACTIONABLE_DECISION_CLASSES
     ]
-    packet = _load(package_dir / "operation-packet.json")
+    packet = current_packet
     if not actionable:
         final_hashes = _projection_hashes(
             _load(cycle_dir / "projected-container.json"),

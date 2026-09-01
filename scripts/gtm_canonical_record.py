@@ -19,7 +19,7 @@ from gtm_audit_contract import (
 from gtm_fixed_point import fixed_point_seal_errors
 from gtm_lib import as_list, file_sha256, require_safe_package_root, stable_hash, write_json
 from gtm_operation_model import operation_action_identity, operation_packet_sha256
-from gtm_target_synthesis import reconciliation_seal_errors
+from gtm_reconciliation import reconciliation_seal_errors
 
 CANONICAL_RECORD_FILE = "canonical-record.json"
 CANONICAL_MANIFEST_FILE = "canonical-record-manifest.json"

@@ -731,6 +731,16 @@ class V2WorkflowTests(unittest.TestCase):
                 checkpoint_audit(guarded_package, "audit-a")
             with self.assertRaisesRegex(ValueError, "package root"):
                 seal_audit(guarded_package, "audit-a")
+            for guarded_call in (
+                lambda: scaffold_reconciliation(guarded_package),
+                lambda: compile_operation_packet(guarded_package),
+                lambda: start_fixed_point(guarded_package),
+                lambda: build_canonical_record(guarded_package),
+                lambda: create_delivery_map(guarded_package),
+                lambda: scaffold_delivery_reviews(guarded_package),
+            ):
+                with self.assertRaisesRegex(ValueError, "package root"):
+                    guarded_call()
             self.assertTrue(
                 any(
                     "package root" in error
@@ -1660,6 +1670,34 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(
             any("canonical reconstruction" in error for error in validate_editorial(self.package))
         )
+
+    def test_operation_packet_is_reconstructed_from_sealed_reconciliation(self) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "packet-a-context-001")
+        complete_checkpoint(self.package, "audit-b", "packet-b-context-001")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(self.package)
+        compile_operation_packet(self.package)
+        packet_path = self.package / "operation-packet.json"
+        packet = json.loads(packet_path.read_text(encoding="utf-8"))
+        packet["operations"][0][
+            "exact_target_state"
+        ] = "Delete every configured tag without source support."
+        packet["operation_record_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in packet.items()
+                if key != "operation_record_sha256"
+            },
+            64,
+        )
+        packet_path.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            ValueError, "differs from sealed semantic reconstruction"
+        ):
+            start_fixed_point(self.package)
 
     def test_sealed_semantic_repair_starts_a_bound_successor_package(self) -> None:
         self.run_to_editorial()

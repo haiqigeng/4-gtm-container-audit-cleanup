@@ -11,7 +11,13 @@ from typing import Any
 
 from gtm_audit_contract import ACTIONABLE_DECISION_CLASSES
 from gtm_consent_model import normalized_context_hosts
-from gtm_lib import as_list, container_version, file_sha256, stable_hash, write_json
+from gtm_lib import (
+    as_list,
+    container_version,
+    require_safe_package_root,
+    stable_hash,
+    write_json,
+)
 from gtm_operation_model import (
     apply_operations,
     dependency_order,
@@ -25,6 +31,7 @@ from gtm_optimization_facts import (
     client_consent_gate_facts,
     trigger_control_fact,
 )
+from gtm_reconciliation import reconciliation_seal_errors
 from gtm_shared_facts import effective_server_route_hosts_by_tag
 
 OPERATION_PACKET_FILE = "operation-packet.json"
@@ -109,32 +116,12 @@ def server_consent_gate_regression_errors(
     return errors
 
 
-def reconciliation_seal_errors(package_dir: Path) -> list[str]:
-    record_path = package_dir / "reconciled-decisions.json"
-    seal_path = package_dir / "reconciliation-seal.json"
-    if not record_path.is_file() or not seal_path.is_file():
-        return ["sealed reconciled decision record is missing"]
-    record = json.loads(record_path.read_text(encoding="utf-8"))
-    seal = json.loads(seal_path.read_text(encoding="utf-8"))
-    errors = []
-    expected_seal_hash = stable_hash(
-        {key: value for key, value in seal.items() if key != "reconciliation_seal_sha256"},
-        64,
-    )
-    if seal.get("reconciliation_seal_sha256") != expected_seal_hash:
-        errors.append("reconciliation seal content hash is invalid")
-    if seal.get("reconciled_file_sha256") != file_sha256(record_path):
-        errors.append("reconciled decision record changed after sealing")
-    if seal.get("reconciled_record_sha256") != record.get(
-        "reconciled_record_sha256"
-    ):
-        errors.append("reconciliation seal is bound to another record")
-    if seal.get("validator_status") != "pass":
-        errors.append("reconciliation validator did not pass")
-    return errors
+def build_operation_packet_payloads(
+    package_dir: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Derive the only valid base operation packet from sealed reconciliation."""
 
-
-def compile_operation_packet(package_dir: Path) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
     errors = reconciliation_seal_errors(package_dir)
     if errors:
         raise ValueError("; ".join(errors))
@@ -217,12 +204,22 @@ def compile_operation_packet(package_dir: Path) -> dict[str, Any]:
         ),
     }
     packet["operation_record_sha256"] = stable_hash(packet, 64)
-    write_json(package_dir / OPERATION_PACKET_FILE, packet)
-    write_json(package_dir / INITIAL_PROJECTION_FILE, projected)
+    return packet, projected
+
+
+def compile_operation_packet(package_dir: Path) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
+    packet_path = package_dir / OPERATION_PACKET_FILE
+    projection_path = package_dir / INITIAL_PROJECTION_FILE
+    if packet_path.exists() or projection_path.exists():
+        raise ValueError("operation packet outputs already exist and are never overwritten")
+    packet, projected = build_operation_packet_payloads(package_dir)
+    write_json(packet_path, packet)
+    write_json(projection_path, projected)
     return {
         "status": "pass",
-        "operations": len(ordered),
-        "blocked_decisions": len(blocked_decisions),
+        "operations": len(as_list(packet.get("operations"))),
+        "blocked_decisions": len(as_list(packet.get("blocked_decisions"))),
         "operation_packet_sha256": packet["operation_packet_sha256"],
         "projected_container_sha256": stable_hash(projected, 64),
     }
