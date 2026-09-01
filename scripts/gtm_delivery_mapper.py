@@ -414,7 +414,12 @@ def _overview(record: dict[str, Any], recommendations: list[dict[str, Any]]) -> 
         "decision_meanings": HUMAN_DECISION_MEANINGS,
         "priority_counts": (record.get("summary") or {}).get("priority_counts", {}),
         "highest_value_actions": [
-            str((row.get("prose") or {}).get("action_operation_id") or "")
+            str(
+                (row.get("canonical_prose") or {}).get(
+                    "action_operation_id"
+                )
+                or ""
+            )
             for row in top
         ],
         "target_architecture_summary": _unique_text(
