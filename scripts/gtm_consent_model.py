@@ -44,6 +44,10 @@ SERVER_ROUTE_KEY_RE = re.compile(
     r"^(?:transporturl|servercontainerurl|taggingserverurl|firstpartyurl|serverurl)$",
     re.I,
 )
+SERVER_ROUTE_SETTINGS_REFERENCE_KEY_RE = re.compile(
+    r"^(?:configsettingsvariable|configurationsettingsvariable|eventsettingsvariable)$",
+    re.I,
+)
 CONSENT_SIGNAL_RE = re.compile(
     r"consent|optanon|onetrust|didomi|cookiebot|\bcmp\b",
     re.I,
@@ -98,8 +102,9 @@ def consent_values(obj: dict[str, Any], source_path: str = "$") -> list[dict[str
     return rows
 
 
-def server_route_hosts(obj: dict[str, Any]) -> list[str]:
-    """Extract hosts only from explicit GTM server-routing fields and values."""
+def _server_route_values(obj: dict[str, Any]) -> list[Any]:
+    """Return values owned by explicit GTM server-routing fields."""
+
     route_values: list[Any] = []
 
     def normalized_key(value: Any) -> str:
@@ -145,8 +150,28 @@ def server_route_hosts(obj: dict[str, Any]) -> list[str]:
             if field in parameter
         )
 
-    hosts = set()
-    text = json.dumps(route_values, ensure_ascii=False)
+    return route_values
+
+
+def _server_route_settings_reference_values(obj: dict[str, Any]) -> list[Any]:
+    values = []
+    for parameter in as_list(obj.get("parameter")):
+        if not isinstance(parameter, dict):
+            continue
+        key = re.sub(r"[^a-z0-9]", "", str(parameter.get("key") or "").lower())
+        if not SERVER_ROUTE_SETTINGS_REFERENCE_KEY_RE.fullmatch(key):
+            continue
+        values.extend(
+            parameter[field]
+            for field in ("value", "list", "map")
+            if field in parameter
+        )
+    return values
+
+
+def _url_hosts(values: Any) -> set[str]:
+    hosts: set[str] = set()
+    text = json.dumps(values, ensure_ascii=False)
     for match in URL_RE.finditer(text):
         try:
             host = urlsplit(match.group(0).rstrip(".,);\"")).hostname
@@ -154,6 +179,71 @@ def server_route_hosts(obj: dict[str, Any]) -> list[str]:
             host = None
         if host:
             hosts.add(host.lower())
+    return hosts
+
+
+def server_route_hosts(obj: dict[str, Any]) -> list[str]:
+    """Extract hosts only from explicit GTM server-routing fields and values."""
+
+    return sorted(_url_hosts(_server_route_values(obj)))
+
+
+def resolved_server_route_hosts(
+    obj: dict[str, Any], variables: list[dict[str, Any]] | None = None
+) -> list[str]:
+    """Resolve URL-bearing variable chains referenced by explicit route fields.
+
+    Once a value is referenced from a route-owned field, URL literals in every
+    candidate variable on that chain remain possible static routes. Duplicate
+    variable names are therefore retained conservatively instead of selecting an
+    export-order winner.
+    """
+
+    route_values = _server_route_values(obj)
+    hosts = _url_hosts(route_values)
+    by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for variable in variables or []:
+        if not isinstance(variable, dict):
+            continue
+        name = str(variable.get("name") or "")
+        if name:
+            by_name[name].append(variable)
+
+    queue = [
+        *((name, "route_value") for name in sorted(refs(route_values))),
+        *(
+            (name, "settings_owner")
+            for name in sorted(refs(_server_route_settings_reference_values(obj)))
+        ),
+    ]
+    visited: set[tuple[str, str]] = set()
+    while queue:
+        name, relation = queue.pop(0)
+        identity = (name, relation)
+        if identity in visited:
+            continue
+        visited.add(identity)
+        for variable in by_name.get(name, []):
+            if relation == "route_value":
+                parameter_values = variable.get("parameter", [])
+                hosts.update(_url_hosts(parameter_values))
+                queue.extend(
+                    (reference, "route_value")
+                    for reference in sorted(refs(parameter_values))
+                )
+                continue
+            nested_route_values = _server_route_values(variable)
+            hosts.update(_url_hosts(nested_route_values))
+            queue.extend(
+                (reference, "route_value")
+                for reference in sorted(refs(nested_route_values))
+            )
+            queue.extend(
+                (reference, "settings_owner")
+                for reference in sorted(
+                    refs(_server_route_settings_reference_values(variable))
+                )
+            )
     return sorted(hosts)
 
 
@@ -264,7 +354,7 @@ def tag_consent_route(
     variable_chain = referenced_variables(tag, variables or [])
     forwarding_evidence = forwarding_consent_values(tag, source_path)
     server_hosts = {
-        *server_route_hosts(tag),
+        *resolved_server_route_hosts(tag, variables),
         *normalized_context_hosts(inherited_server_route_hosts),
     }
     forwarding_variables: set[str] = set()
@@ -279,7 +369,6 @@ def tag_consent_route(
         if variable_evidence:
             forwarding_variables.add(variable_name)
             forwarding_evidence.extend(variable_evidence)
-        server_hosts.update(server_route_hosts(variable))
 
     forwarded_purposes = sorted(
         {

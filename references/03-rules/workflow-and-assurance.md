@@ -59,14 +59,17 @@ the scanner's corresponding derived logic:
 
 - source hash, layers, IDs, and object identity;
 - reference endpoints, consumers, and recursive variable sources;
-- trigger/event/blocker identities;
-- Google setting ownership and effective route/consent fields;
-- destination and host identities;
+- trigger/event/blocker identities, including paired Custom Event operands;
+- Google tag and `gtagConfig` setting ownership, direct fields, effective values,
+  and same-destination value comparisons;
+- destination and host identities, including route-specific variable chains and
+  a negative guard against unrelated URL references;
 - configured leaf, branch, recursive trace, and peer identities that own work;
 - code objects, executable segments, line ranges, hashes, and parser status;
 - matched/unmatched vendor identities and one canonical research owner;
 - relationship candidate identity, members, type, coordinates, and owner; and
-- exact 27-area coverage membership.
+- exact 27-area coverage membership plus raw-evidence applicability for
+  ecommerce, sensitive data, transformations, and portability.
 
 Any mismatch blocks semantic review. A mechanism may be inapplicable only with a
 source-counted zero; it is never silently skipped. Assurance is intentionally a

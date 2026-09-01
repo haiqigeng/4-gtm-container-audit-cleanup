@@ -19,6 +19,7 @@ from gtm_lib import (
     as_list,
     container_root_path,
     container_version,
+    custom_template_executable_code,
     file_sha256,
     source_descriptor,
     stable_hash,
@@ -29,6 +30,23 @@ from gtm_optimization_facts import build_optimization_facts
 from gtm_requirement_evidence import build_requirement_evidence
 from gtm_shared_facts import build_shared_facts
 from gtm_source_model import build_model
+
+APPLICABILITY_SIGNAL_LAYERS = (
+    "tag",
+    "trigger",
+    "variable",
+    "customTemplate",
+    "gtagConfig",
+    "transformation",
+)
+ECOMMERCE_SIGNAL_RE = re.compile(
+    r"\becommerce\b|\bpurchase\b|\brefund\b|\bitems\b|\btransaction[_ .-]?id\b",
+    re.I,
+)
+SENSITIVE_DATA_SIGNAL_RE = re.compile(
+    r"\bemail\b|\bphone\b|\buser[_ .-]?id\b|\buser[_ .-]?data\b|\baddress\b",
+    re.I,
+)
 
 OPERATIONAL_CANDIDATE_FACT_FIELDS = frozenset(
     {
@@ -394,6 +412,20 @@ def _source_layer_counts(cv: dict[str, Any]) -> dict[str, int]:
     return {layer: len(as_list(cv.get(layer))) for layer in ID_KEYS}
 
 
+def _raw_source_signal_count(cv: dict[str, Any], pattern: re.Pattern[str]) -> int:
+    return sum(
+        1
+        for layer in APPLICABILITY_SIGNAL_LAYERS
+        for obj in as_list(cv.get(layer))
+        if isinstance(obj, dict)
+        and pattern.search(
+            custom_template_executable_code(obj.get("templateData"))
+            if layer == "customTemplate"
+            else json.dumps(obj, ensure_ascii=False)
+        )
+    )
+
+
 def _area_source_counts(
     cv: dict[str, Any],
     technical: dict[str, Any],
@@ -452,22 +484,8 @@ def _area_source_counts(
         len(as_list(row.get("destination_peer_contexts")))
         for row in as_list(configuration.get("objects"))
     )
-    ecommerce = sum(
-        1
-        for row in as_list(configuration.get("objects"))
-        if any(
-            term in json.dumps(row, ensure_ascii=False).casefold()
-            for term in ("purchase", "refund", "ecommerce", "items")
-        )
-    )
-    sensitive = sum(
-        1
-        for row in as_list(configuration.get("objects"))
-        if any(
-            term in json.dumps(row, ensure_ascii=False).casefold()
-            for term in ("email", "phone", "user_id", "user_data", "address")
-        )
-    )
+    ecommerce = _raw_source_signal_count(cv, ECOMMERCE_SIGNAL_RE)
+    sensitive = _raw_source_signal_count(cv, SENSITIVE_DATA_SIGNAL_RE)
     return {
         "AREA-01": 1,
         "AREA-02": total,
@@ -484,7 +502,7 @@ def _area_source_counts(
         "AREA-12": server_route_tags,
         "AREA-13": server_route_tags,
         "AREA-14": variables,
-        "AREA-15": google_surfaces + gtag_configs,
+        "AREA-15": google_surfaces,
         "AREA-16": tags + gtag_configs + destinations,
         "AREA-17": sum(
             1

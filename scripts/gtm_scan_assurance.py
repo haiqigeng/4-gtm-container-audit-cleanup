@@ -35,7 +35,6 @@ CONSENT_FIELD_RE = re.compile(
     r"ad_user_data|ad_personalization",
     re.I,
 )
-EVENT_FIELD_RE = re.compile(r"event(?:name)?$", re.I)
 CODE_PARAMETER_KEYS = {"html", "javascript"}
 CUSTOM_TEMPLATE_SECTION_RE = re.compile(r"(?m)^___([A-Z0-9_]+)___\s*$")
 CUSTOM_TEMPLATE_EXECUTABLE_SECTIONS = (
@@ -54,6 +53,24 @@ SETTINGS_TABLE_KEYS = {
     "configuration": ("configSettingsTable", "configurationSettingsTable"),
     "event": ("eventSettingsTable",),
 }
+DIRECT_SETTING_IDENTITY_KEYS = {
+    "accountid",
+    "activitygroupid",
+    "activitytagid",
+    "advertiserid",
+    "conversionid",
+    "conversionlabel",
+    "containerid",
+    "destinationid",
+    "event",
+    "eventid",
+    "eventname",
+    "measurementid",
+    "pixelid",
+    "propertyid",
+    "tagid",
+    "trackingid",
+}
 ROUTE_PARAMETER_NAMES = {
     "transporturl",
     "servercontainerurl",
@@ -61,8 +78,29 @@ ROUTE_PARAMETER_NAMES = {
     "firstpartyurl",
     "serverurl",
 }
+ROUTE_SETTINGS_REFERENCE_NAMES = {
+    "configsettingsvariable",
+    "configurationsettingsvariable",
+    "eventsettingsvariable",
+}
 DESTINATION_PARAMETER_RE = re.compile(
     r"(?:measurement|property|pixel|advertiser|conversion|destination|tag|account).*id$",
+    re.I,
+)
+RAW_APPLICABILITY_LAYERS = {
+    "tag",
+    "trigger",
+    "variable",
+    "customTemplate",
+    "gtagConfig",
+    "transformation",
+}
+RAW_ECOMMERCE_SIGNAL_RE = re.compile(
+    r"\becommerce\b|\bpurchase\b|\brefund\b|\bitems\b|\btransaction[_ .-]?id\b",
+    re.I,
+)
+RAW_SENSITIVE_DATA_SIGNAL_RE = re.compile(
+    r"\bemail\b|\bphone\b|\buser[_ .-]?id\b|\buser[_ .-]?data\b|\baddress\b",
     re.I,
 )
 
@@ -91,6 +129,13 @@ def _object_rows(cv: dict[str, Any], root_path: str) -> list[dict[str, Any]]:
                 }
             )
     return rows
+
+
+def _raw_applicability_text(row: dict[str, Any]) -> str:
+    obj = row.get("object") or {}
+    if row.get("layer") == "customTemplate" and isinstance(obj, dict):
+        return _independent_template_code(obj.get("templateData"))
+    return json.dumps(obj, ensure_ascii=False)
 
 
 def _walk(value: Any, path: str) -> list[dict[str, Any]]:
@@ -422,25 +467,68 @@ def _scan_terminal_sources(scan: dict[str, Any]) -> list[dict[str, Any]]:
     return [visit(name, ()) for name in referenced]
 
 
+def _independent_trigger_event_values(value: Any) -> list[str]:
+    values: list[str] = []
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            parameters = {
+                str(parameter.get("key") or ""): parameter.get("value")
+                for parameter in as_list(node.get("parameter"))
+                if isinstance(parameter, dict)
+                and str(parameter.get("key") or "")
+                and parameter.get("value") is not None
+                and not isinstance(parameter.get("value"), (dict, list))
+            }
+            left = str(parameters.get("arg0") or "").strip()
+            reference_match = REF_RE.fullmatch(left)
+            normalized_left = (
+                reference_match.group(1).strip().casefold()
+                if reference_match
+                else left.casefold()
+            )
+            right = str(parameters.get("arg1") or "").strip()
+            if normalized_left in {"_event", "event"} and right:
+                values.append(right)
+            for key, configured in parameters.items():
+                if re.sub(r"[^a-z0-9]", "", key.casefold()) in {
+                    "eventname",
+                    "customeventname",
+                }:
+                    rendered = str(configured or "").strip()
+                    if rendered:
+                        values.append(rendered)
+            for child in node.values():
+                visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+
+    visit(value)
+    return sorted(
+        {
+            configured
+            for configured in values
+            if configured.casefold() not in {"_event", "event"}
+        }
+    )
+
+
 def _trigger_and_control_facts(objects: list[dict[str, Any]]) -> dict[str, Any]:
     triggers = {
         row["object_id"]: row for row in objects if row["layer"] == "trigger"
     }
     trigger_rows = []
     for trigger_id, row in sorted(triggers.items()):
-        event_values = []
-        for leaf in _walk(row["object"], row["source_json_path"]):
-            field = str(leaf.get("field") or "")
-            if EVENT_FIELD_RE.search(field):
-                # The assurance record needs identity, not a human preview. The
-                # value hash keeps literals and protected values source-bound.
-                event_values.append(leaf["value_sha256"])
+        event_values = _independent_trigger_event_values(row["object"])
         serialized = json.dumps(row["object"], ensure_ascii=False)
         trigger_rows.append(
             {
                 "trigger_id": trigger_id,
                 "source_json_path": row["source_json_path"],
-                "event_value_hashes": sorted(set(event_values)),
+                "event_value_hashes": [
+                    stable_hash(configured, 32) for configured in event_values
+                ],
                 "contains_consent_term": bool(CONSENT_FIELD_RE.search(serialized)),
             }
         )
@@ -460,21 +548,29 @@ def _trigger_and_control_facts(objects: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _scan_trigger_and_control_facts(scan: dict[str, Any]) -> dict[str, Any]:
     objects = [row for row in as_list(scan.get("objects")) if isinstance(row, dict)]
+    parsed_trigger_facts = {
+        str(row.get("trigger_id") or ""): row
+        for row in as_list(
+            (scan.get("optimization_facts") or {}).get("trigger_control_facts")
+        )
+        if isinstance(row, dict)
+    }
     trigger_rows = []
     for row in sorted(
         (item for item in objects if item.get("layer") == "trigger"),
         key=lambda item: str(item.get("object_id") or ""),
     ):
-        event_hashes = []
+        parsed = parsed_trigger_facts.get(str(row.get("object_id") or ""), {})
+        event_hashes = [
+            stable_hash(str(value), 32)
+            for value in as_list(parsed.get("event_names"))
+            if str(value).strip()
+        ]
         contains_consent = False
         for leaf in as_list(row.get("source_leaf_facts")):
             if not isinstance(leaf, dict):
                 continue
             path = str(leaf.get("json_path") or "")
-            field_match = re.search(r"\.([^.[\]]+)$", path)
-            field = field_match.group(1) if field_match else ""
-            if EVENT_FIELD_RE.search(field):
-                event_hashes.append(str(leaf.get("value_hash") or ""))
             if CONSENT_FIELD_RE.search(
                 f"{path} {leaf.get('value_preview') or ''}"
             ):
@@ -729,6 +825,46 @@ def _raw_setting_table_rows(
     return rows
 
 
+def _raw_direct_setting_rows(
+    obj: dict[str, Any], scope: str, source_path: str
+) -> list[dict[str, Any]]:
+    excluded = {
+        *DIRECT_SETTING_IDENTITY_KEYS,
+        *(
+            re.sub(r"[^a-z0-9]", "", key.casefold())
+            for key in (
+                *SETTINGS_REFERENCE_KEYS[scope],
+                *SETTINGS_TABLE_KEYS[scope],
+            )
+        ),
+    }
+    rows = []
+    for index, parameter in enumerate(_raw_parameters(obj)):
+        name = str(parameter.get("key") or "")
+        normalized_name = re.sub(r"[^a-z0-9]", "", name.casefold())
+        if not name or normalized_name in excluded:
+            continue
+        configured_fields = [
+            field for field in ("value", "list", "map") if field in parameter
+        ]
+        if not configured_fields:
+            continue
+        configured_value = (
+            parameter.get(configured_fields[0])
+            if len(configured_fields) == 1
+            else {field: parameter.get(field) for field in configured_fields}
+        )
+        rows.append(
+            {
+                "parameter_name": name,
+                "value_sha256": stable_hash(configured_value, 32),
+                "_configured_value": configured_value,
+                "source_json_path": f"{source_path}.parameter[{index}]",
+            }
+        )
+    return rows
+
+
 def _raw_setting_reference(
     obj: dict[str, Any], scope: str, source_path: str
 ) -> dict[str, Any]:
@@ -773,13 +909,16 @@ def _independent_effective_google_settings(
 
     surfaces = []
     for row in objects:
-        if row.get("layer") != "tag" or str(row.get("object_type") or "") not in GOOGLE_TAG_TYPES:
+        layer = str(row.get("layer") or "")
+        object_type = str(row.get("object_type") or "").lower()
+        if layer not in {"tag", "gtagConfig"}:
+            continue
+        if layer == "tag" and object_type not in GOOGLE_TAG_TYPES:
             continue
         obj = row["object"]
-        tag_type = str(row.get("object_type") or "")
         indexes = _raw_parameter_index(obj)
         scopes = []
-        if tag_type in GOOGLE_CONFIGURATION_TYPES or any(
+        if layer == "gtagConfig" or object_type in GOOGLE_CONFIGURATION_TYPES or any(
             key in indexes
             for key in (
                 *SETTINGS_REFERENCE_KEYS["configuration"],
@@ -787,11 +926,14 @@ def _independent_effective_google_settings(
             )
         ):
             scopes.append("configuration")
-        if tag_type in GOOGLE_EVENT_TYPES or any(
-            key in indexes
-            for key in (
-                *SETTINGS_REFERENCE_KEYS["event"],
-                *SETTINGS_TABLE_KEYS["event"],
+        if layer == "tag" and (
+            object_type in GOOGLE_EVENT_TYPES
+            or any(
+                key in indexes
+                for key in (
+                    *SETTINGS_REFERENCE_KEYS["event"],
+                    *SETTINGS_TABLE_KEYS["event"],
+                )
             )
         ):
             scopes.append("event")
@@ -842,6 +984,10 @@ def _independent_effective_google_settings(
             local = _raw_setting_table_rows(
                 obj, SETTINGS_TABLE_KEYS[scope], row["source_json_path"]
             )
+            if layer == "gtagConfig":
+                local.extend(
+                    _raw_direct_setting_rows(obj, scope, row["source_json_path"])
+                )
             inherited_by_name = {
                 str(item["parameter_name"]): item for item in inherited
             }
@@ -1110,6 +1256,144 @@ def _scan_effective_google_settings(scan: dict[str, Any]) -> list[dict[str, Any]
     return sorted(rows, key=lambda item: (item["object_key"], item["settings_scope"]))
 
 
+def _destination_setting_comparisons(
+    effective_rows: list[dict[str, Any]], objects: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    destinations_by_key = {
+        str(row.get("object_key") or ""): sorted(
+            _independent_destinations(row.get("object") or {})
+        )
+        for row in objects
+        if row.get("layer") in {"tag", "gtagConfig"}
+    }
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for surface in effective_rows:
+        object_key = str(surface.get("object_key") or "")
+        for destination in destinations_by_key.get(object_key, []):
+            for setting in as_list(surface.get("effective_settings")):
+                if not isinstance(setting, dict) or not str(
+                    setting.get("value_sha256") or ""
+                ):
+                    continue
+                groups[
+                    (
+                        str(surface.get("settings_scope") or ""),
+                        destination,
+                        str(setting.get("parameter_name") or ""),
+                    )
+                ].append(
+                    {
+                        "object_key": object_key,
+                        "value_sha256": str(setting.get("value_sha256") or ""),
+                        "origin": str(setting.get("origin") or ""),
+                        "source_json_paths": sorted(
+                            str(path)
+                            for path in as_list(setting.get("source_json_paths"))
+                            if str(path)
+                        ),
+                    }
+                )
+
+    rows = []
+    for (scope, destination, parameter_name), members in sorted(groups.items()):
+        owners = sorted({member["object_key"] for member in members})
+        if len(owners) < 2:
+            continue
+        owner_settings = sorted(
+            members,
+            key=lambda row: (
+                row["object_key"],
+                row["value_sha256"],
+                row["origin"],
+                row["source_json_paths"],
+            ),
+        )
+        value_hashes = sorted({member["value_sha256"] for member in members})
+        payload = {
+            "candidate_type": "destination_setting_comparison",
+            "settings_scope": scope,
+            "destination": destination,
+            "parameter_name": parameter_name,
+            "consumer_object_keys": owners,
+            "visible_value_sha256s": value_hashes,
+            "visible_value_relation": (
+                "same_visible_value"
+                if len(value_hashes) == 1
+                else "different_visible_values"
+            ),
+            "owner_settings": owner_settings,
+            "source_json_paths": sorted(
+                {
+                    path
+                    for member in members
+                    for path in member["source_json_paths"]
+                }
+            ),
+            "candidate_status": "neutral_candidate_not_a_verdict",
+        }
+        payload["candidate_id"] = "OPT-SET-" + stable_hash(payload, 16).upper()
+        rows.append(payload)
+    return sorted(rows, key=lambda row: row["candidate_id"])
+
+
+def _scan_destination_setting_comparisons(scan: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for candidate in as_list(
+        (scan.get("optimization_facts") or {}).get("optimization_candidates")
+    ):
+        if not isinstance(candidate, dict) or candidate.get(
+            "candidate_type"
+        ) != "destination_setting_comparison":
+            continue
+        rows.append(
+            {
+                "candidate_type": "destination_setting_comparison",
+                "settings_scope": str(candidate.get("settings_scope") or ""),
+                "destination": str(candidate.get("destination") or ""),
+                "parameter_name": str(candidate.get("parameter_name") or ""),
+                "consumer_object_keys": sorted(
+                    str(value)
+                    for value in as_list(candidate.get("consumer_object_keys"))
+                ),
+                "visible_value_sha256s": sorted(
+                    str(value)
+                    for value in as_list(candidate.get("visible_value_sha256s"))
+                ),
+                "visible_value_relation": str(
+                    candidate.get("visible_value_relation") or ""
+                ),
+                "owner_settings": sorted(
+                    (
+                        {
+                            "object_key": str(item.get("object_key") or ""),
+                            "value_sha256": str(item.get("value_sha256") or ""),
+                            "origin": str(item.get("origin") or ""),
+                            "source_json_paths": sorted(
+                                str(path)
+                                for path in as_list(item.get("source_json_paths"))
+                            ),
+                        }
+                        for item in as_list(candidate.get("owner_settings"))
+                        if isinstance(item, dict)
+                    ),
+                    key=lambda row: (
+                        row["object_key"],
+                        row["value_sha256"],
+                        row["origin"],
+                        row["source_json_paths"],
+                    ),
+                ),
+                "source_json_paths": sorted(
+                    str(path)
+                    for path in as_list(candidate.get("source_json_paths"))
+                ),
+                "candidate_status": str(candidate.get("candidate_status") or ""),
+                "candidate_id": str(candidate.get("candidate_id") or ""),
+            }
+        )
+    return sorted(rows, key=lambda row: row["candidate_id"])
+
+
 def _route_and_consent_fields(objects: list[dict[str, Any]]) -> dict[str, Any]:
     consent_rows = []
     route_rows = []
@@ -1225,7 +1509,7 @@ def _independent_destinations(obj: dict[str, Any]) -> set[str]:
     }
 
 
-def _independent_route_hosts_from_object(obj: dict[str, Any]) -> set[str]:
+def _independent_route_values_from_object(obj: dict[str, Any]) -> list[Any]:
     route_values: list[Any] = []
 
     def visit(value: Any) -> None:
@@ -1259,45 +1543,109 @@ def _independent_route_hosts_from_object(obj: dict[str, Any]) -> set[str]:
                 visit(child)
 
     visit(obj)
+    return route_values
+
+
+def _independent_route_settings_reference_values(obj: dict[str, Any]) -> list[Any]:
+    return [
+        parameter[field]
+        for parameter in as_list(obj.get("parameter"))
+        if isinstance(parameter, dict)
+        and _normalized_key(parameter.get("key")) in ROUTE_SETTINGS_REFERENCE_NAMES
+        for field in ("value", "list", "map")
+        if field in parameter
+    ]
+
+
+def _independent_hosts_from_values(values: Any) -> set[str]:
     return {
         (urlparse(url).hostname or "").casefold()
-        for url in URL_RE.findall(json.dumps(route_values, ensure_ascii=False))
+        for url in URL_RE.findall(json.dumps(values, ensure_ascii=False))
         if (urlparse(url).hostname or "")
     }
+
+
+def _independent_route_hosts_from_object(obj: dict[str, Any]) -> set[str]:
+    return _independent_hosts_from_values(_independent_route_values_from_object(obj))
 
 
 def _independent_effective_object_route_hosts(
     obj: dict[str, Any],
     variables_by_name: dict[str, list[dict[str, Any]]],
 ) -> set[str]:
-    hosts = set(_independent_route_hosts_from_object(obj))
-    queue = sorted(
-        set(REF_RE.findall(json.dumps(obj.get("parameter", []), ensure_ascii=False)))
-    )
-    visited_names: set[str] = set()
+    route_values = _independent_route_values_from_object(obj)
+    hosts = _independent_hosts_from_values(route_values)
+    queue = [
+        *(
+            (name, "route_value")
+            for name in sorted(
+                set(REF_RE.findall(json.dumps(route_values, ensure_ascii=False)))
+            )
+        ),
+        *(
+            (name, "settings_owner")
+            for name in sorted(
+                set(
+                    REF_RE.findall(
+                        json.dumps(
+                            _independent_route_settings_reference_values(obj),
+                            ensure_ascii=False,
+                        )
+                    )
+                )
+            )
+        ),
+    ]
+    visited_names: set[tuple[str, str]] = set()
     visited_candidates: set[str] = set()
     while queue:
-        name = queue.pop(0)
-        if name in visited_names:
+        name, relation = queue.pop(0)
+        identity = (name, relation)
+        if identity in visited_names:
             continue
-        visited_names.add(name)
+        visited_names.add(identity)
         for variable in variables_by_name.get(name, []):
-            candidate_id = stable_hash(variable, 32)
+            candidate_id = stable_hash({"relation": relation, "variable": variable}, 32)
             if candidate_id in visited_candidates:
                 continue
             visited_candidates.add(candidate_id)
-            hosts.update(_independent_route_hosts_from_object(variable))
+            if relation == "route_value":
+                parameter_values = variable.get("parameter", [])
+                hosts.update(_independent_hosts_from_values(parameter_values))
+                queue.extend(
+                    (reference, "route_value")
+                    for reference in sorted(
+                        set(
+                            REF_RE.findall(
+                                json.dumps(parameter_values, ensure_ascii=False)
+                            )
+                        )
+                    )
+                )
+                continue
+            nested_route_values = _independent_route_values_from_object(variable)
+            hosts.update(_independent_hosts_from_values(nested_route_values))
             queue.extend(
-                sorted(
+                (reference, "route_value")
+                for reference in sorted(
+                    set(
+                        REF_RE.findall(
+                            json.dumps(nested_route_values, ensure_ascii=False)
+                        )
+                    )
+                )
+            )
+            queue.extend(
+                (reference, "settings_owner")
+                for reference in sorted(
                     set(
                         REF_RE.findall(
                             json.dumps(
-                                variable.get("parameter", []),
+                                _independent_route_settings_reference_values(variable),
                                 ensure_ascii=False,
                             )
                         )
                     )
-                    - visited_names
                 )
             )
     return hosts
@@ -1993,6 +2341,12 @@ def assure_scan(
     normalized_settings = _normalized_setting_ownership(settings)
     effective_settings = _independent_effective_google_settings(objects)
     scan_effective_settings = _scan_effective_google_settings(scan)
+    destination_setting_comparisons = _destination_setting_comparisons(
+        effective_settings, objects
+    )
+    scan_destination_setting_comparisons = _scan_destination_setting_comparisons(
+        scan
+    )
     routes = _route_and_consent_fields(objects)
     scan_routes = _scan_route_and_consent_fields(scan)
     route_hash_length = next(
@@ -2040,7 +2394,27 @@ def assure_scan(
     ]
     coverage_ids = sorted(str(row.get("area_id") or "") for row in coverage_rows)
     expected_coverage_ids = sorted(str(row["area_id"]) for row in AUDIT_AREAS)
+    raw_signal_counts = {
+        "AREA-18": sum(
+            1
+            for row in objects
+            if row.get("layer") in RAW_APPLICABILITY_LAYERS
+            and RAW_ECOMMERCE_SIGNAL_RE.search(_raw_applicability_text(row))
+        ),
+        "AREA-21": sum(
+            1
+            for row in objects
+            if row.get("layer") in RAW_APPLICABILITY_LAYERS
+            and RAW_SENSITIVE_DATA_SIGNAL_RE.search(_raw_applicability_text(row))
+        ),
+    }
     expected_raw_scope_coverage = [
+        {
+            "area_id": area_id,
+            "source_count": source_count,
+        }
+        for area_id, source_count in sorted(raw_signal_counts.items())
+    ] + [
         {
             "area_id": "AREA-20",
             "source_count": (
@@ -2061,6 +2435,7 @@ def assure_scan(
         row["applicability"] = (
             "applicable" if row["source_count"] else "source_counted_zero"
         )
+    expected_raw_scope_coverage.sort(key=lambda row: row["area_id"])
     observed_raw_scope_coverage = sorted(
         (
             {
@@ -2069,7 +2444,8 @@ def assure_scan(
                 "applicability": row.get("applicability"),
             }
             for row in coverage_rows
-            if str(row.get("area_id") or "") in {"AREA-20", "AREA-23"}
+            if str(row.get("area_id") or "")
+            in {item["area_id"] for item in expected_raw_scope_coverage}
         ),
         key=lambda row: row["area_id"],
     )
@@ -2093,6 +2469,11 @@ def assure_scan(
             "effective_google_settings",
             effective_settings,
             scan_effective_settings,
+        ),
+        _check(
+            "destination_setting_comparisons",
+            destination_setting_comparisons,
+            scan_destination_setting_comparisons,
         ),
         _check("consent_and_route_field_identities", normalized_routes, scan_routes),
         _check(
@@ -2156,6 +2537,7 @@ def assure_scan(
             "trigger_and_blocker_topology": trigger_control,
             "effective_google_setting_ownership_surfaces": settings,
             "independent_effective_google_settings": effective_settings,
+            "destination_setting_comparisons": destination_setting_comparisons,
             "consent_and_route_fields": routes,
             "effective_route_and_consent_forwarding": effective_topology,
             "custom_code_segments": code_segments,

@@ -55,6 +55,26 @@ SETTINGS_TABLE_KEYS = {
     "configuration": ("configSettingsTable", "configurationSettingsTable"),
     "event": ("eventSettingsTable",),
 }
+DIRECT_SETTING_IDENTITY_KEYS = frozenset(
+    {
+        "accountid",
+        "activitygroupid",
+        "activitytagid",
+        "advertiserid",
+        "conversionid",
+        "conversionlabel",
+        "containerid",
+        "destinationid",
+        "event",
+        "eventid",
+        "eventname",
+        "measurementid",
+        "pixelid",
+        "propertyid",
+        "tagid",
+        "trackingid",
+    }
+)
 EVENT_SPECIFIC_PARAMETERS = frozenset(
     {
         "affiliation",
@@ -115,6 +135,53 @@ def _parameter_index(obj: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
 def _scalar(parameter: dict[str, Any]) -> str:
     value = parameter.get("value")
     return "" if isinstance(value, (dict, list)) or value is None else str(value)
+
+
+def _normalized_parameter_name(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
+
+def _direct_setting_rows(
+    obj: dict[str, Any], scope: str, source_path: str
+) -> list[dict[str, Any]]:
+    """Return direct gtagConfig fields, excluding identity and owner references."""
+
+    excluded = {
+        *DIRECT_SETTING_IDENTITY_KEYS,
+        *(
+            _normalized_parameter_name(key)
+            for key in (
+                *SETTINGS_REFERENCE_KEYS[scope],
+                *SETTINGS_TABLE_KEYS[scope],
+            )
+        ),
+    }
+    rows = []
+    for index, parameter in enumerate(_parameters(obj)):
+        name = str(parameter.get("key") or "")
+        if not name or _normalized_parameter_name(name) in excluded:
+            continue
+        configured_fields = [
+            field for field in ("value", "list", "map") if field in parameter
+        ]
+        if not configured_fields:
+            continue
+        configured_value = (
+            parameter.get(configured_fields[0])
+            if len(configured_fields) == 1
+            else {field: parameter.get(field) for field in configured_fields}
+        )
+        rows.append(
+            {
+                "table_key": "direct_parameter",
+                "parameter_name": name,
+                "configured_value": configured_value,
+                "value_sha256": stable_hash(configured_value, 32),
+                "referenced_variables": sorted(refs(configured_value)),
+                "source_json_path": f"{source_path}.parameter[{index}]",
+            }
+        )
+    return rows
 
 
 def _map_values(row: dict[str, Any]) -> dict[str, Any]:
@@ -262,6 +329,8 @@ def _effective_settings_for_tag(
     tag_path: str,
     scope: str,
     variables_by_name: dict[str, list[dict[str, Any]]],
+    *,
+    include_direct_settings: bool = False,
 ) -> dict[str, Any]:
     reference = _setting_reference(tag, scope, tag_path)
     inherited_rows: list[dict[str, Any]] = []
@@ -309,6 +378,8 @@ def _effective_settings_for_tag(
         resolved_keys.append(str(variable["object_key"]))
         inherited_rows.extend(variable.get("settings", []))
     local_rows = _table_rows(tag, SETTINGS_TABLE_KEYS[scope], tag_path)
+    if include_direct_settings:
+        local_rows.extend(_direct_setting_rows(tag, scope, tag_path))
 
     inherited_by_name = {
         str(row["parameter_name"]): row for row in inherited_rows
@@ -393,13 +464,13 @@ def _effective_settings_for_tag(
 
 def _shared_setting_candidates(
     effective_rows: list[dict[str, Any]],
-    tags_by_key: dict[str, dict[str, Any]],
+    objects_by_key: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for tag_settings in effective_rows:
         key = str(tag_settings["object_key"])
-        tag = tags_by_key[key]
-        events = _event_names(tag)
+        obj = objects_by_key[key]
+        events = _event_names(obj)
         for row in tag_settings.get("effective_settings", []):
             groups[
                 (
@@ -473,24 +544,111 @@ def _shared_setting_candidates(
     return candidates
 
 
+def _destination_setting_candidates(
+    effective_rows: list[dict[str, Any]],
+    destinations_by_key: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for surface in effective_rows:
+        object_key = str(surface.get("object_key") or "")
+        for destination in destinations_by_key.get(object_key, []):
+            for setting in as_list(surface.get("effective_settings")):
+                if not isinstance(setting, dict) or not str(
+                    setting.get("value_sha256") or ""
+                ):
+                    continue
+                groups[
+                    (
+                        str(surface.get("settings_scope") or ""),
+                        destination,
+                        str(setting.get("parameter_name") or ""),
+                    )
+                ].append(
+                    {
+                        "object_key": object_key,
+                        "value_sha256": str(setting.get("value_sha256") or ""),
+                        "origin": str(setting.get("origin") or ""),
+                        "source_json_paths": sorted(
+                            str(path)
+                            for path in as_list(setting.get("source_json_paths"))
+                            if str(path)
+                        ),
+                    }
+                )
+
+    candidates = []
+    for (scope, destination, parameter_name), members in sorted(groups.items()):
+        owner_keys = sorted({member["object_key"] for member in members})
+        if len(owner_keys) < 2:
+            continue
+        owner_settings = sorted(
+            members,
+            key=lambda row: (
+                row["object_key"],
+                row["value_sha256"],
+                row["origin"],
+                row["source_json_paths"],
+            ),
+        )
+        value_hashes = sorted({member["value_sha256"] for member in members})
+        payload = {
+            "candidate_type": "destination_setting_comparison",
+            "settings_scope": scope,
+            "destination": destination,
+            "parameter_name": parameter_name,
+            "consumer_object_keys": owner_keys,
+            "visible_value_sha256s": value_hashes,
+            "visible_value_relation": (
+                "same_visible_value"
+                if len(value_hashes) == 1
+                else "different_visible_values"
+            ),
+            "owner_settings": owner_settings,
+            "source_json_paths": sorted(
+                {
+                    path
+                    for member in members
+                    for path in member["source_json_paths"]
+                }
+            ),
+            "candidate_status": "neutral_candidate_not_a_verdict",
+        }
+        payload["candidate_id"] = "OPT-SET-" + stable_hash(payload, 16).upper()
+        candidates.append(payload)
+    return candidates
+
+
 def _trigger_event_values(trigger: dict[str, Any]) -> list[str]:
     values: list[str] = []
     conditions = trigger_conditions(trigger)
     for condition in conditions:
         if "_event" not in condition and "event" not in condition.casefold():
             continue
-        quoted = re.findall(r"(?:==|equals?|contains?|matches?)[^A-Za-z0-9_-]*([A-Za-z0-9_.:-]+)", condition, re.I)
-        values.extend(quoted)
+        parts = condition.split("|", 3)
+        left = parts[1].strip() if len(parts) >= 2 else ""
+        reference = re.fullmatch(r"\{\{([^{}]+)\}\}", left)
+        normalized_left = (
+            reference.group(1).strip().casefold()
+            if reference
+            else left.casefold()
+        )
+        if len(parts) >= 3 and normalized_left in {"_event", "event"}:
+            configured_event = parts[2].strip()
+            if configured_event:
+                values.append(configured_event)
+            continue
+        quoted = re.findall(
+            r"(?:==|equals?|contains?|matches?)[^A-Za-z0-9_-]*([A-Za-z0-9_.:-]+)",
+            condition,
+            re.I,
+        )
+        values.extend(value for value in quoted if value.casefold() != "_event")
     for parameter in _parameters(trigger):
         key = str(parameter.get("key") or "").casefold()
         value = _scalar(parameter).strip()
         if value and key in {"eventname", "customeventname"}:
             values.append(value)
-    serialized = json.dumps(trigger, ensure_ascii=False)
-    for event in CMP_EVENT_NAMES:
-        if event.casefold() in serialized.casefold():
-            values.append(event)
-    return [value for value in dict.fromkeys(values) if value != "_event"]
+    return [value for value in dict.fromkeys(values) if value.casefold() != "_event"]
 
 
 def _contains_consent_control_condition(conditions: list[str]) -> bool:
@@ -1106,14 +1264,21 @@ def build_optimization_facts(
         for row in as_list(shared_facts.get("objects"))
     }
     variables_by_name, settings_variables = _settings_variables(cv, root_path)
-    tags_by_key = {
-        f"tag:{tag.get('tagId') or ''}": tag
-        for tag in as_list(cv.get("tag"))
-        if isinstance(tag, dict)
+    setting_surface_records = [
+        *records.get("tag", []),
+        *records.get("gtagConfig", []),
+    ]
+    setting_objects_by_key = {
+        str(record.get("object_key") or ""): record["object"]
+        for record in setting_surface_records
     }
     destinations_by_tag = {
         str(record.get("object_key") or ""): configured_destinations(record)
         for record in records.get("tag", [])
+    }
+    destinations_by_setting_key = {
+        str(record.get("object_key") or ""): configured_destinations(record)
+        for record in setting_surface_records
     }
     advanced_approvals = [
         row
@@ -1128,28 +1293,47 @@ def build_optimization_facts(
         str(value) for value in as_list(shared_facts.get("provided_context_fields"))
     }
     effective_settings: list[dict[str, Any]] = []
-    for index, tag in enumerate(as_list(cv.get("tag"))):
-        if not isinstance(tag, dict):
+    for record in setting_surface_records:
+        obj = record.get("object")
+        if not isinstance(obj, dict):
             continue
-        tag_type = str(tag.get("type") or "")
-        if tag_type not in GOOGLE_TAG_TYPES:
+        layer = str(record.get("layer") or "")
+        object_type = str(record.get("object_type") or "").lower()
+        if layer == "tag" and object_type not in GOOGLE_TAG_TYPES:
             continue
-        key = f"tag:{tag.get('tagId') or ''}"
-        path = f"{root_path}.tag[{index}]"
+        key = str(record.get("object_key") or "")
+        path = str(record.get("source_json_path") or "")
+        indexes = _parameter_index(obj)
         scopes = []
-        if tag_type in GOOGLE_CONFIGURATION_TYPES or any(
-            name in _parameter_index(tag)
-            for name in (*SETTINGS_REFERENCE_KEYS["configuration"], *SETTINGS_TABLE_KEYS["configuration"])
+        if layer == "gtagConfig" or object_type in GOOGLE_CONFIGURATION_TYPES or any(
+            name in indexes
+            for name in (
+                *SETTINGS_REFERENCE_KEYS["configuration"],
+                *SETTINGS_TABLE_KEYS["configuration"],
+            )
         ):
             scopes.append("configuration")
-        if tag_type in GOOGLE_EVENT_TYPES or any(
-            name in _parameter_index(tag)
-            for name in (*SETTINGS_REFERENCE_KEYS["event"], *SETTINGS_TABLE_KEYS["event"])
+        if layer == "tag" and (
+            object_type in GOOGLE_EVENT_TYPES
+            or any(
+                name in indexes
+                for name in (
+                    *SETTINGS_REFERENCE_KEYS["event"],
+                    *SETTINGS_TABLE_KEYS["event"],
+                )
+            )
         ):
             scopes.append("event")
         for scope in dict.fromkeys(scopes):
             effective_settings.append(
-                _effective_settings_for_tag(tag, key, path, scope, variables_by_name)
+                _effective_settings_for_tag(
+                    obj,
+                    key,
+                    path,
+                    scope,
+                    variables_by_name,
+                    include_direct_settings=layer == "gtagConfig",
+                )
             )
 
     consumers = build_consumers(cv, root_path)
@@ -1196,9 +1380,24 @@ def build_optimization_facts(
         advanced_approvals,
         approval_context_provided,
     )
-    shared_candidates = _shared_setting_candidates(effective_settings, tags_by_key)
+    trigger_facts = [
+        trigger_control_fact(trigger, f"{root_path}.trigger[{index}]")
+        for index, trigger in enumerate(as_list(cv.get("trigger")))
+        if isinstance(trigger, dict)
+    ]
+    shared_candidates = _shared_setting_candidates(
+        effective_settings, setting_objects_by_key
+    )
+    destination_candidates = _destination_setting_candidates(
+        effective_settings,
+        destinations_by_setting_key,
+    )
 
-    all_candidates = [*shared_candidates, *priority_candidates]
+    all_candidates = [
+        *shared_candidates,
+        *destination_candidates,
+        *priority_candidates,
+    ]
     payload = {
         **source_descriptor(export_path),
         "kind": "gtm_neutral_optimization_facts",
@@ -1210,6 +1409,9 @@ def build_optimization_facts(
             key=lambda row: (row["object_key"], row["settings_scope"]),
         ),
         "consent_infrastructure_summary": consent_infrastructure,
+        "trigger_control_facts": sorted(
+            trigger_facts, key=lambda row: str(row.get("trigger_id") or "")
+        ),
         "tag_control_topology": sorted(topology, key=lambda row: row["object_key"]),
         "optimization_candidates": sorted(
             all_candidates, key=lambda row: str(row["candidate_id"])
@@ -1222,6 +1424,7 @@ def build_optimization_facts(
                     if record.get("object_type") in GOOGLE_TAG_TYPES
                 ]
             ),
+            "google_configuration_objects": len(records.get("gtagConfig", [])),
             "settings_variables": len(settings_variables),
             "effective_settings_surfaces": len(effective_settings),
             "explicit_firing_priorities": len(priority_candidates),

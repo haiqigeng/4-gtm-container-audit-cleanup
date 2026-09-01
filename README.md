@@ -31,9 +31,12 @@ Important architectural positions include:
 - pure client-to-server transporters use firing triggers only and inherit one
   canonical consent value for server-side enforcement;
 - explicit firing priority is retained only for a proven same-event start-order
-  need; and
+  need;
 - Google Configuration Settings and Event Settings are used only where effective
-  field ownership and all material distinctions support shared ownership.
+  field ownership and all material distinctions support shared ownership; and
+- `gtagConfig` direct settings and same-destination differences are explicit
+  audited surfaces, while variable-backed transport hosts are resolved only from
+  route-owned chains and independently assured.
 
 See [audit-coverage.md](references/03-rules/audit-coverage.md) for the complete
 contract.

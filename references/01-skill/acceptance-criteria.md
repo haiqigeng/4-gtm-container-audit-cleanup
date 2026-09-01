@@ -17,6 +17,15 @@
 - Independent raw-source assurance passes for object, reference, variable,
   trigger, settings, consent, route, code segment, vendor, candidate, ownership,
   branch/relationship, and coverage identities.
+- Explicit route fields and Google settings-owner references resolve every
+  candidate variable-backed host, while unrelated URL-bearing variables remain
+  outside route topology; Areas 12–13 follow that effective result.
+- Every `gtagConfig` is an effective configuration surface. Direct non-identity
+  settings retain exact provenance, and equal or conflicting same-destination
+  owners receive independently assured neutral comparisons.
+- Areas 18 and 21 derive only from raw behavior-bearing web-container evidence,
+  never registry-enriched review metadata, and every Custom Event literal is
+  present in the independently assured trigger-control inventory.
 - The typed obligation ledger accounts for every object, chain, family,
   relationship, singleton, source-owned branch/leaf/trace, code segment, and
   container-level method.

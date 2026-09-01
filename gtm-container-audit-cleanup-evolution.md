@@ -634,6 +634,27 @@ The repeated pre-release review found and resolved fifty-one issues:
     checkout. Verification now requires a clean full Git commit and exact equality
     of version, tree hash, file count, file map, clean-state flag, and commit across
     source, manifest, and package.
+52. Route classification lost a `transport_url` when its value came from a
+    Constant or another variable. Route resolution now starts only from explicit
+    route fields or Google settings-owner references, follows every candidate
+    variable chain conservatively, and independently proves the resulting hosts
+    without treating unrelated referenced URLs as transport routes.
+53. `gtagConfig` objects participated in destination-linked transport but were
+    absent from general effective Google-setting analysis. They are now
+    first-class configuration surfaces: direct non-identity parameters retain
+    value, provenance, and source coordinates, while same-destination owners get
+    independently assured neutral comparisons for equal or conflicting visible
+    values.
+54. Ecommerce and sensitive-data applicability searched registry-enriched
+    configuration review records, allowing official contract metadata to create
+    obligations that the container did not contain. Applicability now counts only
+    behavior-bearing raw web-container objects and executable custom-template
+    code, with independent Area 18 and Area 21 assurance.
+55. Common Custom Event filters encoded as `EQUALS|{{_event}}|event_name|` lost
+    the configured event name from control topology. The parser now reads the
+    paired operands, publishes one complete trigger-control inventory, and the
+    independent scan assurance hashes each configured event literal so omission
+    or tampering blocks the workflow.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.

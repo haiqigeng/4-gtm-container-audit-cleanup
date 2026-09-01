@@ -120,6 +120,9 @@ downstream server-container enforcement is outside this audit.”
 - Model firing triggers as OR, conditions inside a trigger as AND, and blockers as
   an eligibility intersection. Scan event names, filters, regexes, overlap,
   contradictions, groups, lifecycle, SPA/history, and sequence invocation.
+- Read Custom Event identity from the paired `_event` condition operands and keep
+  one independently assured trigger inventory; a generic `value` field must not
+  make the configured event literal disappear.
 - Prove occurrence and data availability; flag weak selectors, impossible logic,
   subsumed routes, and trigger groups that do not express a real lifecycle AND.
 
@@ -161,6 +164,9 @@ downstream server-container enforcement is outside this audit.”
 - Scan transport URL ownership/inheritance, direct bypasses, canonical consent
   source and forwarding field, inline copies, client gates, destinations, event
   IDs, and browser/server overlap.
+- Follow route values through every candidate variable chain rooted in an
+  explicit route field or Google settings-owner reference. Do not classify a URL
+  reached only through an unrelated field as a transport route.
 - For a pure route require normal firing only, one shared inherited consent value,
   no direct bypass, and explicit approved downstream consent-gating ownership for
   every route host. Report missing, multiple, inconsistent, partial, inline,
@@ -193,6 +199,9 @@ downstream server-container enforcement is outside this audit.”
   Settings, Event Settings, inherited settings, local event tags, and overrides;
   retain provenance, value, type, lifetime, consumers, destination, consent, and
   route.
+- Treat each `gtagConfig` as a configuration surface, including direct
+  non-identity parameters. Compare same-destination owners by exact visible value
+  and provenance so repetition and conflicts become explicit neutral obligations.
 - Treat a referenced settings-variable name with multiple candidate objects as
   ambiguous. Retain every candidate object, field, source coordinate, consent
   value, and route in the audit facts; never select one owner by export order.
@@ -223,6 +232,9 @@ downstream server-container enforcement is outside this audit.”
 - Require complete arrays and correct monetary/quantity semantics without
   invented defaults; runtime uniqueness and finance reconciliation remain out of
   scope.
+- Determine applicability only from raw behavior-bearing container objects and
+  executable template code. Official event contracts describe how to audit a
+  visible implementation; they do not prove that ecommerce exists.
 
 ### 19. Ads, Floodlight, And Other Vendor Tags
 
@@ -250,6 +262,8 @@ downstream server-container enforcement is outside this audit.”
   exposure.
 - Assign one owner per identity product/destination, prevent raw PII and double
   hashing, and report legal/policy questions as external decisions.
+- Determine applicability from the same raw behavior-bearing boundary; vendor or
+  registry guidance must not create a sensitive-data implementation by itself.
 
 ### 22. Custom Templates And Custom Code
 

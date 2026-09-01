@@ -652,6 +652,253 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         )
         self.assertEqual("mismatch", check["status"])
 
+    def test_route_value_variables_resolve_without_leaking_unrelated_urls(self) -> None:
+        export = rich_export()
+        cv = export["containerVersion"]
+        cv["variable"][0]["parameter"] = [
+            table_parameter(
+                "configSettingsTable",
+                [
+                    ("language", "{{CONST - Documentation URL}}"),
+                    ("consent_state", "{{Consent State}}"),
+                ],
+            )
+        ]
+        cv["variable"].extend(
+            [
+                {
+                    "variableId": "107",
+                    "name": "CONST - Endpoint",
+                    "type": "c",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "value",
+                            "value": "https://collect.variable-route.test/path",
+                        }
+                    ],
+                },
+                {
+                    "variableId": "108",
+                    "name": "CONST - Documentation URL",
+                    "type": "c",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "value",
+                            "value": "https://docs.not-a-route.test/guide",
+                        }
+                    ],
+                },
+            ]
+        )
+        cv["tag"][0]["parameter"].append(
+            {
+                "type": "TEMPLATE",
+                "key": "transport_url",
+                "value": "{{CONST - Endpoint}}",
+            }
+        )
+        export_path = self.root / "variable-backed-route.json"
+        export_path.write_text(json.dumps(export), encoding="utf-8")
+        scan = build_canonical_scan(export_path)["canonical_scan"]
+        topology = {
+            row["object_key"]: row
+            for row in scan["optimization_facts"]["tag_control_topology"]
+        }
+        self.assertEqual(
+            ["collect.variable-route.test"],
+            topology["tag:301"]["server_route_hosts"],
+        )
+        self.assertEqual([], topology["tag:302"]["server_route_hosts"])
+        self.assertEqual([], topology["tag:304"]["server_route_hosts"])
+        coverage = {row["area_id"]: row for row in scan["coverage_ledger"]}
+        self.assertEqual("applicable", coverage["AREA-12"]["applicability"])
+        self.assertEqual("applicable", coverage["AREA-13"]["applicability"])
+        assurance = assure_scan(
+            export_path,
+            scan,
+            vendor_registry_path=self.registry,
+        )
+        self.assertEqual("pass", assurance["status"])
+
+    def test_gtag_config_direct_settings_and_destination_conflicts_are_assured(self) -> None:
+        export = rich_export()
+        cv = export["containerVersion"]
+        cv["variable"][0]["parameter"] = [
+            table_parameter(
+                "configSettingsTable",
+                [("consent_state", "{{Consent State}}")],
+            )
+        ]
+        cv["variable"].append(
+            {
+                "variableId": "107",
+                "name": "CONST - Endpoint",
+                "type": "c",
+                "parameter": [
+                    {
+                        "type": "TEMPLATE",
+                        "key": "value",
+                        "value": "https://collect.gtag-owner.test/path",
+                    }
+                ],
+            }
+        )
+        cv["gtagConfig"] = [
+            {
+                "gtagConfigId": "401",
+                "name": "Google destination owner A",
+                "type": "googtag",
+                "parameter": [
+                    {"type": "TEMPLATE", "key": "tagId", "value": "G-TEST"},
+                    {
+                        "type": "TEMPLATE",
+                        "key": "transport_url",
+                        "value": "{{CONST - Endpoint}}",
+                    },
+                    {
+                        "type": "TEMPLATE",
+                        "key": "cookie_domain",
+                        "value": "auto",
+                    },
+                    {"type": "TEMPLATE", "key": "language", "value": "en"},
+                ],
+            },
+            {
+                "gtagConfigId": "402",
+                "name": "Google destination owner B",
+                "type": "googtag",
+                "parameter": [
+                    {"type": "TEMPLATE", "key": "tagId", "value": "G-TEST"},
+                    {"type": "TEMPLATE", "key": "language", "value": "de"},
+                ],
+            },
+        ]
+        export_path = self.root / "gtag-config-settings-conflict.json"
+        export_path.write_text(json.dumps(export), encoding="utf-8")
+        scan = build_canonical_scan(export_path)["canonical_scan"]
+        surfaces = {
+            row["object_key"]: row
+            for row in scan["optimization_facts"]["effective_google_settings"]
+            if row["settings_scope"] == "configuration"
+        }
+        owner_a = {
+            row["parameter_name"]: row
+            for row in surfaces["gtagConfig:401"]["effective_settings"]
+        }
+        self.assertEqual(
+            {"cookie_domain", "language", "transport_url"}, set(owner_a)
+        )
+        self.assertNotIn("tagId", owner_a)
+        self.assertEqual("local", owner_a["cookie_domain"]["origin"])
+        topology = {
+            row["object_key"]: row
+            for row in scan["optimization_facts"]["tag_control_topology"]
+        }
+        self.assertEqual(
+            ["collect.gtag-owner.test"],
+            topology["tag:301"]["server_route_hosts"],
+        )
+        comparisons = [
+            row
+            for row in scan["optimization_facts"]["optimization_candidates"]
+            if row.get("candidate_type") == "destination_setting_comparison"
+            and row.get("destination") == "g-test"
+            and row.get("parameter_name") == "language"
+        ]
+        self.assertEqual(1, len(comparisons))
+        self.assertEqual(
+            "different_visible_values", comparisons[0]["visible_value_relation"]
+        )
+        self.assertTrue(
+            {"gtagConfig:401", "gtagConfig:402"}
+            <= set(comparisons[0]["consumer_object_keys"])
+        )
+        assurance = assure_scan(
+            export_path,
+            scan,
+            vendor_registry_path=self.registry,
+        )
+        self.assertEqual("pass", assurance["status"])
+
+    def test_registry_contracts_do_not_make_ecommerce_applicable(self) -> None:
+        export = rich_export()
+        cv = export["containerVersion"]
+        cv["tag"] = [
+            {
+                "tagId": "301",
+                "name": "Google tag",
+                "type": "googtag",
+                "parameter": [
+                    {"type": "TEMPLATE", "key": "tagId", "value": "G-TEST"}
+                ],
+                "firingTriggerId": ["2147479553"],
+            }
+        ]
+        for layer in (
+            "trigger",
+            "variable",
+            "customTemplate",
+            "gtagConfig",
+            "transformation",
+        ):
+            cv[layer] = []
+        export_path = self.root / "non-ecommerce-google-tag.json"
+        export_path.write_text(json.dumps(export), encoding="utf-8")
+        scan = build_canonical_scan(export_path)["canonical_scan"]
+        enriched_configuration = json.dumps(
+            scan["configuration_evidence"], ensure_ascii=False
+        ).casefold()
+        self.assertIn("purchase", enriched_configuration)
+        self.assertIn("items", enriched_configuration)
+        coverage = {row["area_id"]: row for row in scan["coverage_ledger"]}
+        self.assertEqual(0, coverage["AREA-18"]["source_count"])
+        self.assertEqual(
+            "source_counted_zero", coverage["AREA-18"]["applicability"]
+        )
+        assurance = assure_scan(
+            export_path,
+            scan,
+            vendor_registry_path=self.registry,
+        )
+        self.assertEqual("pass", assurance["status"])
+
+    def test_custom_event_literals_are_topology_facts_and_tamper_evident(self) -> None:
+        trigger = next(
+            row
+            for row in self.scan["optimization_facts"]["trigger_control_facts"]
+            if row["trigger_id"] == "203"
+        )
+        self.assertEqual(["purchase"], trigger["event_names"])
+        purchase_topology = next(
+            row
+            for row in self.scan["optimization_facts"]["tag_control_topology"]
+            if row["object_key"] == "tag:302"
+        )
+        firing_trigger = next(
+            row
+            for row in purchase_topology["firing_triggers"]
+            if row["trigger_id"] == "203"
+        )
+        self.assertEqual(["purchase"], firing_trigger["event_names"])
+        self.assertEqual("pass", self.assurance()["status"])
+
+        tampered = copy.deepcopy(self.scan)
+        tampered_trigger = next(
+            row
+            for row in tampered["optimization_facts"]["trigger_control_facts"]
+            if row["trigger_id"] == "203"
+        )
+        tampered_trigger["event_names"] = []
+        assurance = self.assurance(tampered)
+        check = next(
+            row
+            for row in assurance["checks"]
+            if row["check_id"] == "trigger_event_and_blocker_identities"
+        )
+        self.assertEqual("mismatch", check["status"])
+
     def test_context_contract_has_no_legacy_unresolved_question_channel(self) -> None:
         model = build_context_model(self.export)
         self.assertIn("intake_questions", model)
