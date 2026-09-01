@@ -793,6 +793,9 @@ class V2WorkflowTests(unittest.TestCase):
             row for row in delivery_map["rows"] if row["primary_sheet"] == "02 Recommendations"
         ]
         self.assertEqual(len(recommendations), 1)
+        highest_value = delivery_map["overview"]["highest_value_actions"][0]
+        self.assertIn("Remove redundant firing priority", highest_value)
+        self.assertIn("OP-REMOVE-REDUNDANT-PRIORITY", highest_value)
         self.assertEqual(
             recommendations[0]["locked"]["technical_note"]["removals"],
             operation["removals"],

@@ -413,7 +413,10 @@ def _overview(record: dict[str, Any], recommendations: list[dict[str, Any]]) -> 
         "decision_labels": HUMAN_DECISION_LABELS,
         "decision_meanings": HUMAN_DECISION_MEANINGS,
         "priority_counts": (record.get("summary") or {}).get("priority_counts", {}),
-        "highest_value_action_ids": [row["locked"]["operation_id"] for row in top],
+        "highest_value_actions": [
+            str((row.get("prose") or {}).get("action_operation_id") or "")
+            for row in top
+        ],
         "target_architecture_summary": _unique_text(
             [
                 (row.get("decision") or {}).get("target_direction")

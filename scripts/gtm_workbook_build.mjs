@@ -260,7 +260,7 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
   }
   const summaryStart = 13 + Math.max(decisionRows.length, priorityRows.length);
   const summaryBlocks = [
-    ["Highest-value actions", (overview.highest_value_action_ids || []).join(", ") || "None"],
+    ["Highest-value actions", (overview.highest_value_actions || []).join("; ") || "None"],
     ["Target architecture", overview.target_architecture_summary],
     ["Important retained setup", overview.important_retained_summary],
     ["Open decisions and evidence limits", overview.blocking_summary],
