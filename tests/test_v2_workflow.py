@@ -694,6 +694,30 @@ class V2WorkflowTests(unittest.TestCase):
         ):
             complete_checkpoint(self.package, "audit-b", "shared-context-test-001")
 
+    def test_coverage_release_cannot_rebind_its_source_checkpoint(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "release-binding-context-a")
+        release_path = (
+            self.package / "audit-bundles" / "audit-a" / "release-manifest.json"
+        )
+        release = json.loads(release_path.read_text(encoding="utf-8"))
+        release["source_checkpoint_seal_sha256"] = "f" * 64
+        release["release_manifest_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in release.items()
+                if key != "release_manifest_sha256"
+            },
+            64,
+        )
+        release_path.write_text(
+            json.dumps(release, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "coverage release manifest is bound to another checkpoint"
+        ):
+            complete_audit(self.package, "audit-a")
+
     def test_source_audit_amendment_is_fresh_bound_and_append_only(self) -> None:
         build_package(self.export, self.package)
         complete_checkpoint(self.package, "audit-a", "amendment-source-a-context")
@@ -876,13 +900,60 @@ class V2WorkflowTests(unittest.TestCase):
             json.dumps(tampered_checkpoint_seal, indent=2) + "\n",
             encoding="utf-8",
         )
+        release_path = (
+            self.package / "audit-bundles" / "audit-a" / "release-manifest.json"
+        )
+        release_before = release_path.read_bytes()
+        tampered_release = json.loads(release_before.decode("utf-8"))
+        tampered_release["source_checkpoint_seal_sha256"] = (
+            tampered_checkpoint_seal["checkpoint_seal_sha256"]
+        )
+        tampered_release["release_manifest_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in tampered_release.items()
+                if key != "release_manifest_sha256"
+            },
+            64,
+        )
+        release_path.write_text(
+            json.dumps(tampered_release, indent=2) + "\n",
+            encoding="utf-8",
+        )
         self.assertTrue(
             any(
                 "bound to another checkpoint" in error
                 for error in sealed_audit_errors(self.package)
             )
         )
+        amended_seal_before = seal_a_path.read_bytes()
+        amended_audit_before = canonical_audit_path.read_bytes()
+        history_before = {
+            path: path.read_bytes() for path in history.glob("audit-a.*.json")
+        }
+        write_audit_amendment(
+            self.package,
+            "audit-a",
+            parent_seal_sha256=amended["audit_seal_sha256"],
+            context_id="fresh-amendment-context-002",
+            receipt_id="fresh-amendment-receipt-002",
+        )
+        with self.assertRaisesRegex(
+            ValueError, "existing audit provenance failed before amendment"
+        ):
+            seal_audit(
+                self.package,
+                "audit-a",
+                amendment_of=amended["audit_seal_sha256"],
+            )
+        self.assertEqual(amended_seal_before, seal_a_path.read_bytes())
+        self.assertEqual(amended_audit_before, canonical_audit_path.read_bytes())
+        self.assertEqual(
+            history_before,
+            {path: path.read_bytes() for path in history.glob("audit-a.*.json")},
+        )
         checkpoint_seal_path.write_bytes(checkpoint_seal_before)
+        release_path.write_bytes(release_before)
         self.assertEqual([], sealed_audit_errors(self.package))
 
     def test_neutral_verifier_cannot_reuse_a_source_audit_context(self) -> None:

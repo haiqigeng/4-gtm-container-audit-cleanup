@@ -122,6 +122,9 @@ binding; missing history is a blocker.
 Restore only a target that the commit actually replaced, and only from a complete
 hash-verified backup. If restoration itself cannot finish, retain the recovery
 staging evidence and block all downstream work.
+Before staging any amendment, revalidate the complete existing owner chain and
+the coverage release's exact current-checkpoint binding. Candidate validity never
+authorises a write over stale predecessor provenance.
 
 One workflow-wide identity registry owns context IDs and host-receipt IDs across
 source checkpoints, current and historical source-audit seals, base neutrals,

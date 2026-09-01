@@ -425,7 +425,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved nineteen issues:
+The repeated pre-release review found and resolved twenty-one issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -508,6 +508,13 @@ The repeated pre-release review found and resolved nineteen issues:
     mistook for a valid backup. The transaction now records which current targets
     were actually replaced, verifies every backup hash before commit and before
     restoration, and preserves recovery evidence if rollback itself cannot finish.
+20. A coverage-release manifest could be rehashed with a false checkpoint-seal
+    identity. Audit validation and every sealed-audit gate now require its source-
+    checkpoint binding to equal the exact current immutable checkpoint seal.
+21. An amendment validated its candidate but did not preflight the already sealed
+    predecessor chain. Before staging, the owner-scoped sealed-audit gate now
+    revalidates the current audit, complete history, checkpoint, bundle, released
+    inputs, and release manifest; stale provenance fails without any audit write.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
 removed from this document. No server-container audit exists in v2.
