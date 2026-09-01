@@ -458,38 +458,166 @@ def _packet_errors(package_dir: Path, packet: dict[str, Any]) -> list[str]:
 
 
 def fixed_point_seal_errors(package_dir: Path) -> list[str]:
-    require_safe_package_root(package_dir)
     """Verify the immutable proof, replay target, and fixed-point seal."""
 
+    require_safe_package_root(package_dir)
     root = package_dir / FIXED_POINT_ROOT
     proof_path = root / PROOF_FILE
     seal_path = root / SEAL_FILE
-    replay_path = root / "replay" / "projected-container.json"
+    replay_root = root / "replay"
+    replay_path = replay_root / "projected-container.json"
+    replay_proof_path = replay_root / "replay-proof.json"
     packet_path = package_dir / "operation-packet.json"
-    if not all(path.is_file() for path in (proof_path, seal_path, replay_path, packet_path)):
+    state_path = root / STATE_FILE
+    decisions_path = root / PROJECTION_DECISIONS_FILE
+    required = (
+        proof_path,
+        seal_path,
+        replay_path,
+        replay_proof_path,
+        replay_root / "canonical-scan.json",
+        replay_root / "scan-assurance.json",
+        replay_root / "obligation-ledger.json",
+        packet_path,
+        state_path,
+        decisions_path,
+    )
+    if not all(path.is_file() for path in required):
         return ["fixed-point proof, seal, replay target, or operation packet is missing"]
     proof = _load(proof_path)
     seal = _load(seal_path)
-    errors = []
-    if proof.get("status") != "pass":
-        errors.append("fixed-point proof did not pass")
-    if proof.get("fixed_point_proof_sha256") != stable_hash(
-        {key: value for key, value in proof.items() if key != "fixed_point_proof_sha256"},
-        64,
-    ):
-        errors.append("fixed-point proof content hash is invalid")
-    if seal.get("fixed_point_seal_sha256") != _hash_without(
-        seal, "fixed_point_seal_sha256"
-    ):
-        errors.append("fixed-point seal content hash is invalid")
-    if seal.get("fixed_point_proof_file_sha256") != file_sha256(proof_path):
-        errors.append("fixed-point proof changed after sealing")
-    if seal.get("stable_projected_container_sha256") != file_sha256(replay_path):
-        errors.append("stable projected container changed after sealing")
-    if seal.get("operation_packet_file_sha256") != file_sha256(packet_path):
-        errors.append("operation packet changed after fixed-point sealing")
-    if seal.get("validator_status") != "pass":
-        errors.append("fixed-point seal validator did not pass")
+    packet = _load(packet_path)
+    state = _load(state_path)
+    projection_decisions = _load(decisions_path)
+    errors = _packet_errors(package_dir, packet)
+    if state.get("state_sha256") != _hash_without(state, "state_sha256"):
+        errors.append("fixed-point global state content hash is invalid")
+    stable_cycle = int(state.get("stable_cycle") or 0)
+    cycle_path = _cycle_directory(package_dir, stable_cycle) / "cycle-state.json"
+    if not stable_cycle or not cycle_path.is_file():
+        errors.append("fixed-point stable cycle state is missing")
+        cycle = {}
+    else:
+        cycle = _load(cycle_path)
+        if cycle.get("cycle_state_sha256") != _hash_without(
+            cycle, "cycle_state_sha256"
+        ):
+            errors.append("fixed-point stable cycle content hash is invalid")
+    expected_history = []
+    for row in as_list(state.get("cycle_history")):
+        cycle_number = int((row or {}).get("cycle_number") or 0)
+        history_path = _cycle_directory(package_dir, cycle_number) / "cycle-state.json"
+        if not cycle_number or not history_path.is_file():
+            errors.append("fixed-point cycle history references a missing cycle")
+            continue
+        history_cycle = _load(history_path)
+        if history_cycle.get("cycle_state_sha256") != _hash_without(
+            history_cycle, "cycle_state_sha256"
+        ):
+            errors.append(f"fixed-point cycle {cycle_number} content hash is invalid")
+        expected_history.append(
+            {
+                "cycle_number": cycle_number,
+                "cycle_state_sha256": history_cycle.get("cycle_state_sha256"),
+                "hashes": history_cycle.get("hashes"),
+                "status": history_cycle.get("status"),
+            }
+        )
+    if as_list(state.get("cycle_history")) != expected_history:
+        errors.append("fixed-point cycle history differs from exact cycle records")
+    try:
+        source = _load(package_dir / "locked-source.json")
+        projected = apply_operations(source, as_list(packet.get("operations")))
+        with tempfile.TemporaryDirectory() as temporary:
+            replay_candidate = Path(temporary)
+            scan, assurance, ledger = _build_projection_artifacts(
+                package_dir, replay_candidate, projected
+            )
+        expected_hashes = _projection_hashes(
+            projected,
+            scan,
+            assurance,
+            ledger,
+            _all_decisions(package_dir),
+            packet,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"fixed-point deterministic replay reconstruction failed: {exc}")
+        expected_hashes = {}
+        projected = {}
+        scan = {}
+        assurance = {}
+        ledger = {}
+    expected_replay = {
+        "kind": "gtm_fixed_point_deterministic_replay",
+        "schema_version": 1,
+        "hashes": expected_hashes,
+        "started_from_locked_original": True,
+        "complete_packet_applied_in_dependency_order": True,
+        "scan_assurance_status": assurance.get("status"),
+    }
+    expected_replay["replay_record_sha256"] = stable_hash(expected_replay, 64)
+    replay_pairs = (
+        ("projected container", projected, replay_path),
+        ("canonical scan", scan, replay_root / "canonical-scan.json"),
+        ("scan assurance", assurance, replay_root / "scan-assurance.json"),
+        ("obligation ledger", ledger, replay_root / "obligation-ledger.json"),
+        ("replay proof", expected_replay, replay_proof_path),
+    )
+    for label, expected_payload, actual_path in replay_pairs:
+        if _load(actual_path) != expected_payload:
+            errors.append(f"fixed-point replay {label} differs from reconstruction")
+    expected_proof = {
+        "kind": "gtm_fixed_point_proof",
+        "schema_version": 1,
+        "status": "pass",
+        "termination_rule": (
+            "No new or changed actionable obligation remained after at most three "
+            "cycles, all bounded decisions remained explicit, scan assurance passed, "
+            "and replay reproduced the complete stable hash tuple."
+        ),
+        "max_cycles": MAX_CYCLES,
+        "completed_cycles": len(expected_history),
+        "stable_cycle": stable_cycle,
+        "stable_hashes": cycle.get("hashes"),
+        "cycle_history": expected_history,
+        "replay_record_sha256": expected_replay.get("replay_record_sha256"),
+        "operation_packet_sha256": packet.get("operation_packet_sha256"),
+        "projection_decisions_sha256": projection_decisions.get(
+            "projection_decisions_sha256"
+        ),
+    }
+    expected_proof["fixed_point_proof_sha256"] = stable_hash(expected_proof, 64)
+    if proof != expected_proof:
+        errors.append("fixed-point proof differs from deterministic reconstruction")
+    expected_seal = {
+        "kind": "gtm_fixed_point_seal",
+        "schema_version": 1,
+        "status": "pass",
+        "fixed_point_proof_sha256": expected_proof.get("fixed_point_proof_sha256"),
+        "fixed_point_proof_file_sha256": file_sha256(proof_path),
+        "stable_projected_container_sha256": file_sha256(replay_path),
+        "replay_proof_file_sha256": file_sha256(replay_proof_path),
+        "replay_scan_file_sha256": file_sha256(replay_root / "canonical-scan.json"),
+        "replay_assurance_file_sha256": file_sha256(
+            replay_root / "scan-assurance.json"
+        ),
+        "replay_ledger_file_sha256": file_sha256(
+            replay_root / "obligation-ledger.json"
+        ),
+        "operation_packet_file_sha256": file_sha256(packet_path),
+        "projection_decisions_file_sha256": file_sha256(decisions_path),
+        "state_file_sha256": file_sha256(state_path),
+        "stable_cycle_state_file_sha256": (
+            file_sha256(cycle_path) if cycle_path.is_file() else ""
+        ),
+        "validator_status": "pass",
+    }
+    expected_seal["fixed_point_seal_sha256"] = _hash_without(
+        expected_seal, "fixed_point_seal_sha256"
+    )
+    if seal != expected_seal:
+        errors.append("fixed-point seal differs from deterministic reconstruction")
     return errors
 
 
@@ -802,8 +930,30 @@ def _seal_stable_fixed_point(
         "stable_projected_container_sha256": file_sha256(
             replay_dir / "projected-container.json"
         ),
+        "replay_proof_file_sha256": file_sha256(
+            replay_dir / "replay-proof.json"
+        ),
+        "replay_scan_file_sha256": file_sha256(
+            replay_dir / "canonical-scan.json"
+        ),
+        "replay_assurance_file_sha256": file_sha256(
+            replay_dir / "scan-assurance.json"
+        ),
+        "replay_ledger_file_sha256": file_sha256(
+            replay_dir / "obligation-ledger.json"
+        ),
         "operation_packet_file_sha256": file_sha256(
             package_dir / "operation-packet.json"
+        ),
+        "projection_decisions_file_sha256": file_sha256(
+            package_dir / FIXED_POINT_ROOT / PROJECTION_DECISIONS_FILE
+        ),
+        "state_file_sha256": file_sha256(
+            package_dir / FIXED_POINT_ROOT / STATE_FILE
+        ),
+        "stable_cycle_state_file_sha256": file_sha256(
+            _cycle_directory(package_dir, int(cycle.get("cycle_number") or 0))
+            / "cycle-state.json"
         ),
         "validator_status": "pass",
     }
