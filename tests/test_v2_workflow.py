@@ -708,7 +708,7 @@ class V2WorkflowTests(unittest.TestCase):
         original_decisions = decisions_path.read_bytes()
         decision = {
             "canonical_decision_id": "PCD-ATOMIC-FAILURE",
-            "decision": {"decision_class": "incorrect_configuration"},
+            "decision": {"decision_class": "defect"},
         }
         candidate_payload = json.loads(original_decisions.decode("utf-8"))
         candidate_payload["canonical_decisions"] = [decision]

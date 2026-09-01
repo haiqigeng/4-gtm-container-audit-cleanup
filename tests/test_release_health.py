@@ -46,7 +46,7 @@ class ReleaseHealthTests(unittest.TestCase):
                     "-c",
                     "user.name=Release Test",
                     "-c",
-                    "user.email=release@example.invalid",
+                    "user.email=release-test.invalid",
                     "commit",
                     "--quiet",
                     "-m",
