@@ -15,7 +15,7 @@ from gtm_audit_contract import (
     OPERATION_ACTION_FIELDS,
     semantic_contract_errors,
 )
-from gtm_cleanroom_audit import AUDIT_IDS, ISOLATION_MECHANISMS, sealed_audit_errors
+from gtm_cleanroom_audit import AUDIT_IDS, sealed_audit_errors
 from gtm_lib import (
     as_list,
     file_sha256,
@@ -23,7 +23,6 @@ from gtm_lib import (
     stable_hash,
     write_json,
 )
-from gtm_reasoning_identity import used_reasoning_identities
 
 RECONCILIATION_FILE = "reconciliation.json"
 NEUTRAL_FILE = "neutral-verification.json"
@@ -34,8 +33,6 @@ RECONCILIATION_SEAL_FILE = "reconciliation-seal.json"
 
 NEUTRAL_MUTABLE_FIELDS = {
     "status",
-    "independent_context_id",
-    "host_isolation_receipt",
     "canonical_decision",
     "evidence_citations",
     "verification_rationale",
@@ -58,53 +55,6 @@ def neutral_bundle_manifest_sha256(row: dict[str, Any]) -> str:
         },
         64,
     )
-
-
-def neutral_isolation_errors(
-    row: dict[str, Any],
-    expected_row: dict[str, Any],
-    label: str,
-    used_contexts: set[str],
-    used_receipts: set[str],
-) -> list[str]:
-    """Validate a fresh host-scoped neutral context bound to one locked bundle."""
-
-    errors: list[str] = []
-    expected_hash = str(expected_row.get("neutral_bundle_manifest_sha256") or "")
-    if not expected_hash or expected_hash != neutral_bundle_manifest_sha256(expected_row):
-        errors.append(f"{label}: neutral bundle manifest hash is invalid")
-    if row.get("neutral_bundle_manifest_sha256") != expected_hash:
-        errors.append(f"{label}: neutral result is not bound to its released bundle")
-
-    context_id = str(row.get("independent_context_id") or "").strip()
-    if len(context_id) < 12:
-        errors.append(f"{label}: independent context identity is missing")
-    elif context_id in used_contexts:
-        errors.append(f"{label}: neutral context identity is reused")
-    if context_id:
-        used_contexts.add(context_id)
-
-    receipt = row.get("host_isolation_receipt") or {}
-    receipt_id = str(receipt.get("receipt_id") or "").strip()
-    if receipt.get("status") != "enforced":
-        errors.append(f"{label}: an enforced host isolation receipt is required")
-    if len(receipt_id) < 12:
-        errors.append(f"{label}: host isolation receipt identity is missing")
-    elif receipt_id in used_receipts:
-        errors.append(f"{label}: host isolation receipt identity is reused")
-    if receipt_id:
-        used_receipts.add(receipt_id)
-    if receipt.get("mechanism") not in ISOLATION_MECHANISMS:
-        errors.append(f"{label}: host isolation mechanism is unsupported or absent")
-    if receipt.get("allowed_bundle_manifest_sha256") != expected_hash:
-        errors.append(f"{label}: host receipt is not bound to this neutral bundle")
-    if receipt.get("prior_reasoning_contexts_accessible") is not False:
-        errors.append(f"{label}: prior reasoning contexts must be inaccessible")
-    if receipt.get("peer_neutral_contexts_accessible") is not False:
-        errors.append(f"{label}: peer neutral contexts must be inaccessible")
-    if receipt.get("prohibited_artifacts_accessible") is not False:
-        errors.append(f"{label}: prohibited artifacts must be inaccessible")
-    return errors
 
 
 def operation_action_payload(proposal: Any) -> dict[str, Any]:
@@ -300,25 +250,15 @@ def _comparison_row(
         "semantic_repair_records": obligation.get("semantic_repair_records", []),
         "verification_reasons": reasons,
         "neutral_question": (
-            "From the supplied raw coordinates, neutral evidence, and applicable contract "
-            "only, what source-supported decision and narrowest safe target follow?"
+            "From the supplied evidence and applicable contract, what source-supported "
+            "decision and narrowest safe target follow?"
         ),
         "neutral_evidence": obligation.get("evidence", {}),
         "prohibited_context": (
-            "Do not disclose or infer audit identity, audit rationale, vote count, expected "
-            "outcome, reconciliation preference, or workbook wording."
+            "Do not decide by vote count, expected outcome, reconciliation preference, "
+            "or workbook wording; resolve the evidence and criteria directly."
         ),
         "status": "pending",
-        "independent_context_id": "",
-        "host_isolation_receipt": {
-            "status": "pending",
-            "receipt_id": "",
-            "mechanism": "",
-            "allowed_bundle_manifest_sha256": "",
-            "prior_reasoning_contexts_accessible": None,
-            "peer_neutral_contexts_accessible": None,
-            "prohibited_artifacts_accessible": None,
-        },
         "canonical_decision": {},
         "evidence_citations": [],
         "verification_rationale": "",
@@ -409,20 +349,36 @@ def _reconciliation_scaffold_payloads(
         comparisons.append(comparison)
         if queue:
             neutral_queue.append(queue)
+    audit_seals = {
+        audit_id: json.loads(
+            (package_dir / "audit-seals" / f"{audit_id}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for audit_id in AUDIT_IDS
+    }
+    audit_seal_sha256 = {
+        audit_id: audit_seals[audit_id].get("audit_seal_sha256")
+        for audit_id in AUDIT_IDS
+    }
+    reconciliation_input_sha256 = stable_hash(
+        {
+            "source_sha256": ledger.get("source_sha256"),
+            "obligation_ledger_sha256": ledger.get("obligation_ledger_sha256"),
+            "audit_seal_sha256": audit_seal_sha256,
+        },
+        64,
+    )
     reconciliation = {
         "kind": "gtm_contradiction_aware_reconciliation",
         "schema_version": 1,
         "source_sha256": ledger.get("source_sha256"),
         "canonical_scan_sha256": ledger.get("canonical_scan_sha256"),
         "obligation_ledger_sha256": ledger.get("obligation_ledger_sha256"),
-        "audit_seal_sha256": {
-            audit_id: json.loads(
-                (package_dir / "audit-seals" / f"{audit_id}.json").read_text(
-                    encoding="utf-8"
-                )
-            ).get("audit_seal_sha256")
-            for audit_id in AUDIT_IDS
-        },
+        "audit_seal_sha256": audit_seal_sha256,
+        "independent_agent_id": "",
+        "independent_context_id": "",
+        "input_manifest_sha256": reconciliation_input_sha256,
         "status": "pending",
         "comparisons": comparisons,
     }
@@ -433,9 +389,9 @@ def _reconciliation_scaffold_payloads(
         "canonical_scan_sha256": ledger.get("canonical_scan_sha256"),
         "status": "pending" if neutral_queue else "not_required",
         "verifications": neutral_queue,
-        "isolation_contract": (
-            "Each row is answered in a fresh neutral context without either audit's "
-            "identity, rationale, vote count, or expected outcome."
+        "review_contract": (
+            "The fresh reconciliation agent resolves queued rows from evidence and "
+            "criteria without voting or following an expected outcome."
         ),
     }
     reconciliation["reconciliation_scaffold_sha256"] = stable_hash(
@@ -486,9 +442,6 @@ def _neutral_errors(
     expected_status = "complete" if expected_rows else "not_required"
     if neutral.get("status") != expected_status:
         errors.append(f"neutral verification status must be {expected_status}")
-    contexts, receipts = used_reasoning_identities(
-        package_dir, exclude_paths=(package_dir / NEUTRAL_FILE,)
-    )
     for verification_id, expected_row in expected_rows.items():
         row = supplied.get(verification_id)
         if not row:
@@ -514,11 +467,13 @@ def _neutral_errors(
                 errors.append(f"{label}: locked field {field} changed")
         if row.get("status") != "complete":
             errors.append(f"{label}: status must be complete")
-        errors.extend(
-            neutral_isolation_errors(
-                row, expected_row, label, contexts, receipts
-            )
-        )
+        expected_hash = str(expected_row.get("neutral_bundle_manifest_sha256") or "")
+        if not expected_hash or expected_hash != neutral_bundle_manifest_sha256(
+            expected_row
+        ):
+            errors.append(f"{label}: neutral bundle manifest hash is invalid")
+        if row.get("neutral_bundle_manifest_sha256") != expected_hash:
+            errors.append(f"{label}: neutral result is not bound to its released bundle")
         decision = row.get("canonical_decision")
         if not isinstance(decision, dict):
             errors.append(f"{label}: canonical decision is missing")
@@ -604,9 +559,47 @@ def finalize_reconciliation(
         )
     if set(reconciliation) != set(expected_reconciliation):
         errors.append("reconciliation top-level schema differs from its scaffold")
-    for field in set(expected_reconciliation) - {"status", "comparisons"}:
+    for field in set(expected_reconciliation) - {
+        "status",
+        "comparisons",
+        "independent_agent_id",
+        "independent_context_id",
+    }:
         if reconciliation.get(field) != expected_reconciliation.get(field):
             errors.append(f"reconciliation locked field {field} changed")
+    agent_id = str(reconciliation.get("independent_agent_id") or "").strip()
+    context_id = str(reconciliation.get("independent_context_id") or "").strip()
+    if not agent_id:
+        errors.append("reconciliation requires an independent_agent_id")
+    if not context_id:
+        errors.append("reconciliation requires an independent_context_id")
+    source_seals = [
+        json.loads(
+            (package_dir / "audit-seals" / f"{audit_id}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for audit_id in AUDIT_IDS
+    ]
+    assurance = json.loads(
+        (package_dir / "scan-assurance.json").read_text(encoding="utf-8")
+    )
+    prior_agent_ids = {
+        str(assurance.get("independent_agent_id") or ""),
+        *(str(seal.get("independent_agent_id") or "") for seal in source_seals),
+    }
+    prior_context_ids = {
+        str(assurance.get("independent_context_id") or ""),
+        *(str(seal.get("independent_context_id") or "") for seal in source_seals),
+    }
+    if agent_id and agent_id in prior_agent_ids:
+        errors.append(
+            "reconciliation must use an agent distinct from scan assurance and both audits"
+        )
+    if context_id and context_id in prior_context_ids:
+        errors.append(
+            "reconciliation must use a context distinct from scan assurance and both audits"
+        )
     errors.extend(_neutral_errors(package_dir, neutral, expected_neutral))
     expected_rows = {
         str(row.get("comparison_id") or ""): row
@@ -744,6 +737,9 @@ def finalize_reconciliation(
         ),
         "audit_seal_sha256": expected_reconciliation.get("audit_seal_sha256"),
         "neutral_queue_sha256": expected_neutral.get("neutral_queue_sha256"),
+        "independent_agent_id": agent_id,
+        "independent_context_id": context_id,
+        "input_manifest_sha256": reconciliation.get("input_manifest_sha256"),
         "canonical_decisions": sorted(
             canonical_rows, key=lambda item: str(item["canonical_decision_id"])
         ),
@@ -768,6 +764,9 @@ def finalize_reconciliation(
         "neutral_file_sha256": file_sha256(
             neutral_path or package_dir / NEUTRAL_FILE
         ),
+        "independent_agent_id": record.get("independent_agent_id"),
+        "independent_context_id": record.get("independent_context_id"),
+        "input_manifest_sha256": record.get("input_manifest_sha256"),
         "reconciled_record_sha256": record.get("reconciled_record_sha256"),
         "reconciled_file_sha256": file_sha256(record_path),
         "validator_status": "pass",
@@ -821,6 +820,9 @@ def reconciliation_seal_errors(package_dir: Path) -> list[str]:
         "neutral_queue_sha256": expected_neutral.get("neutral_queue_sha256"),
         "reconciliation_file_sha256": file_sha256(reconciliation_path),
         "neutral_file_sha256": file_sha256(neutral_path),
+        "independent_agent_id": expected_record.get("independent_agent_id"),
+        "independent_context_id": expected_record.get("independent_context_id"),
+        "input_manifest_sha256": expected_record.get("input_manifest_sha256"),
         "reconciled_record_sha256": expected_record.get("reconciled_record_sha256"),
         "reconciled_file_sha256": file_sha256(record_path),
         "validator_status": "pass",

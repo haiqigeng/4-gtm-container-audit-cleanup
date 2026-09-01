@@ -20,10 +20,6 @@ from gtm_lib import (
     write_json,
 )
 from gtm_privacy import privacy_findings, redact_delivery_value
-from gtm_reasoning_identity import (
-    collect_reasoning_identity_registry,
-    reasoning_identity_reuse_errors,
-)
 
 DELIVERY_ROOT = "delivery"
 DELIVERY_MAP_FILE = "delivery-map.json"
@@ -576,6 +572,29 @@ def delivery_map_from_record(
     return map_payload
 
 
+def audience_brief_payload(language: str) -> dict[str, Any]:
+    brief = {
+        "kind": "gtm_workbook_audience_brief",
+        "schema_version": 1,
+        "language": language,
+        "primary_audience": (
+            "A web analyst reviewing, challenging, deciding on, and potentially handing "
+            "off the proposed GTM optimization."
+        ),
+        "overview_audience": (
+            "A marketing or business owner who needs orientation and priorities."
+        ),
+        "wording_rules": [
+            "Lead with the current configured situation, then consequence or benefit, target, and next step.",
+            "Preserve exact GTM object names, IDs, event names, parameter names, consent tokens, and operation IDs.",
+            "Distinguish source-visible facts from expected consequences and runtime limits.",
+            "Do not expose internal workflow jargon or imply execution approval.",
+        ],
+    }
+    brief["audience_brief_sha256"] = stable_hash(brief, 64)
+    return brief
+
+
 def create_delivery_map(
     package_dir: Path,
     language: str = "English",
@@ -612,29 +631,12 @@ def create_delivery_map(
         seal, "delivery_map_seal_sha256"
     )
     write_json(root / DELIVERY_MAP_SEAL_FILE, seal)
-    brief = {
-        "kind": "gtm_workbook_audience_brief",
-        "schema_version": 1,
-        "language": language,
-        "primary_audience": (
-            "A web analyst reviewing, challenging, deciding on, and potentially handing "
-            "off the proposed GTM optimization."
-        ),
-        "overview_audience": "A marketing or business owner who needs orientation and priorities.",
-        "wording_rules": [
-            "Lead with the current configured situation, then consequence or benefit, target, and next step.",
-            "Preserve exact GTM object names, IDs, event names, parameter names, consent tokens, and operation IDs.",
-            "Distinguish source-visible facts from expected consequences and runtime limits.",
-            "Do not expose internal workflow jargon or imply execution approval.",
-        ],
-    }
-    brief["audience_brief_sha256"] = stable_hash(brief, 64)
+    brief = audience_brief_payload(language)
     write_json(root / AUDIENCE_BRIEF_FILE, brief)
     editorial = {
         "kind": "gtm_human_editorial_artifact",
         "schema_version": 1,
         "status": "pending",
-        "independent_context_id": "",
         "delivery_map_sha256": map_payload["delivery_map_sha256"],
         "audience_brief_sha256": brief["audience_brief_sha256"],
         "language": language,
@@ -661,7 +663,6 @@ def create_delivery_map(
             }
         },
         "completion_attestation": {
-            "fresh_editorial_context": False,
             "semantic_fields_changed": False,
             "technical_identifiers_preserved": False,
             "conclusion": "",
@@ -740,8 +741,6 @@ def validate_editorial(package_dir: Path) -> list[str]:
     editorial = _load(path)
     if editorial.get("status") != "complete":
         errors.append("editorial artifact status must be complete")
-    if len(str(editorial.get("independent_context_id") or "")) < 12:
-        errors.append("fresh editorial context identity is missing")
     if editorial.get("delivery_map_sha256") != delivery_map.get(
         "delivery_map_sha256"
     ):
@@ -806,8 +805,6 @@ def validate_editorial(package_dir: Path) -> list[str]:
             for finding in privacy_findings(text):
                 errors.append(f"editorial overview {field} contains {finding}")
     attestation = editorial.get("completion_attestation") or {}
-    if attestation.get("fresh_editorial_context") is not True:
-        errors.append("editorial review did not attest a fresh context")
     if attestation.get("semantic_fields_changed") is not False:
         errors.append("editorial review changed or did not protect semantic fields")
     if attestation.get("technical_identifiers_preserved") is not True:
@@ -833,22 +830,10 @@ def seal_editorial(
             raise ValueError(
                 "editorial amendment must cite the current editorial seal"
             )
-        if previous.get("independent_context_id") == _load(path).get(
-            "independent_context_id"
-        ):
-            raise ValueError("editorial amendment requires a fresh context")
     elif amendment_of:
         raise ValueError("amendment_of was supplied but no editorial seal exists")
     editorial = _load(path)
     sequence = int(previous.get("amendment_sequence", 0)) + 1 if previous else 0
-    identity_errors = reasoning_identity_reuse_errors(
-        collect_reasoning_identity_registry(package_dir),
-        owner=f"editorial:{sequence:03d}",
-        label="editorial review",
-        context_id=editorial.get("independent_context_id"),
-    )
-    if identity_errors:
-        raise ValueError("; ".join(identity_errors))
     versions = root / "editorial-versions"
     versions.mkdir(exist_ok=True)
     version_path = versions / f"editorial-{sequence:03d}.json"
@@ -865,7 +850,6 @@ def seal_editorial(
         "editorial_version_path": version_path.relative_to(root).as_posix(),
         "editorial_file_sha256": file_sha256(version_path),
         "editorial_content_sha256": stable_hash(editorial, 64),
-        "independent_context_id": editorial.get("independent_context_id"),
         "amendment_sequence": sequence,
         "amendment_parent_seal_sha256": (
             str(previous.get("editorial_seal_sha256") or "") if previous else ""

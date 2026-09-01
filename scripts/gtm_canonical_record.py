@@ -77,7 +77,7 @@ def _decision_owner(row: dict[str, Any]) -> dict[str, Any]:
             "owning_cycle": row.get("owning_cycle"),
             "owning_reviews": row.get("owning_reviews", []),
             "repair_rule": (
-                "Reopen both focused projection reviews in fresh host-scoped contexts, "
+                "Reopen both focused projection reviews with separate fresh agents and contexts, "
                 "repeat projection reconciliation and required neutral verification, "
                 "then rerun fixed-point closure."
             ),

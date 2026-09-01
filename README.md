@@ -1,10 +1,10 @@
 # GTM Container Audit & Optimize
 
 A reusable Codex skill for static Google Tag Manager web-container audit and
-optimization. Version 2.1.1 is the current maintenance release of the v2.1
-architecture, which replaced the former three complementary reviews and
-mutation-era tooling with one verified scan, two host-scoped complete semantic
-audits, deterministic target closure, and one analyst workbook.
+optimization. Version 2.2.0 is the current release. It uses one deterministic
+canonical scan, fresh-agent scan assurance, two complete independent semantic
+audits, fresh-agent reconciliation, deterministic target closure, and one
+analyst workbook.
 
 ## North Star
 
@@ -51,10 +51,11 @@ contract.
 
 ```text
 source lock
-  -> canonical scan + independent raw-source assurance
+  -> deterministic canonical scan
+  -> raw-source assurance in a separate fresh agent context
   -> typed obligation ledger
-  -> Audit A and Audit B in host-scoped contexts
-  -> reconciliation + targeted neutral verification
+  -> Audit A and Audit B in separate fresh agent contexts
+  -> reconciliation and neutral review in a separate fresh agent context
   -> exact operations
   -> projected fixed point (maximum three cycles) + deterministic replay
   -> sealed canonical record
@@ -63,16 +64,16 @@ source lock
 ```
 
 Both audits cover every semantic obligation; their object-first and target-first
-orders reduce correlated misses. Both may read the same version-locked skill
-rules, while the execution host must make the peer audit and downstream judgments
-inaccessible until both are sealed. Bundle hashes validate artifact identity and
-receipts record the host action for traceability; neither proves access control.
-A third full audit is replaced by neutral verification of disagreements,
-one-sided findings, and material-risk conclusions.
+orders reduce correlated misses. Both may read the same locked source facts and
+version-locked skill rules, but neither receives the peer's findings until both
+are complete. A fresh reconciliation agent then compares the sealed audits and
+performs the required neutral review of disagreements, one-sided findings, and
+material-risk conclusions.
 
-One ownership-aware registry enforces context and host-receipt freshness across
-the complete workflow, including source audits, neutrals, projection reviews,
-editorial work, fidelity review, and workbook-only reader review.
+The portable provenance contract records agent/context labels and locked
+input/output hashes. Labels are distinct where reviewers must be independent.
+Materially changed projected obligations receive two fresh blind review agents.
+Workbook fidelity and workbook-only reader checks also use separate fresh agents.
 
 Every authority transition is independently reconstructed from sealed
 predecessors: reconciliation scaffolds, operation packet, projected replay,

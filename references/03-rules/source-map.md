@@ -11,8 +11,7 @@
 | Runtime/release identity | `scripts/gtm_skill_identity.py` and `.skill-build-manifest.json` |
 | Canonical scan and assurance | `scripts/gtm_canonical_scan.py` and `scripts/gtm_scan_assurance.py` |
 | Obligation ownership | `scripts/gtm_obligation_ledger.py` |
-| Audit isolation and seals | `scripts/gtm_cleanroom_audit.py` |
-| Workflow-wide reasoning identity ownership | `scripts/gtm_reasoning_identity.py` |
+| Audit bundles, provenance, validation, and seals | `scripts/gtm_cleanroom_audit.py` |
 | Reconciliation and neutral checks | `scripts/gtm_reconciliation.py` |
 | Operation model and projection | `scripts/gtm_operation_model.py`, `scripts/gtm_target_synthesis.py`, and `scripts/gtm_fixed_point.py` |
 | Canonical record | `scripts/gtm_canonical_record.py` |

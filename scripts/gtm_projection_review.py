@@ -14,7 +14,7 @@ from gtm_audit_contract import (
     MATERIAL_NEUTRAL_REVIEW_TRIGGERS,
     semantic_contract_errors,
 )
-from gtm_cleanroom_audit import ISOLATION_MECHANISMS, operation_proposal_errors
+from gtm_cleanroom_audit import operation_proposal_errors
 from gtm_lib import (
     as_list,
     contained_relative_path,
@@ -23,17 +23,11 @@ from gtm_lib import (
     stable_hash,
     write_json,
 )
-from gtm_reasoning_identity import (
-    collect_reasoning_identity_registry,
-    reasoning_identity_reuse_errors,
-    used_reasoning_identities,
-)
 from gtm_reconciliation import (
     canonical_matches_allowed,
     comparison_classification,
     material_verification_reasons,
     neutral_bundle_manifest_sha256,
-    neutral_isolation_errors,
 )
 
 REVIEW_IDS = ("review-a", "review-b")
@@ -147,25 +141,18 @@ def prepare_projection_reviews(
                 "projected_evidence_first" if review_id == "review-a" else "projected_target_first"
             ),
             "status": "pending",
+            "independent_agent_id": "",
             "independent_context_id": "",
-            "host_isolation_receipt": {
-                "status": "pending",
-                "receipt_id": "",
-                "mechanism": "",
-                "allowed_bundle_manifest_sha256": "",
-                "peer_review_accessible": None,
-                "prohibited_artifacts_accessible": None,
-            },
+            "input_manifest_sha256": "",
             "decisions": [_scaffold_decision(review_id, cycle_number, row) for row in obligations],
             "completion_attestation": {
                 "status": "pending",
                 "foreign_projection_review_used": False,
                 "fresh_context": False,
-                "host_scope_preserved_through_completion": None,
+                "peer_findings_received_before_completion": None,
                 "conclusion": "",
             },
         }
-        write_json(bundle / REVIEW_FILE, review)
         manifest = {
             "kind": "gtm_projection_review_bundle_manifest",
             "schema_version": 1,
@@ -173,18 +160,18 @@ def prepare_projection_reviews(
             "cycle_number": cycle_number,
             "locked_files": locked_files,
             "mutable_output": REVIEW_FILE,
-            "isolation_contract": {
+            "independence_contract": {
                 "required": True,
-                "accepted_host_mechanisms": sorted(ISOLATION_MECHANISMS),
                 "boundary": (
-                    "The host must make the peer review and prohibited downstream "
-                    "artifacts inaccessible. The validator proves receipt consistency, "
-                    "not access control by itself."
+                    "Use a fresh agent and context and withhold peer findings until both "
+                    "projection reviews are complete. No operating-system access proof is required."
                 ),
             },
         }
         manifest["bundle_manifest_sha256"] = _hash_without(manifest, "bundle_manifest_sha256")
         write_json(bundle / REVIEW_MANIFEST_FILE, manifest)
+        review["input_manifest_sha256"] = manifest["bundle_manifest_sha256"]
+        write_json(bundle / REVIEW_FILE, review)
         results[review_id] = {
             "bundle": f"{REVIEW_ROOT}/{review_id}",
             "bundle_manifest_sha256": manifest["bundle_manifest_sha256"],
@@ -262,8 +249,9 @@ def validate_projection_review(
         "projection_obligation_set_sha256",
         "review_method",
         "status",
+        "independent_agent_id",
         "independent_context_id",
-        "host_isolation_receipt",
+        "input_manifest_sha256",
         "decisions",
         "completion_attestation",
     }
@@ -286,31 +274,14 @@ def validate_projection_review(
     for field, expected in checks:
         if review.get(field) != expected:
             errors.append(f"projection review {field} differs from its lock")
-    context_id = str(review.get("independent_context_id") or "")
-    if len(context_id) < 12:
+    agent_id = str(review.get("independent_agent_id") or "").strip()
+    context_id = str(review.get("independent_context_id") or "").strip()
+    if not agent_id:
+        errors.append("projection review independent agent identity is missing")
+    if not context_id:
         errors.append("projection review independent context identity is missing")
-    receipt = review.get("host_isolation_receipt") or {}
-    if set(receipt) != {
-        "status",
-        "receipt_id",
-        "mechanism",
-        "allowed_bundle_manifest_sha256",
-        "peer_review_accessible",
-        "prohibited_artifacts_accessible",
-    }:
-        errors.append("projection host isolation receipt schema changed")
-    if receipt.get("status") != "enforced":
-        errors.append("projection review requires an enforced host isolation receipt")
-    if len(str(receipt.get("receipt_id") or "").strip()) < 12:
-        errors.append("projection host isolation receipt_id is missing or too weak")
-    if receipt.get("mechanism") not in ISOLATION_MECHANISMS:
-        errors.append("projection host isolation mechanism is unsupported or absent")
-    if receipt.get("allowed_bundle_manifest_sha256") != manifest.get("bundle_manifest_sha256"):
-        errors.append("projection host receipt is not bound to this review bundle")
-    if receipt.get("peer_review_accessible") is not False:
-        errors.append("the peer projection review must be inaccessible")
-    if receipt.get("prohibited_artifacts_accessible") is not False:
-        errors.append("prohibited projection artifacts must be inaccessible")
+    if review.get("input_manifest_sha256") != manifest.get("bundle_manifest_sha256"):
+        errors.append("projection review is not bound to this review bundle")
     obligations = {
         str(row.get("obligation_id") or ""): row
         for row in as_list(ledger.get("obligations"))
@@ -359,7 +330,7 @@ def validate_projection_review(
         "status",
         "foreign_projection_review_used",
         "fresh_context",
-        "host_scope_preserved_through_completion",
+        "peer_findings_received_before_completion",
         "conclusion",
     }:
         errors.append("projection review attestation schema changed")
@@ -369,8 +340,8 @@ def validate_projection_review(
         errors.append("projection review used its peer before reconciliation")
     if attestation.get("fresh_context") is not True:
         errors.append("projection review did not attest a fresh context")
-    if attestation.get("host_scope_preserved_through_completion") is not True:
-        errors.append("projection review did not preserve its enforced host scope")
+    if attestation.get("peer_findings_received_before_completion") is not False:
+        errors.append("projection review must attest that peer findings were withheld")
     if len(str(attestation.get("conclusion") or "").split()) < 8:
         errors.append("projection review completion conclusion is incomplete")
     return errors
@@ -384,19 +355,8 @@ def seal_projection_review(package_dir: Path, cycle_number: int, review_id: str)
         raise ValueError("projection review gate failed: " + "; ".join(errors))
     source = cycle_dir / REVIEW_ROOT / review_id / REVIEW_FILE
     review = json.loads(source.read_text(encoding="utf-8"))
+    agent_id = str(review.get("independent_agent_id") or "")
     context_id = str(review.get("independent_context_id") or "")
-    receipt_id = str(
-        (review.get("host_isolation_receipt") or {}).get("receipt_id") or ""
-    )
-    identity_errors = reasoning_identity_reuse_errors(
-        collect_reasoning_identity_registry(package_dir),
-        owner=f"projection-review:cycle-{cycle_number:02d}:{review_id}",
-        label="projection review",
-        context_id=context_id,
-        receipt_id=receipt_id,
-    )
-    if identity_errors:
-        raise ValueError("; ".join(identity_errors))
     seals = cycle_dir / REVIEW_SEAL_ROOT
     seals.mkdir(exist_ok=True)
     seal_path = seals / f"{review_id}.json"
@@ -409,8 +369,9 @@ def seal_projection_review(package_dir: Path, cycle_number: int, review_id: str)
         "schema_version": 1,
         "review_id": review_id,
         "cycle_number": cycle_number,
+        "independent_agent_id": agent_id,
         "independent_context_id": context_id,
-        "host_isolation_receipt": review.get("host_isolation_receipt"),
+        "input_manifest_sha256": review.get("input_manifest_sha256"),
         "completed_review_sha256": file_sha256(canonical_path),
         "validator_status": "pass",
     }
@@ -422,8 +383,8 @@ def seal_projection_review(package_dir: Path, cycle_number: int, review_id: str)
 def _sealed_review_errors(cycle_dir: Path) -> list[str]:
     require_safe_package_root(cycle_dir.parents[1])
     errors = []
+    agents = []
     contexts = []
-    receipt_ids = []
     for review_id in REVIEW_IDS:
         root = cycle_dir / REVIEW_SEAL_ROOT
         seal_path = root / f"{review_id}.json"
@@ -441,12 +402,12 @@ def _sealed_review_errors(cycle_dir: Path) -> list[str]:
                 cycle_dir, review_id, _review_path=review_path
             )
         )
+        agents.append(str(seal.get("independent_agent_id") or ""))
         contexts.append(str(seal.get("independent_context_id") or ""))
-        receipt_ids.append(str((seal.get("host_isolation_receipt") or {}).get("receipt_id") or ""))
+    if len(agents) == 2 and len(set(agents)) != 2:
+        errors.append("projection reviews reuse one agent")
     if len(contexts) == 2 and len(set(contexts)) != 2:
         errors.append("projection reviews reuse one reasoning context")
-    if len(receipt_ids) == 2 and len(set(receipt_ids)) != 2:
-        errors.append("projection reviews reuse one host isolation receipt")
     return errors
 
 
@@ -520,25 +481,15 @@ def _projection_reconciliation_payloads(
                 **{field: obligation.get(field) for field in LOCKED_DECISION_FIELDS},
                 "verification_reasons": reasons,
                 "neutral_question": (
-                    "From this projected-source evidence and contract only, what "
+                    "From this projected-source evidence and contract, what "
                     "source-supported decision and narrowest safe target follow?"
                 ),
                 "neutral_evidence": obligation.get("evidence", {}),
                 "prohibited_context": (
-                    "Do not expose source-audit, prior-cycle, peer-review, peer-neutral, "
-                    "reconciliation, fixed-point, or workbook conclusions."
+                    "Do not decide by vote count, prior preference, expected fixed-point "
+                    "outcome, or workbook wording; resolve evidence and criteria directly."
                 ),
                 "status": "pending",
-                "independent_context_id": "",
-                "host_isolation_receipt": {
-                    "status": "pending",
-                    "receipt_id": "",
-                    "mechanism": "",
-                    "allowed_bundle_manifest_sha256": "",
-                    "prior_reasoning_contexts_accessible": None,
-                    "peer_neutral_contexts_accessible": None,
-                    "prohibited_artifacts_accessible": None,
-                },
                 "canonical_decision": {},
                 "evidence_citations": [],
                 "verification_rationale": "",
@@ -547,11 +498,33 @@ def _projection_reconciliation_payloads(
                 neutral_bundle_manifest_sha256(neutral_row)
             )
             neutral_rows.append(neutral_row)
+    review_seal_sha256 = {
+        review_id: json.loads(
+            (cycle_dir / REVIEW_SEAL_ROOT / f"{review_id}.json").read_text(
+                encoding="utf-8"
+            )
+        ).get("review_seal_sha256")
+        for review_id in REVIEW_IDS
+    }
+    reconciliation_input_sha256 = stable_hash(
+        {
+            "cycle_number": ledger.get("cycle_number"),
+            "projection_obligation_set_sha256": ledger.get(
+                "projection_obligation_set_sha256"
+            ),
+            "review_seal_sha256": review_seal_sha256,
+        },
+        64,
+    )
     reconciliation = {
         "kind": "gtm_projection_reconciliation",
         "schema_version": 1,
         "cycle_number": ledger.get("cycle_number"),
         "projection_obligation_set_sha256": ledger.get("projection_obligation_set_sha256"),
+        "review_seal_sha256": review_seal_sha256,
+        "independent_agent_id": "",
+        "independent_context_id": "",
+        "input_manifest_sha256": reconciliation_input_sha256,
         "status": "pending",
         "comparisons": comparisons,
     }
@@ -599,10 +572,6 @@ def _neutral_errors(
     expected_status = "complete" if expected_rows else "not_required"
     if neutral.get("status") != expected_status:
         errors.append(f"projection neutral status must be {expected_status}")
-    package_dir = cycle_dir.parents[1]
-    contexts, receipts = used_reasoning_identities(
-        package_dir, exclude_paths=(cycle_dir / NEUTRAL_FILE,)
-    )
     for verification_id, expected_row in expected_rows.items():
         row = supplied.get(verification_id)
         if not row:
@@ -623,11 +592,13 @@ def _neutral_errors(
                 errors.append(f"{label}: locked field {field} changed")
         if row.get("status") != "complete":
             errors.append(f"{label}: status must be complete")
-        errors.extend(
-            neutral_isolation_errors(
-                row, expected_row, label, contexts, receipts
-            )
-        )
+        expected_hash = str(expected_row.get("neutral_bundle_manifest_sha256") or "")
+        if not expected_hash or expected_hash != neutral_bundle_manifest_sha256(
+            expected_row
+        ):
+            errors.append(f"{label}: neutral bundle manifest hash is invalid")
+        if row.get("neutral_bundle_manifest_sha256") != expected_hash:
+            errors.append(f"{label}: neutral result is not bound to its released bundle")
         decision = row.get("canonical_decision")
         if not isinstance(decision, dict):
             errors.append(f"{label}: canonical decision is missing")
@@ -666,9 +637,36 @@ def finalize_projection_reconciliation(
         )
     if set(reconciliation) != set(expected):
         errors.append("projection reconciliation top-level schema differs from its scaffold")
-    for field in set(expected) - {"status", "comparisons"}:
+    for field in set(expected) - {
+        "status",
+        "comparisons",
+        "independent_agent_id",
+        "independent_context_id",
+    }:
         if reconciliation.get(field) != expected.get(field):
             errors.append(f"projection reconciliation locked field {field} changed")
+    agent_id = str(reconciliation.get("independent_agent_id") or "").strip()
+    context_id = str(reconciliation.get("independent_context_id") or "").strip()
+    if not agent_id:
+        errors.append("projection reconciliation requires an independent_agent_id")
+    if not context_id:
+        errors.append("projection reconciliation requires an independent_context_id")
+    review_seals = [
+        json.loads(
+            (cycle_dir / REVIEW_SEAL_ROOT / f"{review_id}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for review_id in REVIEW_IDS
+    ]
+    if agent_id and agent_id in {
+        str(seal.get("independent_agent_id") or "") for seal in review_seals
+    }:
+        errors.append("projection reconciliation must use a distinct agent")
+    if context_id and context_id in {
+        str(seal.get("independent_context_id") or "") for seal in review_seals
+    }:
+        errors.append("projection reconciliation must use a distinct context")
     errors.extend(_neutral_errors(cycle_dir, neutral, expected_neutral))
     expected_rows = {
         str(row.get("comparison_id") or ""): row for row in as_list(expected.get("comparisons"))
@@ -748,6 +746,9 @@ def finalize_projection_reconciliation(
         "schema_version": 1,
         "cycle_number": expected.get("cycle_number"),
         "projection_obligation_set_sha256": expected.get("projection_obligation_set_sha256"),
+        "independent_agent_id": agent_id,
+        "independent_context_id": context_id,
+        "input_manifest_sha256": reconciliation.get("input_manifest_sha256"),
         "canonical_decisions": sorted(
             canonical_rows, key=lambda value: str(value["canonical_decision_id"])
         ),
@@ -777,6 +778,9 @@ def finalize_projection_reconciliation(
             cycle_dir / RECONCILIATION_FILE
         ),
         "neutral_file_sha256": file_sha256(cycle_dir / NEUTRAL_FILE),
+        "independent_agent_id": closure.get("independent_agent_id"),
+        "independent_context_id": closure.get("independent_context_id"),
+        "input_manifest_sha256": closure.get("input_manifest_sha256"),
         "projection_closure_sha256": closure["projection_closure_sha256"],
         "projection_closure_file_sha256": file_sha256(closure_path),
         "validator_status": "pass",
@@ -836,6 +840,9 @@ def projection_closure_seal_errors(
         "neutral_queue_sha256": neutral_queue.get("neutral_queue_sha256"),
         "reconciliation_file_sha256": file_sha256(reconciliation_path),
         "neutral_file_sha256": file_sha256(neutral_path),
+        "independent_agent_id": expected.get("independent_agent_id"),
+        "independent_context_id": expected.get("independent_context_id"),
+        "input_manifest_sha256": expected.get("input_manifest_sha256"),
         "projection_closure_sha256": expected.get("projection_closure_sha256"),
         "projection_closure_file_sha256": file_sha256(closure_path),
         "validator_status": "pass",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Extract internal family and relationship candidate evidence.
 
-This module is an implementation component of the canonical v2.1 scan.  The
+This module is an implementation component of the canonical v2.2 scan.  The
 standalone v1 review command was deliberately removed.
 """
 

@@ -31,13 +31,21 @@ XLSX library.
 ## Build The Evidence Package
 
 ```powershell
-python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --pretty
+python -B scripts/gtm_canonical_scan.py container.json --out canonical-scan.json
+python -B scripts/gtm_scan_assurance.py container.json canonical-scan.json --vendor-registry references/03-rules/vendor-registry.toml --out scan-assurance.json --agent-id scan-assurance-agent --context-id scan-assurance-context
+python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --scan-assurance scan-assurance.json --pretty
 ```
+
+Run the assurance command in its own fresh agent context. The package builder
+reconstructs the canonical scan and assurance result and accepts the supplied
+artifact only when its provenance and complete content match exactly.
 
 Optional locked context and approved requirements:
 
 ```powershell
-python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --context context.json --requirements requirements.json --pretty
+python -B scripts/gtm_canonical_scan.py container.json --context context.json --requirements requirements.json --out canonical-scan.json
+python -B scripts/gtm_scan_assurance.py container.json canonical-scan.json --vendor-registry references/03-rules/vendor-registry.toml --out scan-assurance.json --agent-id scan-assurance-agent --context-id scan-assurance-context
+python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --context context.json --requirements requirements.json --scan-assurance scan-assurance.json --pretty
 ```
 
 For a defect discovered after canonical sealing, create an approved repair brief:
@@ -62,7 +70,9 @@ For a defect discovered after canonical sealing, create an approved repair brief
 Then start one new same-source successor package:
 
 ```powershell
-python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package-successor --supersedes-canonical-record prior-audit-package/canonical-record.json --semantic-repair-brief semantic-repair-brief.json --pretty
+python -B scripts/gtm_canonical_scan.py container.json --out successor-canonical-scan.json
+python -B scripts/gtm_scan_assurance.py container.json successor-canonical-scan.json --vendor-registry references/03-rules/vendor-registry.toml --out successor-scan-assurance.json --agent-id successor-scan-assurance-agent --context-id successor-scan-assurance-context
+python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package-successor --supersedes-canonical-record prior-audit-package/canonical-record.json --semantic-repair-brief semantic-repair-brief.json --scan-assurance successor-scan-assurance.json --pretty
 ```
 
 The builder validates the predecessor record/manifest/seal, exact source hash,
@@ -71,19 +81,17 @@ post-checkpoint evidence on its exact owning obligation. The successor reruns th
 complete workflow.
 
 The output directory must be new or empty. Package creation verifies the runtime
-identity, builds the scan and obligation ledger, runs independent raw-source
-assurance, and creates separate allowlisted Audit A/B bundles. Before completing
-either checkpoint, the execution host must scope that context to its own bundle
-plus the version-locked shared skill rules, keep peer and downstream judgment
-artifacts inaccessible, and issue the required isolation receipt; otherwise
-block. The receipt records that host action for traceability; it does not itself
-prove access isolation.
+identity, builds the deterministic scan and obligation ledger, and creates the
+locked inputs for both audits. Run scan assurance first in a separate fresh agent
+context. Run Audit A and Audit B in two other fresh agent contexts;
+neither audit input may contain the peer's findings. If the AI environment cannot
+create those contexts, block with a concise capability message.
 
 ## Complete And Seal Source Audits
 
-Each audit must run in a distinct fresh reasoning context whose host-enforced
-scope cannot access the peer bundle or prohibited downstream artifacts. Complete
-its `source-checkpoint.json`, including the host receipt, then seal the checkpoint:
+Each audit must run in a distinct fresh agent context over its locked bundle.
+Record its agent/context labels and locked input hash in its provenance, complete
+its `source-checkpoint.json`, then seal the checkpoint:
 
 ```powershell
 python -B scripts/gtm_cleanroom_audit.py checkpoint audit-package audit-a
@@ -123,25 +131,22 @@ children and cannot be redirected. The package root itself must not be a symlink
 junction, or reparse point. Every public Python and workbook command performs the
 same non-traversing check over the complete package tree before package I/O.
 
-Before canonical sealing, an audit amendment uses a new context and binds
+Before canonical sealing, an audit amendment uses a new fresh agent context and binds
 `--amendment-of` to the current audit seal hash. After canonical sealing, use the
 successor-package command above. Never edit a sealed result in place or expose
 the other audit.
 
-For an amendment, set both `audit.amendment_parent_seal_sha256` and
-`audit.host_isolation_receipt.amendment_parent_seal_sha256` to that current seal
-hash. Supply a new context ID and a new enforced receipt bound to the unchanged
-audit bundle, then validate and seal with the same parent hash:
+For an amendment, set `audit.amendment_parent_seal_sha256` to that current seal
+hash. Supply new agent/context labels bound to the unchanged audit bundle, then
+validate and seal with the same parent hash:
 
 ```powershell
 python -B scripts/gtm_cleanroom_audit.py validate audit-package audit-a --amendment-of <current-seal-hash>
 python -B scripts/gtm_cleanroom_audit.py seal audit-package audit-a --amendment-of <current-seal-hash>
 ```
 
-Context and receipt identities are single-use across the complete workflow, not
-just within this stage. The initial checkpoint and seal of one source audit form
-one continuous owner; every other audit, neutral, projection, editorial, fidelity,
-or reader owner must use new IDs.
+The amendment records its locked input and output hashes. Audit A and Audit B
+labels remain distinct.
 
 ## Reconcile And Synthesize
 
@@ -149,12 +154,10 @@ or reader owner must use new IDs.
 python -B scripts/gtm_reconciliation.py scaffold audit-package
 ```
 
-Complete `reconciliation.json` and every required row in
-`neutral-verification.json` using fresh neutral contexts. For every row, supply
-an enforced host isolation receipt bound to its
-`neutral_bundle_manifest_sha256`; the context and receipt must not reuse or
-access source-audit, checkpoint, peer-neutral, projection-review, or prior-cycle
-identities. Then:
+Complete `reconciliation.json` and every required neutral disposition in one
+separate fresh reconciliation-agent context after both audits are sealed. Record
+that agent/context label and the exact hashes of its locked inputs and sealed
+output. Then:
 
 ```powershell
 python -B scripts/gtm_reconciliation.py finalize audit-package
@@ -174,8 +177,10 @@ application.
 python -B scripts/gtm_fixed_point.py start audit-package
 ```
 
-When a cycle awaits review, complete `review-a` and `review-b` in separate fresh
-contexts, seal both, scaffold/finalize exact reconciliation, then advance:
+When a cycle awaits review, complete `review-a` and `review-b` with two fresh
+review agents over the same locked projected evidence. Do not give either agent
+the peer findings. Seal both, reconcile them in a separate fresh context, then
+advance:
 
 ```powershell
 python -B scripts/gtm_projection_review.py seal-review audit-package 1 review-a
@@ -210,8 +215,7 @@ The mapper reconstructs the canonical record and exact delivery map before it
 writes. Rehashing a modified canonical record or delivery map does not authorise
 delivery.
 
-Complete only the declared prose fields in `delivery/editorial.json` using a fresh
-editorial context, then:
+Complete only the declared prose fields in `delivery/editorial.json`, then:
 
 ```powershell
 python -B scripts/gtm_delivery_mapper.py validate-editorial audit-package
@@ -225,8 +229,8 @@ Build and verify the workbook with the workspace artifact runtime:
 & $env:CODEX_NODE scripts/gtm_workbook_verify.mjs audit-package
 ```
 
-Scaffold host-scoped fidelity and workbook-only reader reviews, complete them in
-separate fresh contexts with their declared inputs only, inspect every rendered
+Scaffold fidelity and workbook-only reader reviews, complete them with separate
+fresh agents using their declared locked inputs only, inspect every rendered
 preview, then seal:
 
 ```powershell
@@ -234,8 +238,8 @@ python -B scripts/gtm_delivery_reviews.py scaffold audit-package
 python -B scripts/gtm_delivery_reviews.py seal audit-package
 ```
 
-Their context and receipt IDs must be fresh against the entire package, including
-source-audit and neutral identities and any prior workbook build.
+Record distinct agent/context labels and exact locked input/output hashes for the
+two delivery reviews. Neither review receives the other's findings.
 
 The final seal returns the one workbook path. If sealed semantic content is
 missing or wrong, start the same-source successor package described above. If

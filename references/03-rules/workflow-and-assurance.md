@@ -4,7 +4,7 @@
 
 - Authority and stage boundary
 - Stages 1–7
-- Isolation, repair, and fixed-point rules
+- Independence, repair, and fixed-point rules
 - Speed and trust
 
 ## Authority And Boundary
@@ -20,11 +20,11 @@ The fixed workflow is:
 ```text
 locked source/context/contract
   -> canonical deterministic scan
-  -> independent raw-source assurance
+  -> raw-source assurance in a separate fresh agent context
   -> typed obligation ledger
-  -> two host-isolated complete audits in parallel
+  -> two complete audits in separate fresh agent contexts
   -> independent validation and seals
-  -> reconciliation and targeted neutral verification
+  -> fresh-agent reconciliation and neutral review
   -> exact target operations
   -> projected-container fixed-point proof and replay
   -> sealed canonical record
@@ -54,8 +54,9 @@ configured leaves and branches, references, consumers, terminal sources,
 effective settings, firing/blocking topology, custom-code segments, consent,
 routes, destinations, families, relationship candidates, and applicability.
 
-The independent assurance path rereads raw JSON and recomputes, without calling
-the scanner's corresponding derived logic:
+Run the assurance path in a separate fresh agent context over the locked raw JSON,
+assurance rules, and canonical scan identity. It receives no semantic findings
+and recomputes, without calling the scanner's corresponding derived logic:
 
 - source hash, layers, IDs, and object identity;
 - reference endpoints, consumers, and recursive variable sources;
@@ -72,7 +73,8 @@ the scanner's corresponding derived logic:
   ecommerce, sensitive data, source-to-destination value semantics, and
   portability.
 
-Any mismatch blocks semantic review. A mechanism may be inapplicable only with a
+Record the assurance agent/context labels plus exact locked input and output
+hashes. Any mismatch blocks semantic review. A mechanism may be inapplicable only with a
 source-counted zero; it is never silently skipped. Assurance is intentionally a
 critical-invariant recomputation, not a second full scanner.
 
@@ -86,7 +88,7 @@ Area ownership is explicit: area 1 is the evidence and assurance gate, areas
 projection, replay, and fixed-point control. Gate/control outcomes do not receive
 invented semantic decision classes.
 
-## Stages 3 And 4 — Two Complete Clean-Room Audits
+## Stages 3 And 4 — Two Complete Independent Audits
 
 Audit A starts from literal objects and chains, then closes families and the
 container target. Audit B starts from destination, consent/routing ownership,
@@ -101,14 +103,12 @@ rewrite checkpointed discovery.
 
 Before reconciliation:
 
-- each audit receives a separate allowlisted bundle and context ID;
+- each audit receives a separate locked input bundle and runs in a separate fresh
+  agent context;
 - both may read the same version-locked shared skill rules without sharing
   judgments;
-- the execution host otherwise enforces a scope in which the peer bundle and
-  prohibited downstream artifacts are inaccessible, then issues a receipt bound
-  to the exact bundle manifest;
-- neither can read the other's verdicts, scratch, discoveries, rationales, or
-  target proposals;
+- neither receives the other's verdicts, scratch, discoveries, rationales, or
+  target proposals until both are complete and sealed;
 - the orchestrator coordinates but authors neither result;
 - sharding is allowed only by complete implementation family plus one shared-
   infrastructure unit;
@@ -120,16 +120,17 @@ Before reconciliation:
   nested authoring context blocks before merge;
 - each audit performs global closure over shared configuration, consent, routing,
   destinations, identity, and architecture; and
-- each complete audit is coverage-validated and immutably sealed.
+- each complete audit is coverage-validated and immutably sealed with lightweight
+  provenance: agent/context labels, locked input hash, and sealed output hash.
 
-The artifact validator proves bundle integrity, receipt-field binding, distinct
-context IDs, coverage, and seals. A receipt records host isolation for
-traceability; neither a receipt nor self-authored JSON proves host access control.
-If the host cannot enforce both scoped contexts, block. An
-amendment uses a fresh context bound to the prior seal and archives the previous
+The artifact validator proves bundle integrity, distinct Audit A/B labels,
+coverage, and seals. Labels identify workflow owners; they are not security
+credentials. If the AI environment cannot create the two required fresh agent
+contexts, block with a concise capability message. An amendment uses a fresh
+agent context bound to the prior seal and archives the previous
 artifact and seal in append-only history.
-Its audit artifact and fresh host receipt both cite the current prior audit-seal
-hash while retaining the immutable source checkpoint and bundle identity. A
+Its audit artifact cites the current prior audit-seal hash while retaining the
+immutable source checkpoint and bundle identity. A
 seal also binds an exact immutable snapshot of the work-unit manifest and every
 completed family-shard file used for that audit version. Current and historical
 audits are always revalidated against their own sequence-addressed snapshots, so
@@ -162,7 +163,7 @@ Stage the new audit, new seal, immutable work-unit snapshot, and predecessor
 history together. A failed commit must restore the prior current audit and seal
 byte-for-byte, remove the new snapshot and partial history, and clear staging.
 Every later sealed-audit gate revalidates the complete contiguous parent chain
-and every archived audit, receipt, checkpoint, release binding, and versioned
+and every archived audit, checkpoint, release binding, and versioned
 work-unit snapshot; missing history is a blocker.
 Restore only a target that the commit actually replaced, and only from a complete
 hash-verified backup. If restoration itself cannot finish, retain the recovery
@@ -171,13 +172,10 @@ Before staging any amendment, revalidate the complete existing owner chain and
 the coverage release's exact current-checkpoint binding. Candidate validity never
 authorises a write over stale predecessor provenance.
 
-One workflow-wide identity registry owns context IDs and host-receipt IDs across
-source checkpoints, current and historical source-audit seals, base neutrals,
-projection reviews, projection neutrals, editorial versions, fidelity reviews,
-and workbook-only reader reviews. An audit's initial checkpoint and seal are one
-continuous owner and may carry the same IDs. Every different owner must use new
-IDs. Stage-local pairwise uniqueness is insufficient; any cross-stage reuse
-blocks before the affected artifact can seal.
+Audit A and Audit B use distinct agent/context labels and remain mutually blind
+until completion. Other peer reviews use distinct labels within the review pair.
+Every stage records its locked input and sealed output hashes so provenance is
+checkable. Distinct labels are required only where peers must be independent.
 
 ## Stage 5 — Reconciliation And Neutral Verification
 
@@ -187,22 +185,20 @@ finding, conflicting verdict, conflicting target, or different evidence boundary
 Do not vote, average, silently prefer an audit, or merge unmatched claims without
 verification.
 
-A fresh neutral verifier is mandatory for every disagreement or one-sided
-finding and for all material-risk classes: consent ownership; client/server
+A separate fresh reconciliation agent is mandatory after both audits are sealed.
+It performs neutral review for every disagreement or one-sided finding and for
+all material-risk classes: consent ownership; client/server
 routing; active deletion or consolidation; loader/destination/page-view,
 ecommerce, paid-media, or identity change; code/template replacement; high-
 fan-out or cross-market shared settings; unknown integrations; and projected High
 or Critical operations.
 
-The neutral bundle contains exact raw coordinates, independently reconstructed
-facts, the contract, and a neutral question. It excludes audit identity,
-rationale, vote count, and expected answer. The verifier may confirm, narrow,
-reject, or keep the decision blocked; it cannot invent a third actionable target.
-Every neutral bundle has its own deterministic manifest hash and one host-issued
-isolation receipt bound to that hash. The neutral context and receipt must be
-fresh against source checkpoints, both source audits, all peer neutrals, both
-projection reviews, and every prior cycle; those prior contexts and prohibited
-artifacts must be inaccessible.
+The reconciliation input contains both sealed audits, exact raw coordinates,
+independently reconstructed facts, and the contract. The agent must preserve
+which conclusions came from each audit, expose every disagreement, and decide
+without voting or silently preferring one audit. It may confirm, narrow, reject,
+or keep a decision blocked; it cannot invent a third actionable target. Record
+the reconciliation agent/context labels and exact locked input/output hashes.
 
 Reconciliation scaffolds and the neutral-verification queue are reproducible
 projections of both sealed audits. Finalisation reconstructs both structures and
@@ -225,9 +221,11 @@ than trusting a locally consistent packet seal.
 
 Each projection cycle starts from the locked original and applies the complete
 current packet in dependency order. Rerun the global scan and independent
-assurance, regenerate obligations, and send every new or changed semantic
-obligation through two fresh host-scoped projection reviews plus neutral verification
-where required.
+assurance and regenerate obligations. Send every materially changed semantic
+obligation through two fresh review agents. The review agents receive the same
+locked projected evidence and contract but not each other's findings. Seal both
+outputs, then reconcile them in a separate fresh context using the same neutral
+decision rules as Stage 5.
 
 Record projected graph, scan, obligation, relationship, decision, and operation
 hashes. A cycle is stable only when no new or changed actionable obligation

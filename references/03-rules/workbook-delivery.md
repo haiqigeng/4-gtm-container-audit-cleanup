@@ -28,7 +28,7 @@ package from the same locked source, bound to the predecessor canonical seal and
 an approved field-level repair brief, then rerun the complete audit workflow. The
 mapper, editor, and builder may not infer, patch, or overwrite it.
 
-The fresh editorial context may edit only declared prose fields. It must preserve
+The editorial transformation may edit only declared prose fields. It must preserve
 IDs, object keys and names, event/parameter/destination identifiers, decision
 class, priority, confidence, evidence boundary, target direction, operation
 content, dependencies, static verification, and rollback.
@@ -119,7 +119,7 @@ Rebuild from only that reconstructed canonical authority, its manifest, and the
 sealed editorial artifact;
 the normalized sheet/cell/navigation/comment/dimension model must match.
 
-Then run two host-scoped checks with separate allowlisted inputs:
+Then run two checks with separate fresh agents and locked inputs:
 
 - fidelity compares every visible row with its bound canonical record and rejects
   changed meaning, omitted caveats, overstated consequences, mismatched actions,
@@ -128,11 +128,9 @@ Then run two host-scoped checks with separate allowlisted inputs:
   previews only, and rejects unclear, non-standalone, repetitive, machine-oriented,
   illegible, or poorly navigable output.
 
-The editorial pass, fidelity reviewer, and workbook-only reader each require a
-workflow-globally unused reasoning-context ID. Fidelity and reader also require
-workflow-globally unused host-receipt IDs. Check them against source checkpoints,
-source audits and history, every neutral and projection review, prior editorial
-versions, and prior workbook builds—not merely against the other delivery checks.
+The fidelity reviewer and workbook-only reader use distinct agent/context labels
+and receive only their declared inputs; neither receives the other's findings.
+Record each locked input and output hash.
 
 Apply presentation-only corrections through a new editorial artifact and rebuild.
 Start a semantic successor only for a canonical completeness or fidelity defect. Render and

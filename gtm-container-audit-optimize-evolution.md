@@ -1,8 +1,8 @@
-# GTM Container Audit & Optimize — v2.1 Evolution Record
+# GTM Container Audit & Optimize — v2.2.0 Evolution Record
 
 ## Status And Authority
 
-This document records the product decisions that produced the v2.1 static audit
+This document records the product decisions that produced the v2.2.0 static audit
 workflow. It is an evolution record, not a second runtime contract.
 
 The authoritative implementation sources are:
@@ -187,7 +187,7 @@ every route host; otherwise client-gate removal remains blocked.
 Reconcile every web-container transport host, destination, event identifier,
 consent-forwarding field, settings owner, and mixed-route branch. Report whether
 the client handoff is aligned and state that downstream enforcement is unseen.
-Never request or inspect a server-container export in v2.1.
+Never request or inspect a server-container export in v2.2.0.
 
 ### 14. Variable Graph And Source Contracts
 
@@ -295,10 +295,11 @@ must pass source identity and independent scan assurance before semantic review.
 
 ### Stage 2 — Canonical Scan And Assurance
 
-Build one neutral fact layer and typed obligation ledger. Independently reread raw
-JSON to verify object/reference/variable/trigger/settings/consent/route/code/
-vendor/candidate/ownership/branch identities and exact area coverage. Every
-inapplicable mechanism needs a source-counted zero.
+Build one deterministic neutral fact layer and typed obligation ledger. In a
+separate fresh agent context, reread raw JSON to verify object/reference/variable/
+trigger/settings/consent/route/code/vendor/candidate/ownership/branch identities
+and exact area coverage. Record its agent/context labels plus locked input/output
+hashes. Every inapplicable mechanism needs a source-counted zero.
 
 The scan may create candidates but may not carry a verdict, recommendation,
 selected policy, operation requirement, or target hint.
@@ -308,16 +309,16 @@ semantic audits, and area 27 through operation synthesis and fixed-point proof.
 
 ### Stages 3 And 4 — Two Complete Independent Audits
 
-Run two complete host-scoped audits concurrently:
+Run two complete audits concurrently in separate fresh agent contexts:
 
 - Audit A traverses object and implementation chains first;
 - Audit B traverses families and target architecture first.
 
-Both cover every applicable semantic obligation. Separate allowlisted bundles,
-context IDs, and host-issued isolation receipts are mandatory. Both may read the
-same version-locked skill rules; neither may see the other's work before both are
-sealed. Receipts provide traceability and binding, not proof of host access
-control. Audit B is generated-candidate-blind until its source-only checkpoint.
+Both cover every applicable semantic obligation. Each receives its own locked
+input bundle and records agent/context labels plus exact input/output hashes. Both
+may read the same version-locked skill rules; neither receives the other's work
+before both are complete and sealed. Audit B is generated-candidate-blind until
+its source-only checkpoint.
 
 ### Stage 5 — Neutral Reconciliation
 
@@ -325,19 +326,18 @@ Compare atomic decisions by exact obligation, subjects, family, relationship, an
 target. Expose agreements, complements, one-sided findings, conflicts, and
 different evidence boundaries. Never vote, average, or silently select.
 
-Use a fresh identity-blind neutral verifier for every disagreement, one-sided
-finding, and material-risk class. The verifier may confirm, narrow, reject, or
-keep blocked; it cannot invent a third actionable target.
-Each neutral context is host-scoped to one hash-bound bundle and has a unique
-receipt. Source-audit, peer-neutral, projection-review, and prior-cycle context
-identities are forbidden.
+After both audits are sealed, use a separate fresh reconciliation agent for every
+disagreement, one-sided finding, and material-risk class. It may confirm, narrow,
+reject, or keep blocked; it cannot invent a third actionable target. Record its
+agent/context labels and exact locked input/output hashes.
 
 ### Stage 6 — Target Synthesis And Fixed Point
 
 Compile only reconciled and required-neutral-verified decisions into exact
 operations. Every cycle starts from the locked original, applies the full packet,
-reruns global scan and assurance, and sends every new or changed semantic
-obligation to two fresh isolated reviews plus required neutral checks.
+reruns global scan and assurance, and sends every materially changed semantic
+obligation to two fresh review agents that do not receive peer findings. Their
+sealed outputs are reconciled in a separate fresh context.
 
 Allow at most three cycles. Block as `non_convergent_target_state` on cycle-three
 actionability, recurring actionable hashes, oscillation, conflict, or the absence
@@ -355,9 +355,11 @@ the predecessor canonical seal and an approved repair brief. Both fresh audits
 and neutral reconciliation own the correction before a new record is sealed.
 Delivery never patches or overwrites a sealed semantic record.
 
-An editorial context may improve declared prose fields only. Deterministic
-workbook build, exact recovery, fidelity review, workbook-only reader review,
-rendered inspection, privacy, and formula-injection checks must all pass.
+The editorial transformation may improve declared prose fields only. Deterministic
+workbook build and exact recovery must pass. Fidelity review and workbook-only
+reader review run as separate fresh agents with declared locked inputs and exact
+input/output hashes; rendered inspection, privacy, and formula-injection checks
+must also pass.
 
 ## Speed Without Weakening Quality
 
@@ -408,7 +410,7 @@ implementation through an authorised GTM configuration workflow.
 | Approved requirements | Adapted as locked evidence withheld until both source-only checkpoints |
 | Consent and routing | Strengthened with the four-route model, direct blocker rule, Advanced proof, and pure-transporter inheritance |
 | Business architecture | Strengthened with families, singletons, relationship candidates, and greenfield target closure |
-| Independent review | Replaced by two complete isolated audits plus targeted neutral verification |
+| Independent review | Two complete fresh-agent audits plus fresh-agent reconciliation and targeted neutral review |
 | Target operations | Retained within the static phase and strengthened by projection/replay |
 | Human delivery | Replaced by one canonical technical record and one analyst workbook |
 | Three-run workflow and copied dual workbooks | Removed as obsolete |
@@ -423,7 +425,7 @@ tabs, or compatibility modes.
 - Obsolete three-run, mutation, legacy workbook, and compatibility paths were
   removed rather than wrapped.
 - The product has one complete workflow and one workbook implementation.
-- Scanner, assurance, obligation, audit isolation, reconciliation, operation,
+- Scanner, assurance, obligation, audit independence, reconciliation, operation,
   fixed-point, canonical record, and delivery concerns remain separate modules.
 - The existing optional parser and bundled spreadsheet artifact runtime are used;
   no duplicate authoring library was introduced.
@@ -433,7 +435,7 @@ tabs, or compatibility modes.
 
 ## Final Release Review And Resolutions
 
-The repeated pre-release review found and resolved sixty-two issues:
+The repeated pre-release review found and resolved sixty-four issues:
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -468,10 +470,9 @@ The repeated pre-release review found and resolved sixty-two issues:
    independent assurance, Area 13 applicability, and target safety now resolve
    destination-linked configuration owners as well. Explicit transporter hosts
    are also kept separate from unknown-vendor research ownership.
-9. Neutral verification required fresh IDs but lacked a host-bound bundle receipt
-   and could reuse source or prior-cycle reasoning identities. Every base and
-   projection neutral now has a deterministic allowlist hash, enforced receipt,
-   and global context/receipt non-reuse checks.
+9. Neutral verification was fragmented across unnecessary infrastructure. One
+   fresh reconciliation agent now receives the two sealed audits, resolves every
+   required neutral class, and records lightweight hash-bound provenance.
 10. A canonical semantic defect could identify its owning record but the sealed
     workflow had no executable repair path. The builder now creates immutable
     same-source successor packages bound to the predecessor canonical seal and an
@@ -484,21 +485,14 @@ The repeated pre-release review found and resolved sixty-two issues:
 12. A tagged release and runtime manifest could accept dirty build provenance.
     Tagged release checks and declared/installed runtime identity now fail unless
     the manifest records a clean source commit.
-13. Projection reviews checked context freshness against source audits and prior
-    projection reviews only, so a base-neutral context or receipt could be reused.
-    One shared ownership-aware registry now covers checkpoints, audit history,
-    every neutral, every projection review, editorial versions, and delivery
-    reviews; both context and receipt reuse block before sealing.
-14. Fidelity and workbook-only reader checks compared their identities only with
-    each other and the editorial context, so a source-audit identity could pass
-    the delivery gate. Delivery now checks both reviewers against the same
-    workflow-wide registry and the final seal independently rejects any cross-
-    owner collision.
-15. The documented pre-canonical audit amendment path could not satisfy both its
-    checkpoint identity lock and fresh-context rule. Amendments now retain the
-    immutable source checkpoint, use a globally fresh context and receipt, bind
-    both artifact and receipt to the current prior audit seal, and archive the
-    prior audit and seal only after every validation passes.
+13. Projection review independence was underspecified. Every materially changed
+    projected obligation now receives two fresh review agents with peer-blind
+    inputs, followed by fresh-context reconciliation of their sealed results.
+14. Fidelity and workbook-only reader checks now use separate fresh agents,
+    declared locked inputs, distinct labels, and exact input/output hashes.
+15. Pre-canonical audit amendments retain the immutable source checkpoint, use a
+    fresh agent context, bind the amended artifact to the current prior audit
+    seal, and archive the prior audit and seal only after validation passes.
 16. A source checkpoint could be resealed in place, leaving an existing audit
     seal bound to stale provenance. Checkpoints are now immutable after their
     first seal, while the sealed-audit gate independently revalidates checkpoint
@@ -510,7 +504,7 @@ The repeated pre-release review found and resolved sixty-two issues:
 18. Downstream gates checked only the current audit and seal, so deleted or
     altered predecessor history could go unnoticed. Every sealed-audit check now
     proves exact history counts, contiguous sequences, parent links, archived
-    audit hashes, receipt-parent bindings, and unchanged checkpoint/release
+    audit hashes, parent bindings, and unchanged checkpoint/release
     provenance through the full chain.
 19. A failed predecessor backup could leave a partial staging file that rollback
     mistook for a valid backup. The transaction now records which current targets
@@ -703,9 +697,14 @@ The repeated pre-release review found and resolved sixty-two issues:
     human workbook guidance, code guidance, and source navigation. Concrete
     `cleanup_operation` labels and historical or legacy detector terms remain
     where they describe actual removal semantics or source evidence.
+64. The v2.2.0 workflow replaced platform-specific independence machinery with
+    mandatory fresh-agent scan assurance, two peer-blind complete audits, fresh-
+    agent reconciliation, two-agent projection review for materially changed
+    obligations, and separate fresh-agent delivery reviews. Lightweight
+    provenance retains only agent/context labels and locked input/output hashes.
 
 The stale pre-cutover v1.13 backlog and optional server-audit proposal were also
-removed from this document. No server-container audit exists in v2.1.
+removed from this document. No server-container audit exists in v2.2.0.
 
 ## Release Validation Contract
 
@@ -726,9 +725,9 @@ Release requires all of the following to pass from a clean final commit:
 
 ## Designed Limits And Future Evolution
 
-- Host isolation must be enforced by the orchestration environment; artifact
-  validation can prove receipt and manifest consistency but cannot manufacture
-  access control.
+- The AI environment must support separate fresh agent contexts. If it does not,
+  the audit blocks with a concise capability message rather than requesting
+  computer or operating-system configuration.
 - Unknown or stale vendor/template contracts block affected recommendations until
   a separately requested skill-evolution action updates the registry and a new
   audit package starts.
@@ -736,4 +735,4 @@ Release requires all of the following to pass from a clean final commit:
   or downstream server enforcement.
 - Server-container audit, runtime recette, GTM mutation, execution approval,
   change logs, and audit deltas may be designed later only as separate authorised
-  capabilities. They are not partial or dormant paths in v2.1.
+  capabilities. They are not partial or dormant paths in v2.2.0.

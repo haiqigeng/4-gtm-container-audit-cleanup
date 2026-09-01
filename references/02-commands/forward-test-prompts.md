@@ -54,13 +54,14 @@ Measure:
 - seeded material finding and optimisation recall;
 - false-positive rate against intentional variants and evidence limits;
 - independent discovery overlap and unique valid findings from Audit A/B;
-- correct neutral handling of conflicts, one-sided findings, and material risk,
-  including hash-bound host receipts and rejection of every reused source,
-  peer-neutral, projection-review, or prior-cycle identity;
-- workflow-wide rejection when a projection review, editorial pass, fidelity
-  reviewer, or workbook-only reader reuses any earlier context or receipt ID;
+- correct neutral handling of conflicts, one-sided findings, and material risk by
+  a fresh reconciliation agent over the two sealed audits;
+- rejection when Audit A/B or a projection-review pair shares one agent context,
+  receives peer findings before sealing, or lacks locked input/output hashes;
+- separate fresh-agent fidelity and workbook-only reader review with distinct
+  labels and declared locked inputs;
 - successful fresh source-audit amendment with unchanged checkpoint provenance,
-  append-only history, and byte-identical rollback after rejected reuse;
+  append-only history, and byte-identical rollback after a rejected amendment;
 - successful family-sharded amendment whose predecessor and successor each
   validate against their own immutable work-unit snapshot;
 - rejection of forged unit audit/source/ledger/family/membership fields even when
@@ -90,9 +91,10 @@ Measure:
 
 ## Release Decision
 
-Release only when the current v2.1 implementation is equal or better for every
+Release only when the current v2.2.0 implementation is equal or better for every
 retained capability, detects the new optimisation and consent/routing classes,
 preserves all seeded intentional distinctions, has no unsupported optimisation
-advice increase, blocks every isolation or
-non-convergence adversary, and produces one trustworthy workbook. A deferred
+advice increase, blocks missing required fresh-agent separation, premature peer-
+finding exposure, invalid provenance, or non-convergence adversaries, and
+produces one trustworthy workbook. A deferred
 utility passes only by being absent.

@@ -39,11 +39,6 @@ from gtm_lib import (
     stable_hash,
     write_json,
 )
-from gtm_reasoning_identity import (
-    collect_reasoning_identity_registry,
-    reasoning_identity_reuse_errors,
-    workflow_reasoning_identity_errors,
-)
 
 AUDIT_IDS = ("audit-a", "audit-b")
 BUNDLE_DIRECTORY = "audit-bundles"
@@ -57,11 +52,6 @@ RELEASE_MANIFEST_FILE = "release-manifest.json"
 BUNDLE_MANIFEST_FILE = "bundle-manifest.json"
 WORK_UNIT_SNAPSHOT_ROOT = "work-unit-snapshots"
 WORK_UNIT_SNAPSHOT_MANIFEST = "snapshot-manifest.json"
-ISOLATION_MECHANISMS = {
-    "orchestrator_scoped_context",
-    "filesystem_acl_or_sandbox",
-}
-
 OBJECT_KEY_RE = re.compile(
     r"^(?:tag|trigger|variable|folder|builtInVariable|zone|customTemplate|client|"
     r"gtagConfig|transformation):.+$"
@@ -180,15 +170,9 @@ def _checkpoint_scaffold(
         "audit_id": audit_id,
         "source_sha256": source_sha256,
         "status": "pending",
+        "independent_agent_id": "",
         "independent_context_id": "",
-        "host_isolation_receipt": {
-            "status": "pending",
-            "receipt_id": "",
-            "mechanism": "",
-            "allowed_bundle_manifest_sha256": "",
-            "other_audit_accessible": None,
-            "prohibited_artifacts_accessible": None,
-        },
+        "input_manifest_sha256": "",
         "candidate_blind_discovery": audit_id == "audit-b",
         "object_behavior_map": [
             {
@@ -352,17 +336,16 @@ def prepare_audit_bundles(
                 "workbook or editorial output",
                 "test helpers or bulk semantic completion helpers",
             ],
-            "isolation_contract": {
+            "independence_contract": {
                 "required": True,
                 "scope": (
                     "this audit bundle, its declared released inputs, and the "
                     "version-locked shared skill rules"
                 ),
-                "accepted_host_mechanisms": sorted(ISOLATION_MECHANISMS),
                 "boundary": (
-                    "The validator proves bundle identity, distinct context identities, "
-                    "and receipt-field consistency. The receipt is traceability metadata; "
-                    "only the execution host can enforce scoped access."
+                    "Use a fresh agent and fresh context. Do not provide peer findings "
+                    "until both audits are complete. No host or filesystem isolation "
+                    "claim is required."
                 ),
             },
         }
@@ -381,32 +364,18 @@ def _specific_text(value: Any, minimum_words: int = 5) -> bool:
     return len(re.findall(r"\b[\w{}:./-]+\b", text)) >= minimum_words
 
 
-def _host_isolation_receipt_errors(
-    receipt: dict[str, Any],
+def _agent_context_errors(
+    record: dict[str, Any],
     bundle_manifest_sha256: str,
     label: str,
-    *,
-    amendment_parent_seal_sha256: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
-    if receipt.get("status") != "enforced":
-        errors.append(f"{label} requires an enforced host isolation receipt")
-    if len(str(receipt.get("receipt_id") or "").strip()) < 12:
-        errors.append(f"{label} host isolation receipt_id is missing or too weak")
-    if receipt.get("mechanism") not in ISOLATION_MECHANISMS:
-        errors.append(f"{label} host isolation mechanism is unsupported or absent")
-    if receipt.get("allowed_bundle_manifest_sha256") != bundle_manifest_sha256:
-        errors.append(f"{label} host isolation receipt is not bound to its audit bundle")
-    if receipt.get("other_audit_accessible") is not False:
-        errors.append(f"{label} must keep the other audit inaccessible")
-    if receipt.get("prohibited_artifacts_accessible") is not False:
-        errors.append(f"{label} must keep prohibited artifacts inaccessible")
-    declared_parent = str(receipt.get("amendment_parent_seal_sha256") or "")
-    if amendment_parent_seal_sha256 is None:
-        if declared_parent:
-            errors.append(f"{label} unexpectedly declares an amendment parent")
-    elif declared_parent != amendment_parent_seal_sha256:
-        errors.append(f"{label} host receipt is not bound to the prior audit seal")
+    if not str(record.get("independent_agent_id") or "").strip():
+        errors.append(f"{label} requires an independent_agent_id")
+    if not str(record.get("independent_context_id") or "").strip():
+        errors.append(f"{label} requires an independent_context_id")
+    if record.get("input_manifest_sha256") != bundle_manifest_sha256:
+        errors.append(f"{label} is not bound to its audit bundle")
     return errors
 
 
@@ -429,14 +398,8 @@ def _checkpoint_errors(
         errors.append("source checkpoint uses another source")
     if checkpoint.get("status") != "complete":
         errors.append("source checkpoint status must be complete")
-    context_id = str(checkpoint.get("independent_context_id") or "").strip()
-    if len(context_id) < 12:
-        errors.append("source checkpoint requires a strong independent_context_id")
-    receipt = checkpoint.get("host_isolation_receipt") or {}
     errors.extend(
-        _host_isolation_receipt_errors(
-            receipt, bundle_manifest_sha256, "source checkpoint"
-        )
+        _agent_context_errors(checkpoint, bundle_manifest_sha256, "source checkpoint")
     )
     expected_keys = {str(row["object_key"]) for row in inventory}
     behavior_rows = [
@@ -635,8 +598,9 @@ def _audit_scaffold(
         "obligation_ledger_sha256": ledger.get("obligation_ledger_sha256"),
         "source_checkpoint_seal_sha256": checkpoint_seal.get("checkpoint_seal_sha256"),
         "status": "pending",
+        "independent_agent_id": checkpoint_seal.get("independent_agent_id"),
         "independent_context_id": checkpoint_seal.get("independent_context_id"),
-        "host_isolation_receipt": checkpoint_seal.get("host_isolation_receipt"),
+        "input_manifest_sha256": checkpoint_seal.get("input_manifest_sha256"),
         "decisions": decisions,
         "open_discoveries": [],
         "coverage_closure": {
@@ -652,7 +616,7 @@ def _audit_scaffold(
             "foreign_audit_artifacts_used": [],
             "test_or_bulk_semantic_helpers_used": [],
             "decision_authoring_method": "",
-            "host_scope_preserved_through_completion": None,
+            "peer_findings_received_before_completion": None,
         },
     }
 
@@ -712,19 +676,15 @@ def checkpoint_audit(
         generated_relationship_ids,
         str(manifest.get("bundle_manifest_sha256") or ""),
     )
+    agent_id = str(checkpoint.get("independent_agent_id") or "")
     context_id = str(checkpoint.get("independent_context_id") or "")
-    receipt_id = str(
-        (checkpoint.get("host_isolation_receipt") or {}).get("receipt_id") or ""
-    )
-    errors.extend(
-        reasoning_identity_reuse_errors(
-            collect_reasoning_identity_registry(package_dir),
-            owner=f"source-audit:{audit_id}:0",
-            label=f"{audit_id} source checkpoint",
-            context_id=context_id,
-            receipt_id=receipt_id,
-        )
-    )
+    assurance = json.loads(assurance_path.read_text(encoding="utf-8"))
+    if agent_id and agent_id == str(assurance.get("independent_agent_id") or ""):
+        errors.append("source audit must use an agent distinct from scan assurance")
+    if context_id and context_id == str(
+        assurance.get("independent_context_id") or ""
+    ):
+        errors.append("source audit must use a context distinct from scan assurance")
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -738,8 +698,9 @@ def checkpoint_audit(
         "audit_id": audit_id,
         "source_sha256": scan.get("source_sha256"),
         "checkpoint_sha256": checkpoint_sha,
+        "independent_agent_id": agent_id,
         "independent_context_id": context_id,
-        "host_isolation_receipt": checkpoint.get("host_isolation_receipt"),
+        "input_manifest_sha256": checkpoint.get("input_manifest_sha256"),
         "candidate_blind_discovery": audit_id == "audit-b",
         "validator_status": "pass",
     }
@@ -1252,9 +1213,8 @@ def validate_audit(
         if seal_path.is_file()
         else None
     )
+    agent_id = str(audit.get("independent_agent_id") or "").strip()
     context_id = str(audit.get("independent_context_id") or "").strip()
-    receipt = audit.get("host_isolation_receipt") or {}
-    receipt_id = str(receipt.get("receipt_id") or "").strip()
     sequence = 0
     if sealed_seal is not None:
         try:
@@ -1272,21 +1232,24 @@ def validate_audit(
                 "independent_context_id"
             ):
                 errors.append("initial sealed audit context differs from its checkpoint")
-            if receipt != checkpoint_seal.get("host_isolation_receipt"):
-                errors.append("initial sealed audit receipt differs from its checkpoint")
+            if audit.get("independent_agent_id") != checkpoint_seal.get(
+                "independent_agent_id"
+            ):
+                errors.append("initial sealed audit agent differs from its checkpoint")
+            if audit.get("input_manifest_sha256") != checkpoint_seal.get(
+                "input_manifest_sha256"
+            ):
+                errors.append("initial sealed audit input manifest differs from its checkpoint")
             if audit.get("amendment_parent_seal_sha256"):
                 errors.append("initial sealed audit artifact declares an amendment parent")
         else:
-            if len(context_id) < 12:
-                errors.append("sealed audit amendment context identity is missing")
             if audit.get("amendment_parent_seal_sha256") != parent:
                 errors.append("sealed audit amendment parent binding is invalid")
             errors.extend(
-                _host_isolation_receipt_errors(
-                    receipt,
+                _agent_context_errors(
+                    audit,
                     str(manifest.get("bundle_manifest_sha256") or ""),
                     "sealed audit amendment",
-                    amendment_parent_seal_sha256=parent,
                 )
             )
     elif amendment_of:
@@ -1302,22 +1265,15 @@ def validate_audit(
                 errors.append("audit amendment does not cite the current audit seal")
             if context_id == str(previous.get("independent_context_id") or ""):
                 errors.append("audit amendment requires a fresh reasoning context")
-            previous_receipt_id = str(
-                (previous.get("host_isolation_receipt") or {}).get("receipt_id")
-                or ""
-            )
-            if receipt_id == previous_receipt_id:
-                errors.append("audit amendment requires a fresh host isolation receipt")
-        if len(context_id) < 12:
-            errors.append("audit amendment requires a strong independent_context_id")
+            if agent_id == str(previous.get("independent_agent_id") or ""):
+                errors.append("audit amendment requires a fresh agent")
         if audit.get("amendment_parent_seal_sha256") != amendment_of:
             errors.append("audit amendment artifact is not bound to its prior seal")
         errors.extend(
-            _host_isolation_receipt_errors(
-                receipt,
+            _agent_context_errors(
+                audit,
                 str(manifest.get("bundle_manifest_sha256") or ""),
                 "audit amendment",
-                amendment_parent_seal_sha256=amendment_of,
             )
         )
     else:
@@ -1325,18 +1281,22 @@ def validate_audit(
             "independent_context_id"
         ):
             errors.append("audit independent_context_id differs from its checkpoint")
-        if receipt != checkpoint_seal.get("host_isolation_receipt"):
-            errors.append("audit host_isolation_receipt differs from its checkpoint")
+        if audit.get("independent_agent_id") != checkpoint_seal.get(
+            "independent_agent_id"
+        ):
+            errors.append("audit independent_agent_id differs from its checkpoint")
+        if audit.get("input_manifest_sha256") != checkpoint_seal.get(
+            "input_manifest_sha256"
+        ):
+            errors.append("audit input_manifest_sha256 differs from its checkpoint")
         if audit.get("amendment_parent_seal_sha256"):
             errors.append("initial audit unexpectedly declares an amendment parent")
 
     errors.extend(
-        reasoning_identity_reuse_errors(
-            collect_reasoning_identity_registry(package_dir),
-            owner=f"source-audit:{audit_id}:{sequence}",
-            label=f"{audit_id} audit",
-            context_id=context_id,
-            receipt_id=receipt_id,
+        _agent_context_errors(
+            audit,
+            str(manifest.get("bundle_manifest_sha256") or ""),
+            f"{audit_id} audit",
         )
     )
 
@@ -1431,8 +1391,8 @@ def validate_audit(
         "independent_test_fixture_review",
     }:
         errors.append("decision authoring method is invalid")
-    if attestation.get("host_scope_preserved_through_completion") is not True:
-        errors.append("audit did not attest preservation of its enforced host scope")
+    if attestation.get("peer_findings_received_before_completion") is not False:
+        errors.append("audit must attest that peer findings were withheld until completion")
     return errors
 
 
@@ -1788,8 +1748,9 @@ def seal_audit(
         "source_checkpoint_seal_sha256": checkpoint_seal.get("checkpoint_seal_sha256"),
         "release_manifest_sha256": release.get("release_manifest_sha256"),
         "completed_audit_sha256": file_sha256(audit_path),
+        "independent_agent_id": audit.get("independent_agent_id"),
         "independent_context_id": audit.get("independent_context_id"),
-        "host_isolation_receipt": audit.get("host_isolation_receipt"),
+        "input_manifest_sha256": audit.get("input_manifest_sha256"),
         "validator_status": "pass",
         "amendment_sequence": sequence,
         "amendment_parent_seal_sha256": (
@@ -1899,8 +1860,9 @@ def _audit_history_errors(
             "scan_assurance_sha256",
             "obligation_ledger_sha256",
             "source_checkpoint_seal_sha256",
+            "independent_agent_id",
             "independent_context_id",
-            "host_isolation_receipt",
+            "input_manifest_sha256",
         ):
             if historical_seal.get(field) != historical_audit.get(field):
                 errors.append(
@@ -1924,11 +1886,10 @@ def _audit_history_errors(
         ):
             errors.append(f"{audit_id}: historical audit parent binding differs from its seal")
         errors.extend(
-            _host_isolation_receipt_errors(
-                historical_seal.get("host_isolation_receipt") or {},
+            _agent_context_errors(
+                historical_seal,
                 bundle_manifest_sha256,
                 f"{audit_id} historical audit",
-                amendment_parent_seal_sha256=(expected_parent or None),
             )
         )
 
@@ -2078,8 +2039,9 @@ def _sealed_audit_record_errors(package_dir: Path, audit_id: str) -> list[str]:
         "scan_assurance_sha256",
         "obligation_ledger_sha256",
         "source_checkpoint_seal_sha256",
+        "independent_agent_id",
         "independent_context_id",
-        "host_isolation_receipt",
+        "input_manifest_sha256",
     ):
         if seal.get(field) != audit.get(field):
             errors.append(f"{audit_id}: audit seal field {field} differs from its audit")
@@ -2123,21 +2085,17 @@ def _sealed_audit_record_errors(package_dir: Path, audit_id: str) -> list[str]:
     ):
         errors.append(f"{audit_id}: audit seal is bound to another coverage release")
     try:
-        current_sequence = int(seal.get("amendment_sequence") or 0)
+        int(seal.get("amendment_sequence") or 0)
     except (TypeError, ValueError):
-        current_sequence = 0
         errors.append(f"{audit_id}: current amendment sequence is invalid")
     current_parent = str(seal.get("amendment_parent_seal_sha256") or "")
     if str(audit.get("amendment_parent_seal_sha256") or "") != current_parent:
         errors.append(f"{audit_id}: completed audit parent binding differs from its seal")
     errors.extend(
-        _host_isolation_receipt_errors(
-            seal.get("host_isolation_receipt") or {},
+        _agent_context_errors(
+            seal,
             str(bundle_manifest.get("bundle_manifest_sha256") or ""),
             f"{audit_id} sealed audit",
-            amendment_parent_seal_sha256=(
-                current_parent if current_sequence > 0 else None
-            ),
         )
     )
     errors.extend(
@@ -2176,21 +2134,33 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
     ]
     if errors:
         return errors
+    assurance_path = package_dir / "scan-assurance.json"
+    if assurance_path.is_file():
+        assurance = json.loads(assurance_path.read_text(encoding="utf-8"))
+        assurance_agent_id = str(assurance.get("independent_agent_id") or "")
+        assurance_context_id = str(assurance.get("independent_context_id") or "")
+    else:
+        assurance_agent_id = ""
+        assurance_context_id = ""
+        errors.append("scan assurance is missing before sealed-audit validation")
+    agent_ids = []
     context_ids = []
-    receipt_ids = []
     for audit_id in AUDIT_IDS:
         errors.extend(_sealed_audit_record_errors(package_dir, audit_id))
         seal_path = package_dir / SEAL_DIRECTORY / f"{audit_id}.json"
         if not seal_path.is_file():
             continue
         seal = json.loads(seal_path.read_text(encoding="utf-8"))
-        receipt = seal.get("host_isolation_receipt") or {}
-        receipt_ids.append(str(receipt.get("receipt_id") or ""))
+        agent_ids.append(str(seal.get("independent_agent_id") or ""))
         context_ids.append(str(seal.get("independent_context_id") or ""))
+    if assurance_agent_id and assurance_agent_id in agent_ids:
+        errors.append("a sealed audit reuses the scan-assurance agent")
+    if assurance_context_id and assurance_context_id in context_ids:
+        errors.append("a sealed audit reuses the scan-assurance context")
+    if len(agent_ids) == 2 and len(set(agent_ids)) != 2:
+        errors.append("the two sealed audits reuse one agent")
     if len(context_ids) == 2 and len(set(context_ids)) != 2:
         errors.append("the two sealed audits reuse one reasoning context")
-    if len(receipt_ids) == 2 and len(set(receipt_ids)) != 2:
-        errors.append("the two sealed audits reuse one host isolation receipt")
     snapshot_root = seal_root / WORK_UNIT_SNAPSHOT_ROOT
     if snapshot_root.exists() and (
         path_is_link_or_reparse(snapshot_root)
@@ -2208,7 +2178,6 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
             - set(AUDIT_IDS)
         ):
             errors.append("sealed work-unit snapshots contain orphan audit identities")
-    errors.extend(workflow_reasoning_identity_errors(package_dir))
     return errors
 
 

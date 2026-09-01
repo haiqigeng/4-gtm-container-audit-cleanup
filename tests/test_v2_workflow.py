@@ -21,12 +21,13 @@ from gtm_audit_contract import (  # noqa: E402
     HUMAN_DECISION_LABELS,
     OPERATION_ACTION_FIELDS,
 )
-from gtm_audit_package_build import build_package  # noqa: E402
+from gtm_audit_package_build import build_package as executable_build_package  # noqa: E402
 from gtm_audit_work_units import merge_work_units  # noqa: E402
 from gtm_canonical_record import (  # noqa: E402
     build_canonical_record,
     canonical_record_seal_errors,
 )
+from gtm_canonical_scan import build_canonical_scan  # noqa: E402
 from gtm_cleanroom_audit import (  # noqa: E402
     checkpoint_audit,
     seal_audit,
@@ -56,7 +57,35 @@ from gtm_reconciliation import (  # noqa: E402
     reconciliation_seal_errors,
     scaffold_reconciliation,
 )
+from gtm_scan_assurance import assure_scan  # noqa: E402
 from gtm_target_synthesis import compile_operation_packet  # noqa: E402
+
+
+def build_package(export_path: Path, out_dir: Path, **kwargs: object) -> dict:
+    scan = build_canonical_scan(
+        export_path,
+        context_path=kwargs.get("context_path"),
+        requirements_path=kwargs.get("requirements_path"),
+    )["canonical_scan"]
+    assurance = assure_scan(
+        export_path,
+        scan,
+        vendor_registry_path=ROOT / "references" / "03-rules" / "vendor-registry.toml",
+        independent_agent_id="fixture-scan-assurance-agent",
+        independent_context_id="fixture-scan-assurance-context",
+    )
+    assurance_path = out_dir.parent / f"{out_dir.name}-scan-assurance.json"
+    assurance_path.write_text(json.dumps(assurance, indent=2) + "\n", encoding="utf-8")
+    with mock.patch(
+        "gtm_audit_package_build.declared_identity_errors",
+        return_value=({}, []),
+    ):
+        return executable_build_package(
+            export_path,
+            out_dir,
+            scan_assurance_path=assurance_path,
+            **kwargs,
+        )
 
 
 def run_node_script(node: str, script: Path, package: Path) -> None:
@@ -200,20 +229,19 @@ def complete_semantic_decision(row: dict) -> None:
     )
 
 
-def complete_checkpoint(package: Path, audit_id: str, context_id: str) -> None:
+def complete_checkpoint(
+    package: Path,
+    audit_id: str,
+    context_id: str,
+    agent_id: str | None = None,
+) -> None:
     path = package / "audit-bundles" / audit_id / "source-checkpoint.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     bundle_manifest = json.loads((path.parent / "bundle-manifest.json").read_text(encoding="utf-8"))
     payload["status"] = "complete"
+    payload["independent_agent_id"] = agent_id or f"fixture-{audit_id}-agent"
     payload["independent_context_id"] = context_id
-    payload["host_isolation_receipt"] = {
-        "status": "enforced",
-        "receipt_id": f"fixture-host-receipt-{audit_id}",
-        "mechanism": "orchestrator_scoped_context",
-        "allowed_bundle_manifest_sha256": bundle_manifest["bundle_manifest_sha256"],
-        "other_audit_accessible": False,
-        "prohibited_artifacts_accessible": False,
-    }
+    payload["input_manifest_sha256"] = bundle_manifest["bundle_manifest_sha256"]
     for row in payload["object_behavior_map"]:
         row["configured_role"] = (
             "Fixture source object role recorded from its locked configuration."
@@ -337,7 +365,7 @@ def finalize_audit(
         "foreign_audit_artifacts_used": [],
         "test_or_bulk_semantic_helpers_used": [],
         "decision_authoring_method": "independent_test_fixture_review",
-        "host_scope_preserved_through_completion": True,
+        "peer_findings_received_before_completion": False,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -401,37 +429,35 @@ def write_audit_amendment(
     *,
     parent_seal_sha256: str,
     context_id: str,
-    receipt_id: str,
+    agent_id: str,
 ) -> None:
     path = package / "audit-bundles" / audit_id / "audit.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     manifest = json.loads(
         (path.parent / "bundle-manifest.json").read_text(encoding="utf-8")
     )
+    payload["independent_agent_id"] = agent_id
     payload["independent_context_id"] = context_id
+    payload["input_manifest_sha256"] = manifest["bundle_manifest_sha256"]
     payload["amendment_parent_seal_sha256"] = parent_seal_sha256
-    payload["host_isolation_receipt"] = {
-        "status": "enforced",
-        "receipt_id": receipt_id,
-        "mechanism": "orchestrator_scoped_context",
-        "allowed_bundle_manifest_sha256": manifest["bundle_manifest_sha256"],
-        "other_audit_accessible": False,
-        "prohibited_artifacts_accessible": False,
-        "amendment_parent_seal_sha256": parent_seal_sha256,
-    }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def complete_base_reconciliation(
-    package: Path, neutral_context_override: str | None = None
+    package: Path,
+    *,
+    agent_id: str = "fixture-reconciliation-agent",
+    context_id: str = "fixture-reconciliation-context",
 ) -> None:
     scaffold_reconciliation(package)
     reconciliation_path = package / "reconciliation.json"
     neutral_path = package / "neutral-verification.json"
     reconciliation = json.loads(reconciliation_path.read_text(encoding="utf-8"))
     neutral = json.loads(neutral_path.read_text(encoding="utf-8"))
+    reconciliation["independent_agent_id"] = agent_id
+    reconciliation["independent_context_id"] = context_id
     neutral_by_id = {}
-    for index, row in enumerate(neutral["verifications"], start=1):
+    for row in neutral["verifications"]:
         comparison = next(
             item
             for item in reconciliation["comparisons"]
@@ -441,22 +467,6 @@ def complete_base_reconciliation(
         row.update(
             {
                 "status": "complete",
-                "independent_context_id": (
-                    neutral_context_override
-                    if index == 1 and neutral_context_override
-                    else f"neutral-test-context-{index:03d}"
-                ),
-                "host_isolation_receipt": {
-                    "status": "enforced",
-                    "receipt_id": f"neutral-test-receipt-{index:03d}",
-                    "mechanism": "orchestrator_scoped_context",
-                    "allowed_bundle_manifest_sha256": row[
-                        "neutral_bundle_manifest_sha256"
-                    ],
-                    "prior_reasoning_contexts_accessible": False,
-                    "peer_neutral_contexts_accessible": False,
-                    "prohibited_artifacts_accessible": False,
-                },
                 "canonical_decision": decision,
                 "evidence_citations": list(row.get("source_coordinates") or []),
                 "verification_rationale": (
@@ -490,11 +500,13 @@ def complete_base_reconciliation(
 def complete_projection_cycle(
     package: Path,
     cycle: int,
-    neutral_context_override: str | None = None,
     *,
     force_neutral: bool = False,
+    review_agent_override: str | None = None,
     review_context_override: str | None = None,
-    review_receipt_override: str | None = None,
+    review_input_manifest_override: str | None = None,
+    reconciliation_agent_override: str | None = None,
+    reconciliation_context_override: str | None = None,
 ) -> None:
     cycle_dir = package / "fixed-point" / f"cycle-{cycle:02d}"
     for review_id, context_id in (
@@ -505,23 +517,21 @@ def complete_projection_cycle(
         payload = json.loads(path.read_text(encoding="utf-8"))
         manifest = json.loads((path.parent / "bundle-manifest.json").read_text(encoding="utf-8"))
         payload["status"] = "complete"
+        payload["independent_agent_id"] = (
+            review_agent_override
+            if review_id == "review-a" and review_agent_override
+            else f"fixture-projection-{review_id}-agent-{cycle:02d}"
+        )
         payload["independent_context_id"] = (
             review_context_override
             if review_id == "review-a" and review_context_override
             else context_id
         )
-        payload["host_isolation_receipt"] = {
-            "status": "enforced",
-            "receipt_id": (
-                review_receipt_override
-                if review_id == "review-a" and review_receipt_override
-                else f"fixture-projection-receipt-{review_id}-{cycle:02d}"
-            ),
-            "mechanism": "orchestrator_scoped_context",
-            "allowed_bundle_manifest_sha256": manifest["bundle_manifest_sha256"],
-            "peer_review_accessible": False,
-            "prohibited_artifacts_accessible": False,
-        }
+        payload["input_manifest_sha256"] = (
+            review_input_manifest_override
+            if review_id == "review-a" and review_input_manifest_override
+            else manifest["bundle_manifest_sha256"]
+        )
         neutral_forced = False
         for row in payload["decisions"]:
             complete_semantic_decision(row)
@@ -536,7 +546,7 @@ def complete_projection_cycle(
             "status": "complete",
             "foreign_projection_review_used": False,
             "fresh_context": True,
-            "host_scope_preserved_through_completion": True,
+            "peer_findings_received_before_completion": False,
             "conclusion": "The focused projection fixture review completed every changed obligation independently.",
         }
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -546,8 +556,16 @@ def complete_projection_cycle(
     neutral_path = cycle_dir / "projection-neutral-verification.json"
     reconciliation = json.loads(rec_path.read_text(encoding="utf-8"))
     neutral = json.loads(neutral_path.read_text(encoding="utf-8"))
+    reconciliation["independent_agent_id"] = (
+        reconciliation_agent_override
+        or f"fixture-projection-reconciliation-agent-{cycle:02d}"
+    )
+    reconciliation["independent_context_id"] = (
+        reconciliation_context_override
+        or f"fixture-projection-reconciliation-context-{cycle:02d}"
+    )
     neutral_by_id = {}
-    for index, row in enumerate(neutral["verifications"], start=1):
+    for row in neutral["verifications"]:
         comparison = next(
             item
             for item in reconciliation["comparisons"]
@@ -557,24 +575,6 @@ def complete_projection_cycle(
         row.update(
             {
                 "status": "complete",
-                "independent_context_id": (
-                    neutral_context_override
-                    if index == 1 and neutral_context_override
-                    else f"projection-neutral-{cycle:02d}-{index:03d}"
-                ),
-                "host_isolation_receipt": {
-                    "status": "enforced",
-                    "receipt_id": (
-                        f"projection-neutral-receipt-{cycle:02d}-{index:03d}"
-                    ),
-                    "mechanism": "orchestrator_scoped_context",
-                    "allowed_bundle_manifest_sha256": row[
-                        "neutral_bundle_manifest_sha256"
-                    ],
-                    "prior_reasoning_contexts_accessible": False,
-                    "peer_neutral_contexts_accessible": False,
-                    "prohibited_artifacts_accessible": False,
-                },
                 "canonical_decision": decision,
                 "evidence_citations": list(row.get("source_coordinates") or []),
                 "verification_rationale": (
@@ -606,9 +606,7 @@ def complete_editorial(package: Path) -> None:
     path = package / "delivery" / "editorial.json"
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["status"] = "complete"
-    payload["independent_context_id"] = "fixture-editorial-context-001"
     payload["completion_attestation"] = {
-        "fresh_editorial_context": True,
         "semantic_fields_changed": False,
         "technical_identifiers_preserved": True,
         "conclusion": "The human wording remains faithful, standalone, bounded, and suitable for analyst review.",
@@ -626,15 +624,9 @@ def complete_delivery_reviews(package: Path) -> None:
         (fidelity_path.parent / "bundle-manifest.json").read_text(encoding="utf-8")
     )
     fidelity["status"] = "complete"
+    fidelity["independent_agent_id"] = "fixture-fidelity-agent-001"
     fidelity["independent_context_id"] = "fixture-fidelity-context-001"
-    fidelity["host_isolation_receipt"] = {
-        "status": "enforced",
-        "receipt_id": "fixture-fidelity-receipt-001",
-        "mechanism": "orchestrator_scoped_context",
-        "allowed_bundle_manifest_sha256": fidelity_manifest["bundle_manifest_sha256"],
-        "peer_review_accessible": False,
-        "prohibited_artifacts_accessible": False,
-    }
+    fidelity["input_manifest_sha256"] = fidelity_manifest["bundle_manifest_sha256"]
     fidelity["overview_review"] = {
         "verdict": "pass",
         "meaning_preserved": True,
@@ -663,15 +655,9 @@ def complete_delivery_reviews(package: Path) -> None:
         (reader_path.parent / "bundle-manifest.json").read_text(encoding="utf-8")
     )
     reader["status"] = "complete"
+    reader["independent_agent_id"] = "fixture-reader-agent-001"
     reader["independent_context_id"] = "fixture-reader-context-001"
-    reader["host_isolation_receipt"] = {
-        "status": "enforced",
-        "receipt_id": "fixture-reader-receipt-001",
-        "mechanism": "orchestrator_scoped_context",
-        "allowed_bundle_manifest_sha256": reader_manifest["bundle_manifest_sha256"],
-        "peer_review_accessible": False,
-        "prohibited_artifacts_accessible": False,
-    }
+    reader["input_manifest_sha256"] = reader_manifest["bundle_manifest_sha256"]
     reader["received_only_workbook_audience_brief_and_previews"] = True
     for row in reader["sheet_reviews"]:
         row.update(
@@ -702,8 +688,54 @@ class V2WorkflowTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_audit_isolation_scope_shares_rules_but_not_peer_judgments(self) -> None:
+    def test_package_requires_separately_produced_scan_assurance(self) -> None:
+        with mock.patch(
+            "gtm_audit_package_build.declared_identity_errors",
+            return_value=({}, []),
+        ), self.assertRaisesRegex(RuntimeError, "separately produced scan-assurance"):
+            executable_build_package(self.export, self.root / "missing-assurance")
+
+    def test_package_reconstructs_separate_scan_assurance_before_use(self) -> None:
+        scan = build_canonical_scan(self.export)["canonical_scan"]
+        assurance = assure_scan(
+            self.export,
+            scan,
+            vendor_registry_path=ROOT
+            / "references"
+            / "03-rules"
+            / "vendor-registry.toml",
+            independent_agent_id="fresh-scan-agent",
+            independent_context_id="fresh-scan-context",
+        )
+        assurance["checks"][0]["detail"] = "forged after independent review"
+        assurance_path = self.root / "forged-scan-assurance.json"
+        assurance_path.write_text(
+            json.dumps(assurance, indent=2) + "\n", encoding="utf-8"
+        )
+        with mock.patch(
+            "gtm_audit_package_build.declared_identity_errors",
+            return_value=({}, []),
+        ), self.assertRaisesRegex(
+            RuntimeError, "differs from independent raw-source reconstruction"
+        ):
+            executable_build_package(
+                self.export,
+                self.root / "forged-assurance-package",
+                scan_assurance_path=assurance_path,
+            )
+
+    def test_audit_independence_contract_is_portable_and_peer_blind(self) -> None:
         build_package(self.export, self.package)
+        assurance = json.loads(
+            (self.package / "scan-assurance.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "fixture-scan-assurance-agent", assurance["independent_agent_id"]
+        )
+        self.assertEqual(
+            "fixture-scan-assurance-context", assurance["independent_context_id"]
+        )
+        self.assertRegex(assurance["input_manifest_sha256"], r"^[0-9a-f]{64}$")
         for audit_id in ("audit-a", "audit-b"):
             manifest = json.loads(
                 (
@@ -713,11 +745,16 @@ class V2WorkflowTests(unittest.TestCase):
                     / cleanroom_audit.BUNDLE_MANIFEST_FILE
                 ).read_text(encoding="utf-8")
             )
-            contract = manifest["isolation_contract"]
+            contract = manifest["independence_contract"]
+            self.assertTrue(contract["required"])
             self.assertIn("version-locked shared skill rules", contract["scope"])
-            self.assertIn("only the execution host", contract["boundary"])
+            self.assertIn("fresh agent and fresh context", contract["boundary"])
+            self.assertIn("No host or filesystem isolation", contract["boundary"])
             self.assertIn("the other audit bundle or output", manifest["prohibited_inputs"])
             self.assertIn("reconciliation output", manifest["prohibited_inputs"])
+            serialized = json.dumps(manifest).lower()
+            for forbidden in ("receipt_id", "acl", "sandbox", "host-enforced"):
+                self.assertNotIn(forbidden, serialized)
 
     def test_protected_tree_enumeration_never_crosses_redirects(self) -> None:
         tree = self.root / "protected-tree"
@@ -1001,13 +1038,108 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(checkpoint["candidate_blind_discovery"])
         self.assertEqual([], checkpoint["generated_candidate_ids_reviewed"])
 
-    def test_cleanroom_checkpoints_cannot_reuse_one_reasoning_context(self) -> None:
+    def test_source_audit_peers_require_distinct_agents_and_contexts(self) -> None:
+        for shared_field in ("agent", "context"):
+            with self.subTest(shared_field=shared_field):
+                package = self.root / f"shared-{shared_field}-package"
+                build_package(self.export, package)
+                complete_checkpoint(
+                    package,
+                    "audit-a",
+                    "shared-context" if shared_field == "context" else "audit-a-context",
+                    "shared-agent" if shared_field == "agent" else "audit-a-agent",
+                )
+                complete_checkpoint(
+                    package,
+                    "audit-b",
+                    "shared-context" if shared_field == "context" else "audit-b-context",
+                    "shared-agent" if shared_field == "agent" else "audit-b-agent",
+                )
+                complete_audit(package, "audit-a")
+                complete_audit(package, "audit-b")
+                errors = sealed_audit_errors(package)
+                expected = (
+                    "the two sealed audits reuse one agent"
+                    if shared_field == "agent"
+                    else "the two sealed audits reuse one reasoning context"
+                )
+                self.assertIn(expected, errors)
+
+    def test_source_checkpoint_rejects_wrong_input_manifest(self) -> None:
         build_package(self.export, self.package)
-        complete_checkpoint(self.package, "audit-a", "shared-context-test-001")
-        with self.assertRaisesRegex(
-            ValueError, "reasoning context identity is already used"
-        ):
-            complete_checkpoint(self.package, "audit-b", "shared-context-test-001")
+        checkpoint = (
+            self.package
+            / "audit-bundles"
+            / "audit-a"
+            / "source-checkpoint.json"
+        )
+        payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+        payload["status"] = "complete"
+        payload["independent_agent_id"] = "wrong-manifest-agent"
+        payload["independent_context_id"] = "wrong-manifest-context"
+        payload["input_manifest_sha256"] = "f" * 64
+        checkpoint.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "not bound to its audit bundle"):
+            checkpoint_audit(self.package, "audit-a")
+
+    def test_source_audits_cannot_reuse_scan_assurance_identity(self) -> None:
+        for shared_field in ("agent", "context"):
+            with self.subTest(shared_field=shared_field):
+                package = self.root / f"scan-reuse-{shared_field}"
+                build_package(self.export, package)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    (
+                        "source audit must use an agent distinct from scan assurance"
+                        if shared_field == "agent"
+                        else "source audit must use a context distinct from scan assurance"
+                    ),
+                ):
+                    complete_checkpoint(
+                        package,
+                        "audit-a",
+                        (
+                            "fixture-scan-assurance-context"
+                            if shared_field == "context"
+                            else "fresh-audit-context"
+                        ),
+                        (
+                            "fixture-scan-assurance-agent"
+                            if shared_field == "agent"
+                            else "fresh-audit-agent"
+                        ),
+                    )
+
+    def test_reconciliation_cannot_reuse_scan_assurance_identity(self) -> None:
+        for shared_field in ("agent", "context"):
+            with self.subTest(shared_field=shared_field):
+                package = self.root / f"reconciliation-scan-reuse-{shared_field}"
+                build_package(self.export, package)
+                complete_checkpoint(package, "audit-a", "audit-a-context")
+                complete_checkpoint(package, "audit-b", "audit-b-context")
+                complete_audit(package, "audit-a")
+                complete_audit(package, "audit-b")
+                with self.assertRaisesRegex(
+                    ValueError,
+                    (
+                        "reconciliation must use an agent distinct from scan assurance"
+                        if shared_field == "agent"
+                        else "reconciliation must use a context distinct from scan assurance"
+                    ),
+                ):
+                    complete_base_reconciliation(
+                        package,
+                        agent_id=(
+                            "fixture-scan-assurance-agent"
+                            if shared_field == "agent"
+                            else "fresh-reconciliation-agent"
+                        ),
+                        context_id=(
+                            "fixture-scan-assurance-context"
+                            if shared_field == "context"
+                            else "fresh-reconciliation-context"
+                        ),
+                    )
 
     def test_coverage_release_cannot_rebind_its_source_checkpoint(self) -> None:
         build_package(self.export, self.package)
@@ -1040,11 +1172,6 @@ class V2WorkflowTests(unittest.TestCase):
         complete_audit(self.package, "audit-a")
         complete_audit(self.package, "audit-b")
         seal_a_path = self.package / "audit-seals" / "audit-a.json"
-        seal_b = json.loads(
-            (self.package / "audit-seals" / "audit-b.json").read_text(
-                encoding="utf-8"
-            )
-        )
         first_seal = json.loads(seal_a_path.read_text(encoding="utf-8"))
         parent = first_seal["audit_seal_sha256"]
         current_seal_before = seal_a_path.read_bytes()
@@ -1065,11 +1192,11 @@ class V2WorkflowTests(unittest.TestCase):
             self.package,
             "audit-a",
             parent_seal_sha256=parent,
-            context_id="fresh-amendment-context-001",
-            receipt_id=seal_b["host_isolation_receipt"]["receipt_id"],
+            context_id=first_seal["independent_context_id"],
+            agent_id="fresh-amendment-agent-001",
         )
         with self.assertRaisesRegex(
-            ValueError, "host isolation receipt identity is already used"
+            ValueError, "audit amendment requires a fresh reasoning context"
         ):
             seal_audit(self.package, "audit-a", amendment_of=parent)
 
@@ -1077,11 +1204,11 @@ class V2WorkflowTests(unittest.TestCase):
             self.package,
             "audit-a",
             parent_seal_sha256=parent,
-            context_id=seal_b["independent_context_id"],
-            receipt_id="fresh-amendment-receipt-001",
+            context_id="fresh-amendment-context-001",
+            agent_id=first_seal["independent_agent_id"],
         )
         with self.assertRaisesRegex(
-            ValueError, "reasoning context identity is already used"
+            ValueError, "audit amendment requires a fresh agent"
         ):
             seal_audit(self.package, "audit-a", amendment_of=parent)
         self.assertFalse((self.package / "audit-seals" / "history").exists())
@@ -1093,7 +1220,7 @@ class V2WorkflowTests(unittest.TestCase):
             "audit-a",
             parent_seal_sha256=parent,
             context_id="fresh-amendment-context-001",
-            receipt_id="fresh-amendment-receipt-001",
+            agent_id="fresh-amendment-agent-001",
         )
         original_copy2 = cleanroom_audit.shutil.copy2
         for backup_name in ("prior-seal.json", "prior-audit.json"):
@@ -1260,7 +1387,7 @@ class V2WorkflowTests(unittest.TestCase):
             "audit-a",
             parent_seal_sha256=amended["audit_seal_sha256"],
             context_id="fresh-amendment-context-002",
-            receipt_id="fresh-amendment-receipt-002",
+            agent_id="fresh-amendment-agent-002",
         )
         with self.assertRaisesRegex(
             ValueError, "existing audit provenance failed before amendment"
@@ -1353,7 +1480,7 @@ class V2WorkflowTests(unittest.TestCase):
             "audit-a",
             parent_seal_sha256=parent,
             context_id="sharded-amendment-fresh-context-001",
-            receipt_id="sharded-amendment-fresh-receipt-001",
+            agent_id="sharded-amendment-fresh-agent-001",
         )
         forge_post_merge_audit_only_drift(self.package, "audit-a")
         with self.assertRaisesRegex(
@@ -1470,120 +1597,156 @@ class V2WorkflowTests(unittest.TestCase):
             external_snapshot.replace(current_snapshot)
         self.assertEqual([], sealed_audit_errors(self.package))
 
-    def test_neutral_verifier_cannot_reuse_a_source_audit_context(self) -> None:
+    def test_reconciliation_agent_and_context_are_distinct_from_both_audits(self) -> None:
+        for shared_field in ("agent", "context"):
+            with self.subTest(shared_field=shared_field):
+                package = self.root / f"reconciliation-shared-{shared_field}"
+                build_package(self.export, package)
+                complete_checkpoint(
+                    package, "audit-a", "audit-a-context", "audit-a-agent"
+                )
+                complete_checkpoint(
+                    package, "audit-b", "audit-b-context", "audit-b-agent"
+                )
+                complete_audit(package, "audit-a")
+                complete_audit(package, "audit-b")
+                kwargs = {
+                    "agent_id": (
+                        "audit-a-agent"
+                        if shared_field == "agent"
+                        else "reconciliation-agent"
+                    ),
+                    "context_id": (
+                        "audit-a-context"
+                        if shared_field == "context"
+                        else "reconciliation-context"
+                    ),
+                }
+                expected = (
+                    "reconciliation must use an agent distinct from scan assurance and both audits"
+                    if shared_field == "agent"
+                    else "reconciliation must use a context distinct from scan assurance and both audits"
+                )
+                with self.assertRaisesRegex(ValueError, expected):
+                    complete_base_reconciliation(package, **kwargs)
+
+    def test_neutral_rows_have_no_agent_context_or_receipt_fields(self) -> None:
         self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
         build_package(self.export, self.package)
-        complete_checkpoint(self.package, "audit-a", "neutral-source-a-checkpoint")
-        complete_checkpoint(self.package, "audit-b", "neutral-source-b-checkpoint")
+        complete_checkpoint(self.package, "audit-a", "neutral-a-context")
+        complete_checkpoint(self.package, "audit-b", "neutral-b-context")
         complete_audit(self.package, "audit-a", actionable_priority=True)
         complete_audit(self.package, "audit-b", actionable_priority=True)
-        audit_a_seal = json.loads(
-            (self.package / "audit-seals" / "audit-a.json").read_text(
-                encoding="utf-8"
-            )
+        complete_base_reconciliation(self.package)
+        neutral = json.loads(
+            (self.package / "neutral-verification.json").read_text(encoding="utf-8")
         )
-        with self.assertRaisesRegex(
-            ValueError, "(?:neutral context identity|reasoning context identity).*reused"
-        ):
-            complete_base_reconciliation(
-                self.package,
-                str(audit_a_seal["independent_context_id"]),
-            )
+        self.assertTrue(neutral["verifications"])
+        forbidden = {
+            "independent_agent_id",
+            "independent_context_id",
+            "host_isolation_receipt",
+            "receipt_id",
+        }
+        for row in neutral["verifications"]:
+            self.assertTrue(forbidden.isdisjoint(row))
 
-    def test_projection_neutral_cannot_reuse_prior_reasoning_context(self) -> None:
+    def test_projection_reviews_require_distinct_agents_and_contexts(self) -> None:
+        for shared_field in ("agent", "context"):
+            with self.subTest(shared_field=shared_field):
+                package = self.root / f"projection-shared-{shared_field}"
+                self.export.write_text(
+                    json.dumps(actionable_priority_export()), encoding="utf-8"
+                )
+                build_package(self.export, package)
+                complete_checkpoint(package, "audit-a", "projection-a-source")
+                complete_checkpoint(package, "audit-b", "projection-b-source")
+                complete_audit(package, "audit-a", actionable_priority=True)
+                complete_audit(package, "audit-b", actionable_priority=True)
+                complete_base_reconciliation(package)
+                compile_operation_packet(package)
+                result = start_fixed_point(package)
+                cycle = int(result["cycle"])
+                kwargs = {
+                    "review_agent_override": (
+                        f"fixture-projection-review-b-agent-{cycle:02d}"
+                        if shared_field == "agent"
+                        else None
+                    ),
+                    "review_context_override": (
+                        f"projection-b-context-{cycle:02d}"
+                        if shared_field == "context"
+                        else None
+                    ),
+                }
+                expected = (
+                    "projection reviews reuse one agent"
+                    if shared_field == "agent"
+                    else "projection reviews reuse one reasoning context"
+                )
+                with self.assertRaisesRegex(ValueError, expected):
+                    complete_projection_cycle(package, cycle, **kwargs)
+
+    def test_projection_review_rejects_wrong_input_manifest(self) -> None:
         self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
         build_package(self.export, self.package)
-        complete_checkpoint(self.package, "audit-a", "projection-source-a-checkpoint")
-        complete_checkpoint(self.package, "audit-b", "projection-source-b-checkpoint")
+        complete_checkpoint(self.package, "audit-a", "projection-manifest-a")
+        complete_checkpoint(self.package, "audit-b", "projection-manifest-b")
         complete_audit(self.package, "audit-a", actionable_priority=True)
         complete_audit(self.package, "audit-b", actionable_priority=True)
         complete_base_reconciliation(self.package)
         compile_operation_packet(self.package)
         result = start_fixed_point(self.package)
-        self.assertEqual("awaiting_projection_reviews", result["status"])
-        audit_a_context = json.loads(
-            (self.package / "audit-seals" / "audit-a.json").read_text(
-                encoding="utf-8"
-            )
-        )["independent_context_id"]
-        with self.assertRaisesRegex(ValueError, "neutral context identity is reused"):
+        with self.assertRaisesRegex(ValueError, "not bound to this review bundle"):
             complete_projection_cycle(
                 self.package,
                 int(result["cycle"]),
-                str(audit_a_context),
-                force_neutral=True,
+                review_input_manifest_override="f" * 64,
             )
 
-    def _assert_projection_review_rejects_base_neutral_identity(
-        self, identity_kind: str
-    ) -> None:
-        package = self.root / f"projection-{identity_kind}-reuse"
-        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
-        build_package(self.export, package)
-        complete_checkpoint(package, "audit-a", f"{identity_kind}-source-a-context")
-        complete_checkpoint(package, "audit-b", f"{identity_kind}-source-b-context")
-        complete_audit(package, "audit-a", actionable_priority=True)
-        complete_audit(package, "audit-b", actionable_priority=True)
-        complete_base_reconciliation(package)
-        neutral = json.loads(
-            (package / "neutral-verification.json").read_text(encoding="utf-8")
-        )
-        self.assertTrue(neutral["verifications"])
-        prior = neutral["verifications"][0]
-        compile_operation_packet(package)
-        result = start_fixed_point(package)
-        self.assertEqual("awaiting_projection_reviews", result["status"])
-        kwargs = {
-            "review_context_override": prior["independent_context_id"]
-            if identity_kind == "context"
-            else None,
-            "review_receipt_override": prior["host_isolation_receipt"]["receipt_id"]
-            if identity_kind == "receipt"
-            else None,
-        }
-        expected = (
-            "reasoning context identity is already used"
-            if identity_kind == "context"
-            else "host isolation receipt identity is already used"
-        )
-        with self.assertRaisesRegex(ValueError, expected):
-            complete_projection_cycle(
-                package,
-                int(result["cycle"]),
-                **kwargs,
-            )
+    def test_projection_reconciliation_is_distinct_from_both_reviews(self) -> None:
+        for shared_field in ("agent", "context"):
+            with self.subTest(shared_field=shared_field):
+                package = self.root / f"projection-reconciliation-{shared_field}"
+                self.export.write_text(
+                    json.dumps(actionable_priority_export()), encoding="utf-8"
+                )
+                build_package(self.export, package)
+                complete_checkpoint(package, "audit-a", "projection-rec-a")
+                complete_checkpoint(package, "audit-b", "projection-rec-b")
+                complete_audit(package, "audit-a", actionable_priority=True)
+                complete_audit(package, "audit-b", actionable_priority=True)
+                complete_base_reconciliation(package)
+                compile_operation_packet(package)
+                result = start_fixed_point(package)
+                cycle = int(result["cycle"])
+                kwargs = {
+                    "reconciliation_agent_override": (
+                        f"fixture-projection-review-a-agent-{cycle:02d}"
+                        if shared_field == "agent"
+                        else None
+                    ),
+                    "reconciliation_context_override": (
+                        f"projection-a-context-{cycle:02d}"
+                        if shared_field == "context"
+                        else None
+                    ),
+                }
+                expected = (
+                    "projection reconciliation must use a distinct agent"
+                    if shared_field == "agent"
+                    else "projection reconciliation must use a distinct context"
+                )
+                with self.assertRaisesRegex(ValueError, expected):
+                    complete_projection_cycle(package, cycle, **kwargs)
 
-    def test_projection_review_cannot_reuse_base_neutral_context(self) -> None:
-        self._assert_projection_review_rejects_base_neutral_identity("context")
-
-    def test_projection_review_cannot_reuse_base_neutral_receipt(self) -> None:
-        self._assert_projection_review_rejects_base_neutral_identity("receipt")
-
-    def test_editorial_amendment_cannot_reuse_source_audit_context(self) -> None:
+    def test_editorial_artifact_has_no_agent_context_identity(self) -> None:
         self.run_actionable_to_editorial()
         editorial_path = self.package / "delivery" / "editorial.json"
         editorial = json.loads(editorial_path.read_text(encoding="utf-8"))
-        source_seal = json.loads(
-            (self.package / "audit-seals" / "audit-a.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        current_seal = json.loads(
-            (self.package / "delivery" / "editorial-seal.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        editorial["independent_context_id"] = source_seal["independent_context_id"]
-        editorial_path.write_text(
-            json.dumps(editorial, indent=2) + "\n", encoding="utf-8"
-        )
-        with self.assertRaisesRegex(
-            ValueError, "reasoning context identity is already used"
-        ):
-            seal_editorial(
-                self.package,
-                amendment_of=current_seal["editorial_seal_sha256"],
-            )
+        self.assertNotIn("independent_agent_id", editorial)
+        self.assertNotIn("independent_context_id", editorial)
+        self.assertNotIn("host_isolation_receipt", editorial)
 
     def test_next_cycle_failure_preserves_packet_and_projection_decisions(self) -> None:
         self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
@@ -2069,6 +2232,139 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(verification["comment_checks"])
         self.assertTrue(all(row["status"] == "pass" for row in verification["comment_checks"]))
         scaffold_delivery_reviews(self.package)
+        for bundle_name, review_name, expected_error in (
+            (
+                "fidelity",
+                "fidelity-review.json",
+                "fidelity workbook copy differs from the authoritative workbook",
+            ),
+            (
+                "reader",
+                "reader-review.json",
+                "reader workbook copy differs from the authoritative workbook",
+            ),
+        ):
+            review_dir = build_dir / "reviews" / bundle_name
+            workbook_copy = review_dir / "workbook.xlsx"
+            review_manifest_path = review_dir / "bundle-manifest.json"
+            review_path = review_dir / review_name
+            workbook_before = workbook_copy.read_bytes()
+            review_manifest_before = review_manifest_path.read_bytes()
+            review_before = review_path.read_bytes()
+            workbook_copy.write_bytes(workbook_before + b"forged-workbook-copy")
+            review_manifest = json.loads(review_manifest_before)
+            for locked_file in review_manifest["locked_files"]:
+                if locked_file["path"] == "workbook.xlsx":
+                    locked_file["sha256"] = file_sha256(workbook_copy)
+            review_manifest["bundle_manifest_sha256"] = stable_hash(
+                {
+                    key: value
+                    for key, value in review_manifest.items()
+                    if key != "bundle_manifest_sha256"
+                },
+                64,
+            )
+            review_manifest_path.write_text(
+                json.dumps(review_manifest, indent=2) + "\n", encoding="utf-8"
+            )
+            review = json.loads(review_before)
+            review["input_manifest_sha256"] = review_manifest[
+                "bundle_manifest_sha256"
+            ]
+            review_path.write_text(
+                json.dumps(review, indent=2) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, expected_error):
+                seal_delivery(self.package)
+            workbook_copy.write_bytes(workbook_before)
+            review_manifest_path.write_bytes(review_manifest_before)
+            review_path.write_bytes(review_before)
+
+        reader_dir = build_dir / "reviews" / "reader"
+        reader_manifest_path = reader_dir / "bundle-manifest.json"
+        reader_review_path = reader_dir / "reader-review.json"
+
+        def rebind_reader_input(relative_path: str) -> None:
+            review_manifest = json.loads(
+                reader_manifest_path.read_text(encoding="utf-8")
+            )
+            for locked_file in review_manifest["locked_files"]:
+                if locked_file["path"] == relative_path:
+                    locked_file["sha256"] = file_sha256(reader_dir / relative_path)
+            review_manifest["bundle_manifest_sha256"] = stable_hash(
+                {
+                    key: value
+                    for key, value in review_manifest.items()
+                    if key != "bundle_manifest_sha256"
+                },
+                64,
+            )
+            reader_manifest_path.write_text(
+                json.dumps(review_manifest, indent=2) + "\n", encoding="utf-8"
+            )
+            reader_review = json.loads(
+                reader_review_path.read_text(encoding="utf-8")
+            )
+            reader_review["input_manifest_sha256"] = review_manifest[
+                "bundle_manifest_sha256"
+            ]
+            reader_review_path.write_text(
+                json.dumps(reader_review, indent=2) + "\n", encoding="utf-8"
+            )
+
+        authoritative_audience_path = self.package / "delivery" / "audience-brief.json"
+        reader_audience_path = reader_dir / "audience-brief.json"
+        audience_before = authoritative_audience_path.read_bytes()
+        reader_audience_before = reader_audience_path.read_bytes()
+        reader_manifest_before = reader_manifest_path.read_bytes()
+        reader_review_before = reader_review_path.read_bytes()
+        forged_audience = json.loads(audience_before)
+        forged_audience["primary_audience"] = "Forged reader audience"
+        forged_audience["audience_brief_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in forged_audience.items()
+                if key != "audience_brief_sha256"
+            },
+            64,
+        )
+        forged_audience_bytes = (
+            json.dumps(forged_audience, indent=2) + "\n"
+        ).encode("utf-8")
+        authoritative_audience_path.write_bytes(forged_audience_bytes)
+        reader_audience_path.write_bytes(forged_audience_bytes)
+        rebind_reader_input("audience-brief.json")
+        with self.assertRaisesRegex(
+            ValueError, "reader audience brief differs from canonical reconstruction"
+        ):
+            seal_delivery(self.package)
+        authoritative_audience_path.write_bytes(audience_before)
+        reader_audience_path.write_bytes(reader_audience_before)
+        reader_manifest_path.write_bytes(reader_manifest_before)
+        reader_review_path.write_bytes(reader_review_before)
+
+        preview_record = build_manifest["previews"][0]
+        authoritative_preview_path = self.package / preview_record["path"]
+        preview_relative = authoritative_preview_path.relative_to(
+            build_dir / "previews"
+        )
+        reader_preview_path = reader_dir / "previews" / preview_relative
+        preview_before = authoritative_preview_path.read_bytes()
+        reader_preview_before = reader_preview_path.read_bytes()
+        reader_manifest_before = reader_manifest_path.read_bytes()
+        reader_review_before = reader_review_path.read_bytes()
+        forged_preview = preview_before + b"forged-preview"
+        authoritative_preview_path.write_bytes(forged_preview)
+        reader_preview_path.write_bytes(forged_preview)
+        rebind_reader_input(f"previews/{preview_relative.as_posix()}")
+        with self.assertRaisesRegex(
+            ValueError, "authoritative previews differ from the workbook build manifest"
+        ):
+            seal_delivery(self.package)
+        authoritative_preview_path.write_bytes(preview_before)
+        reader_preview_path.write_bytes(reader_preview_before)
+        reader_manifest_path.write_bytes(reader_manifest_before)
+        reader_review_path.write_bytes(reader_review_before)
         fidelity_manifest_path = (
             build_dir / "reviews" / "fidelity" / "bundle-manifest.json"
         )
@@ -2096,6 +2392,45 @@ class V2WorkflowTests(unittest.TestCase):
             seal_delivery(self.package)
         self.assertEqual(outside_workbook_before, outside_workbook.read_bytes())
         fidelity_manifest_path.write_bytes(fidelity_manifest_before)
+        fidelity_input_path = (
+            build_dir / "reviews" / "fidelity" / "fidelity-input.json"
+        )
+        fidelity_input_before = fidelity_input_path.read_bytes()
+        fidelity_manifest_before = fidelity_manifest_path.read_bytes()
+        fidelity_input = json.loads(fidelity_input_before)
+        fidelity_input["review_contract"] = "forged but internally rehashed"
+        fidelity_input["fidelity_input_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in fidelity_input.items()
+                if key != "fidelity_input_sha256"
+            },
+            64,
+        )
+        fidelity_input_path.write_text(
+            json.dumps(fidelity_input, indent=2) + "\n", encoding="utf-8"
+        )
+        fidelity_manifest = json.loads(fidelity_manifest_before)
+        for locked_file in fidelity_manifest["locked_files"]:
+            if locked_file["path"] == "fidelity-input.json":
+                locked_file["sha256"] = file_sha256(fidelity_input_path)
+        fidelity_manifest["bundle_manifest_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in fidelity_manifest.items()
+                if key != "bundle_manifest_sha256"
+            },
+            64,
+        )
+        fidelity_manifest_path.write_text(
+            json.dumps(fidelity_manifest, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "fidelity input differs from canonical reconstruction"
+        ):
+            seal_delivery(self.package)
+        fidelity_input_path.write_bytes(fidelity_input_before)
+        fidelity_manifest_path.write_bytes(fidelity_manifest_before)
         complete_delivery_reviews(self.package)
         reader_path = (
             self.package
@@ -2106,33 +2441,58 @@ class V2WorkflowTests(unittest.TestCase):
             / "reader-review.json"
         )
         reader = json.loads(reader_path.read_text(encoding="utf-8"))
+        fidelity_path = reader_path.parents[1] / "fidelity" / "fidelity-review.json"
+        fidelity = json.loads(fidelity_path.read_text(encoding="utf-8"))
+        original_agent = reader["independent_agent_id"]
         original_context = reader["independent_context_id"]
-        original_receipt = reader["host_isolation_receipt"]["receipt_id"]
-        source_seal = json.loads(
-            (self.package / "audit-seals" / "audit-a.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        reader["host_isolation_receipt"]["receipt_id"] = source_seal[
-            "host_isolation_receipt"
-        ]["receipt_id"]
+        original_manifest = reader["input_manifest_sha256"]
+        reader["independent_agent_id"] = fidelity["independent_agent_id"]
         reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(
-            ValueError, "host isolation receipt identity is already used"
+            ValueError, "fidelity and reader reviews must use different agents"
         ):
             seal_delivery(self.package)
-        reader["host_isolation_receipt"]["receipt_id"] = original_receipt
-        reader["independent_context_id"] = source_seal["independent_context_id"]
+        reader["independent_agent_id"] = original_agent
+        reader["independent_context_id"] = fidelity["independent_context_id"]
         reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(
-            ValueError, "reasoning context identity is already used"
+            ValueError, "fidelity and reader reviews must use different contexts"
         ):
             seal_delivery(self.package)
         reader["independent_context_id"] = original_context
+        reader["input_manifest_sha256"] = "f" * 64
+        reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            ValueError, "reader review is not bound to its review bundle"
+        ):
+            seal_delivery(self.package)
+        reader["input_manifest_sha256"] = original_manifest
         reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
         result = seal_delivery(self.package)
         self.assertEqual(result["status"], "pass")
         self.assertTrue(Path(result["workbook"]).is_file())
+        delivery_manifest = json.loads(
+            (build_dir / "delivery-manifest.json").read_text(encoding="utf-8")
+        )
+        delivery_seal = json.loads(
+            (build_dir / "delivery-seal.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            file_sha256(fidelity_path),
+            delivery_manifest["fidelity_review_file_sha256"],
+        )
+        self.assertEqual(
+            file_sha256(reader_path),
+            delivery_manifest["reader_review_file_sha256"],
+        )
+        self.assertEqual(
+            delivery_manifest["fidelity_review_file_sha256"],
+            delivery_seal["fidelity_review_file_sha256"],
+        )
+        self.assertEqual(
+            delivery_manifest["reader_review_file_sha256"],
+            delivery_seal["reader_review_file_sha256"],
+        )
 
 
 if __name__ == "__main__":

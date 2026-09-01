@@ -97,7 +97,6 @@ CODE_ONLY_PYTHON_COVERAGE_MINIMUMS = {
     "scripts/gtm_optimization_facts.py": 86,
     "scripts/gtm_privacy.py": 76,
     "scripts/gtm_projection_review.py": 69,
-    "scripts/gtm_reasoning_identity.py": 88,
     "scripts/gtm_reconciliation.py": 66,
     "scripts/gtm_relationships.py": 69,
     "scripts/gtm_requirement_evidence.py": 95,
@@ -112,7 +111,6 @@ CODE_ONLY_PYTHON_COVERAGE_MINIMUMS = {
 RELEASE_COMPLETE_COVERAGE_OVERRIDES = {
     "scripts/gtm_delivery_mapper.py": 70,
     "scripts/gtm_delivery_reviews.py": 70,
-    "scripts/gtm_reasoning_identity.py": 93,
     "scripts/gtm_self_test.py": 85,
 }
 TOTAL_COVERAGE_MINIMUMS = {

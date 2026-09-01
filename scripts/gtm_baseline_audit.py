@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build internal deterministic operational candidate evidence.
 
-The canonical v2.1 scan consumes these neutral candidates.  This module does not
+The canonical v2.2 scan consumes these neutral candidates.  This module does not
 own semantic verdicts and no longer exposes the standalone v1 scan command.
 """
 

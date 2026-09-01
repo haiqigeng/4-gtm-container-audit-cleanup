@@ -2519,6 +2519,8 @@ def assure_scan(
     scan: dict[str, Any],
     *,
     vendor_registry_path: Path,
+    independent_agent_id: str | None = None,
+    independent_context_id: str | None = None,
 ) -> dict[str, Any]:
     _data, cv, root_path = _raw_data(export_path)
     objects = _object_rows(cv, root_path)
@@ -2792,6 +2794,16 @@ def assure_scan(
         "status": status,
         "source_sha256": file_sha256(export_path),
         "canonical_scan_sha256": scan.get("canonical_scan_sha256"),
+        "independent_agent_id": str(independent_agent_id or ""),
+        "independent_context_id": str(independent_context_id or ""),
+        "input_manifest_sha256": stable_hash(
+            {
+                "source_sha256": file_sha256(export_path),
+                "canonical_scan_sha256": scan.get("canonical_scan_sha256"),
+                "vendor_registry_sha256": file_sha256(vendor_registry_path),
+            },
+            64,
+        ),
         "checks": checks,
         "recomputed_invariants": {
             "reference_edges": reference_edges,
@@ -2823,12 +2835,16 @@ def main() -> int:
     parser.add_argument("scan", type=Path)
     parser.add_argument("--vendor-registry", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--agent-id", required=True)
+    parser.add_argument("--context-id", required=True)
     args = parser.parse_args()
     scan = json.loads(args.scan.read_text(encoding="utf-8"))
     result = assure_scan(
         args.export,
         scan,
         vendor_registry_path=args.vendor_registry,
+        independent_agent_id=args.agent_id,
+        independent_context_id=args.context_id,
     )
     write_json(args.out, result)
     print(json.dumps({"status": result["status"], "checks": result["checks"]}))

@@ -10,13 +10,15 @@
 
 ## Evidence And Scan
 
-- Source, context, skill, contract, and registry identities are locked.
+- Source, context, skill, contract, and vendor-registry identities are locked.
 - Every supported entity layer and object ID is accounted for.
 - The canonical scan covers every applicable clause in areas 1–26 and records
   source-counted zero where appropriate.
 - Independent raw-source assurance passes for object, reference, variable,
   trigger, settings, consent, route, code segment, vendor, candidate, ownership,
   branch/relationship, and coverage identities.
+- Scan assurance runs in a separate fresh agent context and records its agent/
+  context labels plus exact locked input and output hashes.
 - Explicit route fields and Google settings-owner references resolve every
   candidate variable-backed host, while unrelated URL-bearing variables remain
   outside route topology; Areas 12–13 follow that effective result.
@@ -35,8 +37,11 @@
 
 ## Independent Audit And Reconciliation
 
-- Audit A and Audit B use different allowlisted bundles, context IDs, and
-  host-issued isolation receipts bound to their exact bundle manifests.
+- Audit A and Audit B run in separate fresh agent contexts over separate locked
+  input bundles, use distinct agent/context labels, and record exact input and
+  output hashes.
+- Neither audit receives peer findings, discoveries, rationale, scratch work, or
+  target proposals until both audits are complete and sealed.
 - Both seal source-only checkpoints before approved external requirements; Audit
   B is also generated-candidate-blind before its checkpoint.
 - Each audit completes every applicable semantic obligation and its global
@@ -47,11 +52,11 @@
 - Reconciliation scaffolds and the neutral queue are deterministically rebuilt
   from both sealed audits, use closed recursive schemas, contain no expected-
   answer hints, and exactly match before authored dispositions are accepted.
-- Every mandatory material class receives fresh neutral verification without
-  audit identity, rationale, votes, or expected result.
-- Every neutral result has a unique host-scoped context and receipt bound to its
-  exact bundle hash; no source, peer-neutral, projection-review, or prior-cycle
-  reasoning context is accessible or reused.
+- Reconciliation runs in a separate fresh agent context after both audits are
+  sealed and exposes agreements, complementary findings, one-sided findings,
+  conflicts, and evidence-boundary differences without voting.
+- That fresh reconciliation agent performs neutral review for every mandatory
+  material class and records its labels plus exact locked input/output hashes.
 
 ## Target Closure
 
@@ -67,8 +72,9 @@
   with another write, depends on an unknown ID, or deletes before required remaps.
 - Each projection begins from the locked original, applies the full packet, and
   passes global scan plus independent assurance.
-- Every new/changed projected obligation receives two isolated reviews and any
-  required neutral check.
+- Every materially changed projected obligation receives two fresh-agent reviews
+  whose inputs exclude peer findings; their sealed results are reconciled in a
+  separate fresh context.
 - Stability occurs in at most three cycles and deterministic replay reproduces
   every stable hash; otherwise the result is `non_convergent_target_state`.
 - Replay independently reconstructs the projected container, scan, assurance,
@@ -97,12 +103,12 @@
 - Recovery rebuild matches normalized sheets, cells, formulas, comments,
   navigation text, and dimensions; imported comment text, location, and count
   also match.
-- Independent fidelity and workbook-only reader reviews pass.
-- One ownership-aware registry proves that no different source, neutral,
-  projection, editorial, fidelity, or reader review owner reused a reasoning
-  context or host-isolation receipt anywhere in the workflow.
+- Independent fidelity and workbook-only reader reviews run in separate fresh
+  agent contexts, receive only their declared locked inputs, and pass.
+- Lightweight provenance records agent/context labels plus locked input/output
+  hashes. Labels are distinct where peers must be independent.
 - Source checkpoints are immutable after sealing. A pre-canonical audit
-  amendment succeeds only with fresh globally unused identities, explicit prior-
+  amendment succeeds only with a fresh agent context, explicit prior-
   seal binding, unchanged checkpoint provenance, an exact immutable work-unit
   snapshot for every sealed sequence, and append-only prior history. Every
   predecessor validates against its own snapshot; every unit's explicit immutable
@@ -128,9 +134,10 @@
 
 ## Automatic Failure
 
-Fail or block on partial/ambiguous evidence, assurance mismatch, missing audit
-isolation, incomplete obligations, foreign verdict access, unresolved neutral
-work, reused context or receipt identity, semantic invention during
+Fail or block on partial/ambiguous evidence, assurance mismatch, unavailable
+required fresh agent contexts, peer findings supplied before independent audits
+or reviews are sealed, incomplete obligations, unresolved reconciliation or
+neutral work, invalid provenance hashes, semantic invention during
 synthesis/delivery, operation conflict, a partial candidate cycle,
 non-convergence, invalid successor lineage, canonical drift, workbook row drift,
 missing delivery coverage, dirty release provenance, privacy/formula risk,

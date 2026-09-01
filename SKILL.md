@@ -1,6 +1,6 @@
 ---
 name: gtm-container-audit-optimize
-description: Audit and optimize one complete Google Tag Manager web container from user-supplied locked JSON or equivalent read-only evidence, using an independently assured canonical scan, two host-scoped complete semantic audits, neutral reconciliation, deterministic fixed-point target validation, and one human analyst workbook. Use for web-container defects, duplicates, configuration, consent/routing, web-side client-to-server transport, Google settings inheritance, trigger/blocker architecture, firing priority, custom code, naming, consolidation, and greenfield-quality target design. Do not use for server-container exports or objects, GTM Preview or browser/runtime QA, tracking-plan design, legal decisions, GTM mutation/import/version/publication, execution approval, change logs, or audit deltas.
+description: Audit and optimize one complete Google Tag Manager web container from user-supplied locked JSON or equivalent read-only evidence, using a deterministic canonical scan, fresh-agent scan assurance, two complete independent semantic audits, fresh-agent reconciliation, deterministic fixed-point target validation, and one human analyst workbook. Use for web-container defects, duplicates, configuration, consent/routing, web-side client-to-server transport, Google settings inheritance, trigger/blocker architecture, firing priority, custom code, naming, consolidation, and greenfield-quality target design. Do not use for server-container exports or objects, GTM Preview or browser/runtime QA, tracking-plan design, legal decisions, GTM mutation/import/version/publication, execution approval, change logs, or audit deltas.
 ---
 
 # GTM Container Audit And Optimize
@@ -88,8 +88,9 @@ export and do not model server-container Clients, Transformations, or templates.
 Audit the web-container side of client-to-server transport and consent forwarding,
 then state downstream server-container processing as outside this skill's evidence.
 
-Build a new package with `scripts/gtm_audit_package_build.py`. Package creation
-must pass runtime identity and independent raw-source scan assurance before any
+Produce scan assurance in its required fresh agent context, then build a new
+package with `scripts/gtm_audit_package_build.py` using that artifact. Package
+creation reconstructs and validates the complete assurance result before any
 semantic review. Never overwrite an existing package.
 
 When a version-sensitive product, template, CMP, or vendor rule is absent or
@@ -102,9 +103,12 @@ validated, start a new audit package rather than changing an in-flight package.
 ### 2. Preserve Fact/Judgment Separation
 
 Treat `canonical-scan.json` and `scan-assurance.json` as neutral evidence. The
-scanner may generate candidates; it may not decide correctness, necessity,
-priority, consolidation, or target architecture. The independent assurance path
-must reread raw source and pass every applicable critical identity.
+canonical scan is deterministic. The scanner may generate candidates; it may not
+decide correctness, necessity, priority, consolidation, or target architecture.
+Run scan assurance in a separate fresh agent context that receives the locked raw
+source, assurance rules, and canonical scan identity but no semantic findings. It
+must reread raw source and pass every applicable critical identity. Record its
+agent/context labels plus locked input and output hashes.
 
 Use the typed `obligation-ledger.json`. Every object, chain, family,
 relationship, singleton, source-owned branch/leaf/recursive trace, executable
@@ -112,17 +116,14 @@ code segment, and container-level method receives work or a source-counted zero.
 Area 1 closes through evidence and assurance status, areas 2–26 through the two
 semantic audits, and area 27 through synthesis and fixed-point proof.
 
-### 3. Run Two Host-Scoped Complete Audits
+### 3. Run Two Complete Independent Audits
 
-Run Audit A and Audit B concurrently in separate fresh contexts over separate
-allowlisted bundles created by `scripts/gtm_cleanroom_audit.py`. The execution
-host must allow each context to read its own bundle and the version-locked shared
-skill rules, while making the peer bundle and prohibited downstream artifacts
-inaccessible. It issues the receipt bound to the exact bundle manifest. The
-validator proves receipt-field consistency, bundle integrity, and distinct
-context identities. The receipt is traceability metadata; neither it nor the
-validator proves host access control. The orchestrator coordinates but authors
-neither audit.
+Run Audit A and Audit B concurrently in separate fresh agent contexts over
+separate locked input bundles created by `scripts/gtm_cleanroom_audit.py`. Both
+may receive the same locked source facts, audit contract, and version-locked
+skill rules. Neither may receive the peer's findings, discoveries, rationale,
+scratch work, or target proposals until both audits are complete and sealed. The
+orchestrator coordinates but authors neither audit.
 
 Audit A traverses object/chain first; Audit B traverses family/target first. Both
 complete every applicable semantic obligation in areas 2–26 and close object,
@@ -133,18 +134,15 @@ Each audit seals its source-only checkpoint before approved requirement evidence
 is released. Audit B is also generated-candidate-blind before its checkpoint.
 Later inputs may add work but may not rewrite checkpointed discovery.
 
-Treat every reasoning-context ID and host-isolation receipt ID as a workflow-wide
-single-use identity. The checkpoint and initial seal of one source audit may
-retain their shared identity because they are one continuous review owner; no
-different source audit, neutral verifier, projection review, editorial pass,
-fidelity review, or workbook-only reader may reuse either ID. Enforce this with
-the shared registry in `scripts/gtm_reasoning_identity.py`, including immutable
-history and prior workbook builds.
+Record lightweight provenance for each audit: an agent label, a context label,
+the locked input-bundle hash, and the sealed output hash. Audit A and Audit B
+must use distinct agent and context labels.
 
 Use deterministic family work units and one shared-infrastructure unit when the
 bundle requires sharding. Never reduce evidence or reviewer count for context
-size. Validate and immutably seal both audits. If host-enforced isolation is
-unavailable, block.
+size. Validate and immutably seal both audits. If the AI environment cannot run
+the required separate fresh agent contexts, block with a concise capability
+message.
 
 ### 4. Reconcile And Verify Neutrally
 
@@ -157,14 +155,13 @@ Treat reconciliation scaffolds and neutral queues as deterministic views, never
 as authority. Finalisation reconstructs them from the two sealed audits and
 requires exact equality before it accepts authored dispositions.
 
-Send every disagreement, one-sided finding, and material-risk class listed in
-the workflow reference to a fresh neutral verifier. The neutral input excludes
-audit identity, rationale, vote count, and expected answer. It may confirm,
-narrow, reject, or keep blocked; it cannot invent a third actionable target.
-Each neutral verifier receives one hash-bound allowlisted bundle in a host-scoped
-context with an enforced receipt. Its context and receipt identities must be new
-relative to source checkpoints, source audits, peer neutrals, projection reviews,
-and every prior cycle. If the host cannot enforce that boundary, block.
+Run reconciliation in a separate fresh agent context after both audits are
+complete. Its locked input contains both sealed audits and the evidence required
+to resolve them. It compares every disagreement, one-sided finding, and material-
+risk class listed in the workflow reference. This fresh reconciliation agent may
+perform the neutral review itself: it may confirm, narrow, reject, or keep a
+decision blocked, but cannot invent a third actionable target. Record its agent
+and context labels plus locked input and sealed output hashes.
 
 ### 5. Synthesize And Prove The Target
 
@@ -176,8 +173,10 @@ not introduce a new semantic choice.
 
 Use `scripts/gtm_fixed_point.py` and `scripts/gtm_projection_review.py`. Every
 cycle starts from the locked original, applies the complete packet, reruns global
-scan and independent assurance, and sends new/changed semantic obligations to two
-fresh host-scoped reviews plus required neutral checks. Permit at most three cycles.
+scan and independent assurance, and sends every materially changed semantic
+obligation to two fresh review agents. The two review agents receive the same
+locked projected evidence but not each other's findings; reconcile their sealed
+results in a fresh context. Permit at most three cycles.
 Block as `non_convergent_target_state` on cycle-three actionability, recurring
 actionable hashes, oscillation, conflicts, or no exact safe operation.
 Construct each next cycle in staging and commit its decision record, operation
@@ -204,9 +203,8 @@ The delivery map must be an exact deterministic projection of the independently
 reconstructed canonical record; workbook fidelity is checked against that same
 authority, not against a mutable delivery artifact.
 
-Run the editorial transformation in a fresh context. It may improve declared
+Run the editorial transformation after canonical sealing. It may improve declared
 prose fields only and must preserve every technical identifier and locked meaning.
-Its context must also be fresh against every earlier workflow owner.
 
 Use the workspace spreadsheet artifact runtime and the bundled
 `scripts/gtm_workbook_build.mjs`; verify with
@@ -216,9 +214,9 @@ of authoring through another library. The workbook has `01 Overview`,
 Code` only when source-applicable.
 
 Use `scripts/gtm_delivery_reviews.py` to create separately scoped fidelity and
-workbook-only reader checks. Render and visually inspect every visible sheet.
-Both checks require workflow-globally fresh contexts and host receipts, not only
-identities distinct from each other and the editorial pass.
+workbook-only reader checks. Run them in separate fresh agent contexts with
+distinct labels and locked inputs; neither receives the other's findings. Record
+each input and output hash. Render and visually inspect every visible sheet.
 Pass exact row/field recovery, comments/navigation/dimensions, absence of
 unexpected formulas or renderer artifacts, privacy, formula injection, fidelity,
 readability, and layout checks before sealing delivery.
@@ -269,8 +267,8 @@ and ownership compatibility determine the verdict.
 
 ## Repair And Completion
 
-Sealed semantic artifacts are immutable. An amendment uses a fresh context bound
-to the prior seal in both the audit artifact and its new host receipt, preserves
+Sealed semantic artifacts are immutable. An amendment uses a fresh agent context
+bound to the prior seal in the audit artifact, preserves
 the immutable source checkpoint, seals an exact immutable snapshot of every
 work-unit input used by that audit version, and writes append-only history before
 canonical sealing. Every current or historical audit is revalidated against its

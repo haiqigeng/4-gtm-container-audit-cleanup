@@ -197,6 +197,7 @@ def build_package(
     requirements_path: Path | None = None,
     predecessor_record_path: Path | None = None,
     repair_brief_path: Path | None = None,
+    scan_assurance_path: Path | None = None,
 ) -> dict[str, Any]:
     skill_root = Path(__file__).resolve().parents[1]
     identity_report, identity_errors = declared_identity_errors(skill_root)
@@ -207,6 +208,10 @@ def build_package(
         )
     if not export_path.is_file():
         raise RuntimeError(f"confirmed GTM source does not exist: {export_path}")
+    if scan_assurance_path is None or not scan_assurance_path.is_file():
+        raise RuntimeError(
+            "package creation requires a separately produced scan-assurance artifact"
+        )
     _ensure_empty_directory(out_dir)
 
     scan_result = build_canonical_scan(
@@ -227,11 +232,24 @@ def build_package(
             "locked vendor registry is invalid or stale: "
             + "; ".join([*registry_errors, *registry_warnings])
         )
-    assurance = assure_scan(
+    assurance = json.loads(scan_assurance_path.read_text(encoding="utf-8"))
+    assurance_agent_id = str(assurance.get("independent_agent_id") or "").strip()
+    assurance_context_id = str(assurance.get("independent_context_id") or "").strip()
+    if not assurance_agent_id or not assurance_context_id:
+        raise RuntimeError(
+            "scan-assurance artifact requires fresh agent and context labels"
+        )
+    expected_assurance = assure_scan(
         export_path,
         scan,
         vendor_registry_path=registry_path,
+        independent_agent_id=assurance_agent_id,
+        independent_context_id=assurance_context_id,
     )
+    if assurance != expected_assurance:
+        raise RuntimeError(
+            "scan-assurance artifact differs from independent raw-source reconstruction"
+        )
     if assurance.get("status") != "pass":
         mismatch_ids = [
             str(row.get("check_id") or "unknown")
@@ -402,7 +420,7 @@ def build_package(
         "required_next_steps": [
             "Complete and seal the source-only checkpoint in audit-a.",
             "Independently complete and seal the candidate-blind source checkpoint in audit-b.",
-            "Complete every released obligation in two host-scoped audit contexts.",
+            "Complete every released obligation with two separate fresh agents and contexts.",
             "Validate and seal both audits before reconciliation.",
             *(
                 [
@@ -430,6 +448,7 @@ def main() -> int:
     parser.add_argument("--requirements", type=Path)
     parser.add_argument("--supersedes-canonical-record", type=Path)
     parser.add_argument("--semantic-repair-brief", type=Path)
+    parser.add_argument("--scan-assurance", type=Path, required=True)
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
     try:
@@ -441,6 +460,7 @@ def main() -> int:
             args.requirements,
             args.supersedes_canonical_record,
             args.semantic_repair_brief,
+            args.scan_assurance,
         )
     except (RuntimeError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "blocked", "errors": [str(exc)]}))
