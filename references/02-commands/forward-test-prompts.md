@@ -67,6 +67,9 @@ Measure:
   snapshot symlinks, NTFS junctions, reparse points, and resolved path escapes;
 - rejection of initial or amended audit-only decision/discovery drift even after
   every completion hash inside the mutable audit is recomputed;
+- rejection of audit-history and ancestor seal-root junction escapes before any
+  external write, plus rejection of malformed, duplicate, non-object, unknown,
+  or self-rehashed nested completion evidence;
 - exact operation validity, dependency safety, target coherence, and fixed-point
   convergence/non-convergence blocking, with byte-identical rollback after a
   failed candidate cycle;

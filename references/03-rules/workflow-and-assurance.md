@@ -125,7 +125,11 @@ the exact sorted decisions and ordered discoveries from all declared units and
 compare that result directly with the candidate or sealed audit; hashes stored in
 the audit are supporting evidence, never the derivation proof. A
 closed manifest, record, and work-unit schema rejects undeclared context before
-merge or sealing. A
+merge or sealing. The nested decision, discovery, and completed-unit lists reject
+non-object and duplicate rows, and the complete proof must equal one exact
+reconstructed object. Seal, history, snapshot, bundle, and canonical-audit roots
+must remain direct regular children of the package; no ancestor junction may
+redirect reads or writes. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
 closes this amendment path; later semantic repair uses a successor package.
 Stage the new audit, new seal, immutable work-unit snapshot, and predecessor

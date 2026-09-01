@@ -87,7 +87,11 @@
   deterministically reconstructed from the units; every snapshot is a self-
   contained regular tree with no link, junction, reparse, or path escape; and a
   closed schema rejects every undeclared manifest, record, or unit field. A failed
-  amendment changes none of those artifacts.
+  amendment changes none of those artifacts. Nested decision, discovery, and
+  completion rows are object-only and exact-once; the whole completion proof
+  equals its deterministic reconstruction. Package seal, history, bundle,
+  snapshot, and canonical-audit boundaries cannot be redirected by an ancestor
+  link, junction, or reparse point.
 - Every visible sheet is rendered and inspected; privacy and formula-injection
   scans pass.
 

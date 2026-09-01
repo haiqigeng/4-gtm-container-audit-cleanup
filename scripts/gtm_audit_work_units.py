@@ -57,6 +57,19 @@ WORK_UNIT_FIELDS = {
     "unit_closure",
     "work_unit_identity_sha256",
 }
+WORK_UNIT_COMPLETION_FIELDS = {
+    "status",
+    "strategy",
+    "work_unit_manifest_sha256",
+    "completed_units",
+    "merged_decisions_sha256",
+    "merged_discoveries_sha256",
+    "work_unit_completion_sha256",
+}
+COMPLETED_UNIT_FIELDS = {
+    "work_unit_id",
+    "completed_work_unit_sha256",
+}
 
 
 def workload_estimate(
@@ -231,9 +244,14 @@ def work_unit_contract_errors(
         declared_obligations
     ):
         errors.append("immutable obligation membership differs from its manifest")
-    decisions = [
-        row for row in as_list(unit.get("decisions")) if isinstance(row, dict)
-    ]
+    raw_decisions = unit.get("decisions")
+    if not isinstance(raw_decisions, list) or any(
+        not isinstance(row, dict) for row in raw_decisions
+    ):
+        errors.append("decisions must be a declared-only object list")
+        decisions = []
+    else:
+        decisions = raw_decisions
     if [str(row.get("obligation_id") or "") for row in decisions] != (
         declared_obligations
     ):
@@ -242,6 +260,11 @@ def work_unit_contract_errors(
         str(value) for value in as_list(unit.get("decision_ids"))
     ]:
         errors.append("decision identity membership differs from its immutable list")
+    raw_discoveries = unit.get("open_discoveries")
+    if not isinstance(raw_discoveries, list) or any(
+        not isinstance(row, dict) for row in raw_discoveries
+    ):
+        errors.append("open discoveries must be a declared-only object list")
     embedded_identity = str(unit.get("work_unit_identity_sha256") or "")
     if embedded_identity != str(record.get("work_unit_identity_sha256") or ""):
         errors.append("embedded identity differs from its manifest")
@@ -427,6 +450,8 @@ def work_unit_completion_errors(
     if not isinstance(completion, dict):
         return ["family-sharded audit must be merged before validation"]
     errors = []
+    if set(completion) != WORK_UNIT_COMPLETION_FIELDS:
+        errors.append("work-unit completion fields differ from their closed schema")
     unsigned = {
         key: value
         for key, value in completion.items()
@@ -442,22 +467,38 @@ def work_unit_completion_errors(
         "work_unit_manifest_sha256"
     ):
         errors.append("work-unit completion uses another manifest")
+    manifest_records = as_list(manifest.get("work_units"))
     expected_units = {
         str(row.get("work_unit_id") or ""): row
-        for row in as_list(manifest.get("work_units"))
-    }
-    if len(expected_units) != len(as_list(manifest.get("work_units"))):
-        errors.append("work-unit manifest contains duplicate work-unit identities")
-    actual_units = {
-        str(row.get("work_unit_id") or ""): row
-        for row in as_list(completion.get("completed_units"))
+        for row in manifest_records
         if isinstance(row, dict)
     }
+    if len(expected_units) != len(manifest_records):
+        errors.append("work-unit manifest contains duplicate work-unit identities")
+    raw_completed_units = completion.get("completed_units")
+    if not isinstance(raw_completed_units, list):
+        errors.append("completed unit proof must be an exact object list")
+        completed_unit_records: list[dict[str, Any]] = []
+    else:
+        completed_unit_records = []
+        for row in raw_completed_units:
+            if not isinstance(row, dict):
+                errors.append("completed unit proof contains a non-object row")
+                continue
+            if set(row) != COMPLETED_UNIT_FIELDS:
+                errors.append("completed unit proof row fields differ from their schema")
+            completed_unit_records.append(row)
+    actual_units = {
+        str(row.get("work_unit_id") or ""): row for row in completed_unit_records
+    }
+    if len(actual_units) != len(completed_unit_records):
+        errors.append("completed unit proof contains duplicate identities")
     if "" in expected_units or set(actual_units) != set(expected_units):
         errors.append("work-unit completion does not cover every declared unit exactly once")
     directory = work_unit_directory or bundle / WORK_UNIT_DIRECTORY
     reconstructed_decisions: dict[str, dict[str, Any]] = {}
     reconstructed_discoveries: list[Any] = []
+    reconstructed_completed_units: list[dict[str, str]] = []
     for work_unit_id, record in expected_units.items():
         unit_path = directory / str(record.get("filename") or "")
         if not unit_path.is_file():
@@ -481,7 +522,14 @@ def work_unit_completion_errors(
             else:
                 reconstructed_decisions[obligation_id] = decision
         reconstructed_discoveries.extend(as_list(unit.get("open_discoveries")))
-        if stable_hash(unit, 64) != (actual_units.get(work_unit_id) or {}).get(
+        completed_unit_sha256 = stable_hash(unit, 64)
+        reconstructed_completed_units.append(
+            {
+                "work_unit_id": work_unit_id,
+                "completed_work_unit_sha256": completed_unit_sha256,
+            }
+        )
+        if completed_unit_sha256 != (actual_units.get(work_unit_id) or {}).get(
             "completed_work_unit_sha256"
         ):
             errors.append(f"completed work unit changed after merge: {work_unit_id}")
@@ -492,14 +540,25 @@ def work_unit_completion_errors(
         errors.append("audit decisions are not the exact deterministic work-unit merge")
     if as_list(audit.get("open_discoveries")) != reconstructed_discoveries:
         errors.append("audit discoveries are not the exact deterministic work-unit merge")
-    if completion.get("merged_decisions_sha256") != stable_hash(
-        reconstructed_rows, 64
-    ):
+    merged_decisions_sha256 = stable_hash(reconstructed_rows, 64)
+    merged_discoveries_sha256 = stable_hash(reconstructed_discoveries, 64)
+    if completion.get("merged_decisions_sha256") != merged_decisions_sha256:
         errors.append("merged decision proof differs from reconstructed work units")
-    if completion.get("merged_discoveries_sha256") != stable_hash(
-        reconstructed_discoveries, 64
-    ):
+    if completion.get("merged_discoveries_sha256") != merged_discoveries_sha256:
         errors.append("merged discovery proof differs from reconstructed work units")
+    reconstructed_completion: dict[str, Any] = {
+        "status": "complete",
+        "strategy": "family_sharded",
+        "work_unit_manifest_sha256": manifest.get("work_unit_manifest_sha256"),
+        "completed_units": reconstructed_completed_units,
+        "merged_decisions_sha256": merged_decisions_sha256,
+        "merged_discoveries_sha256": merged_discoveries_sha256,
+    }
+    reconstructed_completion["work_unit_completion_sha256"] = stable_hash(
+        reconstructed_completion, 64
+    )
+    if completion != reconstructed_completion:
+        errors.append("work-unit completion is not the exact reconstructed proof")
     return errors
 
 

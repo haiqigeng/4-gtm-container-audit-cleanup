@@ -107,6 +107,20 @@ def _regular_tree_files(root: Path) -> tuple[list[Path], list[str]]:
     return sorted(files), errors
 
 
+def _contained_child_errors(path: Path, parent: Path, label: str) -> list[str]:
+    """Prove one package child is direct, regular, and not redirected."""
+
+    errors: list[str] = []
+    if _path_is_link_or_reparse(path):
+        errors.append(f"{label} is a link or reparse point")
+    try:
+        if path.resolve().parent != parent.resolve():
+            errors.append(f"{label} leaves its package parent")
+    except OSError:
+        errors.append(f"{label} cannot be resolved")
+    return errors
+
+
 def _copy_locked(source: Path, target: Path, role: str) -> dict[str, Any]:
     shutil.copy2(source, target)
     return {
@@ -1056,9 +1070,54 @@ def validate_audit(
 ) -> list[str]:
     if audit_id not in AUDIT_IDS:
         return [f"unsupported audit identity: {audit_id}"]
-    bundle = package_dir / BUNDLE_DIRECTORY / audit_id
+    bundle_root = package_dir / BUNDLE_DIRECTORY
+    bundle = bundle_root / audit_id
     audit_path = audit_path or bundle / AUDIT_FILE
-    errors: list[str] = []
+    errors = [
+        *_contained_child_errors(
+            bundle_root, package_dir, "audit-bundle directory"
+        ),
+        *_contained_child_errors(bundle, bundle_root, f"{audit_id} bundle"),
+    ]
+    if sealed_seal is None:
+        errors.extend(
+            _contained_child_errors(
+                audit_path, bundle, f"{audit_id} audit candidate"
+            )
+        )
+    else:
+        canonical_root = package_dir / "audits"
+        seal_root = package_dir / SEAL_DIRECTORY
+        history_root = seal_root / HISTORY_DIRECTORY
+        errors.extend(
+            [
+                *_contained_child_errors(
+                    canonical_root,
+                    package_dir,
+                    "canonical-audit directory",
+                ),
+                *_contained_child_errors(
+                    seal_root, package_dir, "audit-seal directory"
+                ),
+                *_contained_child_errors(
+                    history_root, seal_root, "audit history directory"
+                ),
+            ]
+        )
+        if audit_path.parent == canonical_root:
+            sealed_parent = canonical_root
+        elif audit_path.parent == history_root:
+            sealed_parent = history_root
+        else:
+            errors.append(f"{audit_id} sealed audit path has an invalid owner")
+            sealed_parent = audit_path.parent
+        errors.extend(
+            _contained_child_errors(
+                audit_path, sealed_parent, f"{audit_id} sealed audit artifact"
+            )
+        )
+    if errors:
+        return errors
     manifest, bundle_errors = _bundle_manifest_errors(bundle)
     errors.extend(bundle_errors)
     release_path = bundle / RELEASE_MANIFEST_FILE
@@ -1368,12 +1427,46 @@ def _commit_audit_transition(
 
     seal_dir = seal_path.parent
     canonical_dir = canonical_path.parent
+    package_dir = seal_dir.parent
+    history = seal_dir / HISTORY_DIRECTORY
+    snapshot_root = seal_dir / WORK_UNIT_SNAPSHOT_ROOT
+    snapshot_target = seal_dir / snapshot_relative_path
+    snapshot_audit_root = snapshot_target.parent
+    bundle_root = bundle.parent
+    containment_errors = [
+        *_contained_child_errors(seal_dir, package_dir, "audit-seal directory"),
+        *_contained_child_errors(
+            canonical_dir, package_dir, "canonical-audit directory"
+        ),
+        *_contained_child_errors(bundle_root, package_dir, "audit-bundle directory"),
+        *_contained_child_errors(bundle, bundle_root, "owner audit bundle"),
+        *_contained_child_errors(audit_path, bundle, "completed audit candidate"),
+        *_contained_child_errors(seal_path, seal_dir, "current audit seal"),
+        *_contained_child_errors(
+            canonical_path, canonical_dir, "canonical completed audit"
+        ),
+        *_contained_child_errors(history, seal_dir, "audit history directory"),
+        *_contained_child_errors(
+            snapshot_root, seal_dir, "work-unit snapshot root"
+        ),
+        *_contained_child_errors(
+            snapshot_audit_root,
+            snapshot_root,
+            "owner work-unit snapshot directory",
+        ),
+        *_contained_child_errors(
+            snapshot_target,
+            snapshot_audit_root,
+            "sequence work-unit snapshot",
+        ),
+    ]
+    if containment_errors:
+        raise ValueError("; ".join(containment_errors))
     seal_dir.mkdir(exist_ok=True)
     canonical_dir.mkdir(exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{audit_id}-transition-", dir=seal_dir)
     )
-    history = seal_dir / HISTORY_DIRECTORY
     history_existed = history.exists()
     history_targets: list[Path] = []
     prior_seal_backup = staging / "prior-seal.json"
@@ -1381,9 +1474,6 @@ def _commit_audit_transition(
     staged_audit = staging / "next-audit.json"
     staged_seal = staging / "next-seal.json"
     staged_snapshot = staging / "next-work-unit-snapshot"
-    snapshot_root = seal_dir / WORK_UNIT_SNAPSHOT_ROOT
-    snapshot_target = seal_dir / snapshot_relative_path
-    snapshot_audit_root = snapshot_target.parent
     snapshot_root_existed = snapshot_root.exists()
     snapshot_audit_root_existed = snapshot_audit_root.exists()
     seal_existed = seal_path.is_file()
@@ -1707,7 +1797,22 @@ def _audit_history_errors(
     if current_sequence < 0:
         return [f"{audit_id}: current amendment sequence is invalid"]
 
-    history = package_dir / SEAL_DIRECTORY / HISTORY_DIRECTORY
+    seal_root = package_dir / SEAL_DIRECTORY
+    history = seal_root / HISTORY_DIRECTORY
+    history_containment_errors = [
+        *_contained_child_errors(
+            seal_root, package_dir, "audit-seal directory"
+        ),
+        *_contained_child_errors(history, seal_root, "audit history directory"),
+    ]
+    if history_containment_errors:
+        return [
+            *errors,
+            *(
+                f"{audit_id}: {error}"
+                for error in history_containment_errors
+            ),
+        ]
     seal_paths = sorted(history.glob(f"{audit_id}.*.seal.json")) if history.is_dir() else []
     audit_paths = sorted(history.glob(f"{audit_id}.*.audit.json")) if history.is_dir() else []
     if len(seal_paths) != current_sequence:
@@ -1867,15 +1972,39 @@ def _audit_history_errors(
 def _sealed_audit_record_errors(package_dir: Path, audit_id: str) -> list[str]:
     errors: list[str] = []
     seal_root = package_dir / SEAL_DIRECTORY
-    if seal_root.is_dir() and any(seal_root.glob(".*-transition-*")):
-        errors.append("an incomplete audit transition staging directory remains")
-    seal_path = package_dir / SEAL_DIRECTORY / f"{audit_id}.json"
-    audit_path = package_dir / "audits" / f"{audit_id}.json"
-    bundle = package_dir / BUNDLE_DIRECTORY / audit_id
+    audit_root = package_dir / "audits"
+    bundle_root = package_dir / BUNDLE_DIRECTORY
+    seal_path = seal_root / f"{audit_id}.json"
+    audit_path = audit_root / f"{audit_id}.json"
+    bundle = bundle_root / audit_id
     checkpoint_path = bundle / CHECKPOINT_FILE
     checkpoint_seal_path = bundle / CHECKPOINT_SEAL_FILE
     release_path = bundle / RELEASE_MANIFEST_FILE
     bundle_manifest_path = bundle / BUNDLE_MANIFEST_FILE
+    history = seal_root / HISTORY_DIRECTORY
+    containment_errors = [
+        *_contained_child_errors(seal_root, package_dir, "audit-seal directory"),
+        *_contained_child_errors(audit_root, package_dir, "canonical-audit directory"),
+        *_contained_child_errors(bundle_root, package_dir, "audit-bundle directory"),
+        *_contained_child_errors(bundle, bundle_root, f"{audit_id} bundle"),
+        *_contained_child_errors(seal_path, seal_root, f"{audit_id} seal"),
+        *_contained_child_errors(history, seal_root, "audit history directory"),
+        *_contained_child_errors(audit_path, audit_root, f"{audit_id} audit"),
+        *_contained_child_errors(
+            checkpoint_path, bundle, f"{audit_id} checkpoint"
+        ),
+        *_contained_child_errors(
+            checkpoint_seal_path, bundle, f"{audit_id} checkpoint seal"
+        ),
+        *_contained_child_errors(release_path, bundle, f"{audit_id} release"),
+        *_contained_child_errors(
+            bundle_manifest_path, bundle, f"{audit_id} bundle manifest"
+        ),
+    ]
+    if containment_errors:
+        return [f"{audit_id}: {error}" for error in containment_errors]
+    if seal_root.is_dir() and any(seal_root.glob(".*-transition-*")):
+        errors.append("an incomplete audit transition staging directory remains")
     required_paths = (
         seal_path,
         audit_path,
@@ -1988,7 +2117,19 @@ def _sealed_audit_record_errors(package_dir: Path, audit_id: str) -> list[str]:
 
 
 def sealed_audit_errors(package_dir: Path) -> list[str]:
-    errors: list[str] = []
+    seal_root = package_dir / SEAL_DIRECTORY
+    errors = [
+        *_contained_child_errors(
+            seal_root, package_dir, "audit-seal directory"
+        ),
+        *_contained_child_errors(
+            seal_root / HISTORY_DIRECTORY,
+            seal_root,
+            "audit history directory",
+        ),
+    ]
+    if errors:
+        return errors
     context_ids = []
     receipt_ids = []
     for audit_id in AUDIT_IDS:
@@ -2004,8 +2145,7 @@ def sealed_audit_errors(package_dir: Path) -> list[str]:
         errors.append("the two sealed audits reuse one reasoning context")
     if len(receipt_ids) == 2 and len(set(receipt_ids)) != 2:
         errors.append("the two sealed audits reuse one host isolation receipt")
-    snapshot_root = package_dir / SEAL_DIRECTORY / WORK_UNIT_SNAPSHOT_ROOT
-    seal_root = package_dir / SEAL_DIRECTORY
+    snapshot_root = seal_root / WORK_UNIT_SNAPSHOT_ROOT
     if snapshot_root.exists() and (
         _path_is_link_or_reparse(snapshot_root)
         or snapshot_root.resolve().parent != seal_root.resolve()

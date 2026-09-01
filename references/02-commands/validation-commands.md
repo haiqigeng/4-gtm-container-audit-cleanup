@@ -103,7 +103,10 @@ edit, copy forward, link, redirect, or prune these snapshots. The validator
 recomputes each unit's immutable contract and rejects symlinks, junctions, reparse
 points, and any resolved path outside the sealed snapshot root. It also
 deterministically re-merges all decisions and discoveries from the snapshot and
-requires exact equality with the sealed audit.
+requires exact equality with the sealed audit and completion proof. Malformed,
+duplicate, unknown, or non-object nested rows block. The audit-seal, history,
+bundle, snapshot, and canonical-audit roots must remain direct regular package
+children and cannot be redirected.
 
 Before canonical sealing, an audit amendment uses a new context and binds
 `--amendment-of` to the current audit seal hash. After canonical sealing, use the

@@ -60,6 +60,27 @@ def run_node_script(node: str, script: Path, package: Path) -> None:
         )
 
 
+def create_directory_redirect(link: Path, target: Path) -> None:
+    if os.name == "nt":
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            raise AssertionError(result.stderr or result.stdout)
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def remove_directory_redirect(link: Path) -> None:
+    if os.name == "nt":
+        link.rmdir()
+    else:
+        link.unlink()
+
+
 def minimal_export() -> dict:
     return {
         "exportFormatVersion": 2,
@@ -1105,6 +1126,24 @@ class V2WorkflowTests(unittest.TestCase):
                 amendment_of=parent,
             )
         merge_work_units(bundle)
+        history_redirect = self.package / "audit-seals" / "history"
+        external_history = self.root / "external-audit-history"
+        external_history.mkdir()
+        create_directory_redirect(history_redirect, external_history)
+        try:
+            with self.assertRaisesRegex(
+                ValueError,
+                "audit history directory",
+            ):
+                seal_audit(
+                    self.package,
+                    "audit-a",
+                    amendment_of=parent,
+                )
+            self.assertEqual([], list(external_history.iterdir()))
+        finally:
+            remove_directory_redirect(history_redirect)
+            external_history.rmdir()
         amended_seal = seal_audit(
             self.package,
             "audit-a",
@@ -1177,26 +1216,7 @@ class V2WorkflowTests(unittest.TestCase):
         external_snapshot = self.root / "external-work-unit-snapshot"
         current_snapshot.replace(external_snapshot)
         try:
-            if os.name == "nt":
-                junction = subprocess.run(
-                    [
-                        "cmd",
-                        "/c",
-                        "mklink",
-                        "/J",
-                        str(current_snapshot),
-                        str(external_snapshot),
-                    ],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(0, junction.returncode, junction.stderr)
-            else:
-                current_snapshot.symlink_to(
-                    external_snapshot,
-                    target_is_directory=True,
-                )
+            create_directory_redirect(current_snapshot, external_snapshot)
             self.assertTrue(
                 any(
                     "link or reparse point" in error
@@ -1206,10 +1226,7 @@ class V2WorkflowTests(unittest.TestCase):
             )
         finally:
             if current_snapshot.exists():
-                if os.name == "nt":
-                    current_snapshot.rmdir()
-                else:
-                    current_snapshot.unlink()
+                remove_directory_redirect(current_snapshot)
             external_snapshot.replace(current_snapshot)
         self.assertEqual([], sealed_audit_errors(self.package))
 

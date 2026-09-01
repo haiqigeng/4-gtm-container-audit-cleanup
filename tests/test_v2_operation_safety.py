@@ -493,6 +493,69 @@ class V2OperationSafetyTests(unittest.TestCase):
                     )
                 )
             )
+            malformed_unit = copy.deepcopy(unit)
+            malformed_unit["decisions"].append("foreign non-object decision")
+            unit_path.write_text(
+                json.dumps(malformed_unit, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "declared-only object list"):
+                merge_work_units(bundle)
+            malformed_unit_audit = copy.deepcopy(merged)
+            malformed_completion = malformed_unit_audit["work_unit_completion"]
+            malformed_completion["completed_units"][0][
+                "completed_work_unit_sha256"
+            ] = stable_hash(malformed_unit, 64)
+            malformed_completion["work_unit_completion_sha256"] = stable_hash(
+                {
+                    key: value
+                    for key, value in malformed_completion.items()
+                    if key != "work_unit_completion_sha256"
+                },
+                64,
+            )
+            self.assertTrue(
+                any(
+                    "declared-only object list" in error
+                    for error in work_unit_completion_errors(
+                        bundle,
+                        malformed_unit_audit,
+                        manifest,
+                    )
+                )
+            )
+            unit_path.write_text(
+                json.dumps(unit, indent=2) + "\n", encoding="utf-8"
+            )
+            malformed_proof_audit = copy.deepcopy(merged)
+            malformed_proof = malformed_proof_audit["work_unit_completion"]
+            malformed_proof["undeclared_context"] = "foreign proof context"
+            malformed_proof["completed_units"].append(
+                copy.deepcopy(malformed_proof["completed_units"][0])
+            )
+            malformed_proof["completed_units"].append("foreign non-object row")
+            malformed_proof["work_unit_completion_sha256"] = stable_hash(
+                {
+                    key: value
+                    for key, value in malformed_proof.items()
+                    if key != "work_unit_completion_sha256"
+                },
+                64,
+            )
+            malformed_proof_errors = work_unit_completion_errors(
+                bundle,
+                malformed_proof_audit,
+                manifest,
+            )
+            self.assertTrue(
+                any("closed schema" in error for error in malformed_proof_errors)
+            )
+            self.assertTrue(
+                any("non-object row" in error for error in malformed_proof_errors)
+            )
+            self.assertTrue(
+                any("duplicate identities" in error for error in malformed_proof_errors)
+            )
             unit["unit_closure"] += " Changed after merge."
             unit_path.write_text(json.dumps(unit, indent=2) + "\n", encoding="utf-8")
             self.assertTrue(
