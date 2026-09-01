@@ -205,111 +205,6 @@ def _configuration_area(obj: dict[str, Any], obligation: dict[str, Any]) -> str:
     return "AREA-06"
 
 
-def _object_area_rows(obj: dict[str, Any]) -> list[tuple[str, str, list[str]]]:
-    layer = str(obj.get("layer") or "")
-    object_type = str(obj.get("object_type") or "")
-    source_text = json.dumps(
-        {
-            "source_facts": obj.get("source_facts", []),
-            "source_absence_facts": obj.get("source_absence_facts", []),
-            "consent_route": obj.get("effective_consent_route", {}),
-            "code_lines": obj.get("code_line_facts", []),
-        },
-        ensure_ascii=False,
-    )
-    rows: list[tuple[str, str, list[str]]] = [
-        ("AREA-02", "object_identity", []),
-        ("AREA-03", "object_dependencies", []),
-        ("AREA-04", "object_lifecycle", []),
-        ("AREA-24", "object_organisation", []),
-    ]
-    if layer in {"tag", "customTemplate", "gtagConfig"}:
-        rows.append(("AREA-06", "object_configuration", []))
-    if layer in {"tag", "trigger"}:
-        rows.append(("AREA-07", "execution_topology", []))
-    if layer == "tag":
-        rows.append(("AREA-08", "advanced_execution_control", []))
-        rows.append(("AREA-16", "destination_and_loader_ownership", ["destination_change"]))
-        rows.append(("AREA-19", "vendor_tag_contract", ["paid_media_change"]))
-    if layer == "variable":
-        rows.append(("AREA-14", "variable_source_contract", []))
-    if layer in {"zone", "gtagConfig"}:
-        rows.append(("AREA-23", "portability_and_environment", []))
-    if object_type in GOOGLE_TYPES or layer == "gtagConfig":
-        rows.append(("AREA-15", "google_effective_configuration", ["high_fan_out_shared_setting"]))
-    if object_type in {"gaawe", "googtag", "gaawc"}:
-        rows.append(("AREA-17", "ga4_google_event_contract", []))
-    if ECOMMERCE_RE.search(source_text):
-        rows.append(("AREA-18", "ecommerce_contract", ["ecommerce_change"]))
-    if SENSITIVE_RE.search(source_text):
-        rows.append(("AREA-21", "identity_and_sensitive_fields", ["identity_change"]))
-    if layer == "customTemplate" or as_list(obj.get("code_line_facts")):
-        rows.append(("AREA-22", "custom_code_or_template", ["custom_code_replacement"]))
-    consent_route = obj.get("effective_consent_route") or {}
-    server_routes = as_list(consent_route.get("server_routing_hosts"))
-    vendor_categories = {
-        str(value)
-        for value in as_list(consent_route.get("detected_vendor_categories"))
-    }
-    consent_controls_visible = bool(
-        as_list(consent_route.get("blocking_trigger_ids"))
-        or as_list(consent_route.get("consent_source_values"))
-        or as_list(consent_route.get("consent_variable_references"))
-    )
-    if "cmp" in vendor_categories:
-        rows.append(
-            ("AREA-09", "consent_infrastructure", ["consent_architecture"])
-        )
-    if (
-        layer == "tag"
-        and not server_routes
-        and "cmp" not in vendor_categories
-        and (
-            as_list(consent_route.get("detected_vendors"))
-            or consent_controls_visible
-            or object_type in GOOGLE_TYPES
-        )
-    ):
-        rows.append(
-            ("AREA-10", "direct_consent_architecture", ["consent_architecture"])
-        )
-    if layer == "tag" and object_type in GOOGLE_TYPES:
-        rows.append(
-            ("AREA-11", "advanced_consent_mode", ["consent_architecture"])
-        )
-    if layer == "tag" and server_routes:
-        rows.append(
-            (
-                "AREA-12",
-                "client_server_consent_route",
-                ["client_server_transport"],
-            )
-        )
-    deduplicated = []
-    seen: set[tuple[str, str, tuple[str, ...]]] = set()
-    for area_id, fact_kind, triggers in rows:
-        identity = (area_id, fact_kind, tuple(triggers))
-        if identity in seen:
-            continue
-        seen.add(identity)
-        deduplicated.append((area_id, fact_kind, triggers))
-    return deduplicated
-
-
-def _chain_evidence(obj: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "object_key": obj.get("object_key"),
-        "object_name": obj.get("object_name"),
-        "source_json_path": obj.get("source_json_path"),
-        "execution_dependency_traces": obj.get("execution_dependency_traces", []),
-        "reference_trace_requirements": obj.get("reference_trace_requirements", []),
-        "export_consumers": obj.get("export_consumers", []),
-        "consumer_dependency_contexts": obj.get("consumer_dependency_contexts", []),
-        "destination_peer_contexts": obj.get("destination_peer_contexts", []),
-        "effective_consent_route_facts": obj.get("effective_consent_route_facts", {}),
-    }
-
-
 def _requirement_obligations(
     requirement_evidence: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
@@ -432,84 +327,37 @@ def build_obligation_ledger(
             )
         )
 
-    # Literal object and chain obligations.
+    # The assured scan and compact source checkpoint already cover every literal
+    # object and source branch. Semantic audits therefore review only transversal,
+    # decision-relevant units instead of repeating one prose decision per object-area
+    # combination.
     for obj in objects:
         object_key = str(obj.get("object_key") or "")
-        identity_evidence = {
-            "object_key": object_key,
-            "layer": obj.get("layer"),
-            "object_id": obj.get("object_id"),
-            "object_name": obj.get("object_name"),
-            "object_type": obj.get("object_type"),
-            "paused": obj.get("paused"),
-            "config_hash": obj.get("config_hash"),
-            "source_json_path": obj.get("source_json_path"),
-            "source_facts": obj.get("source_facts", []),
-            "source_absence_facts": obj.get("source_absence_facts", []),
-            "detected_vendors": as_list(
-                (obj.get("effective_consent_route") or {}).get(
-                    "detected_vendors"
-                )
-            ),
-            "detected_vendor_categories": as_list(
-                (obj.get("effective_consent_route") or {}).get(
-                    "detected_vendor_categories"
-                )
-            ),
-        }
-        for area_id, fact_kind, triggers in _object_area_rows(obj):
-            rows.append(
-                _obligation(
-                    area_id,
-                    "object",
-                    "literal_object_review",
-                    fact_kind,
-                    identity_evidence,
-                    subject_keys=[object_key],
-                    material_verification_triggers=triggers,
-                )
-            )
-        if obj.get("layer") == "tag":
-            chain = _chain_evidence(obj)
-            rows.append(
-                _obligation(
-                    "AREA-03",
-                    "chain",
-                    "implementation_chain_review",
-                    "complete_dependency_chain",
-                    chain,
-                    subject_keys=sorted(
-                        {object_key, *_subject_keys(chain)}
-                    ),
-                )
-            )
         code_lines = [
             row
             for row in as_list(obj.get("code_line_facts"))
             if isinstance(row, dict) and str(row.get("line_hash") or "")
         ]
-        for offset in range(0, len(code_lines), 30):
-            segment_rows = code_lines[offset : offset + 30]
+        if code_lines:
             segment_identity = {
                 "object_key": object_key,
-                "segment_index": offset // 30 + 1,
-                "line_hashes": [str(row["line_hash"]) for row in segment_rows],
+                "line_hashes": [str(row["line_hash"]) for row in code_lines],
             }
-            segment_id = "CODESEG-" + stable_hash(segment_identity, 16).upper()
+            segment_id = "CODEOBJ-" + stable_hash(segment_identity, 16).upper()
             rows.append(
                 _obligation(
                     "AREA-22",
-                    "code_segment",
-                    "custom_code_segment_review",
-                    "executable_code_segment",
+                    "object",
+                    "custom_code_object_review",
+                    "executable_code_object",
                     {
                         **segment_identity,
                         "segment_id": segment_id,
                         "object_name": obj.get("object_name"),
                         "source_json_path": obj.get("source_json_path"),
-                        "start_line": segment_rows[0].get("line_number"),
-                        "end_line": segment_rows[-1].get("line_number"),
-                        "line_segments": segment_rows,
+                        "start_line": code_lines[0].get("line_number"),
+                        "end_line": code_lines[-1].get("line_number"),
+                        "line_segments": code_lines,
                         "parser_status": (
                             obj.get("technical_code_facts") or {}
                         ).get("javascript_parser"),
@@ -615,62 +463,32 @@ def build_obligation_ledger(
         if not isinstance(topology, dict):
             continue
         key = str(topology.get("object_key") or "")
+        applicability = topology.get("consent_applicability") or {}
+        review_area_ids = ["AREA-07", "AREA-08"]
+        if applicability.get("consent_infrastructure"):
+            review_area_ids.append("AREA-09")
+        if applicability.get("direct_non_advanced_browser_vendor"):
+            review_area_ids.append("AREA-10")
+        if applicability.get("advanced_google_destination_review"):
+            review_area_ids.append("AREA-11")
+        if applicability.get("client_to_server_transport"):
+            review_area_ids.extend(["AREA-12", "AREA-13"])
         rows.append(
             _obligation(
                 "AREA-07",
                 "chain",
                 "effective_control_topology_review",
                 "tag_event_and_blocker_topology",
-                topology,
+                {**topology, "review_area_ids": sorted(set(review_area_ids))},
                 subject_keys=[key],
+                material_verification_triggers=(
+                    ["consent_architecture"]
+                    if any(area in review_area_ids for area in ("AREA-09", "AREA-10", "AREA-11"))
+                    else []
+                )
+                + (["client_server_transport"] if "AREA-12" in review_area_ids else []),
             )
         )
-        applicability = topology.get("consent_applicability") or {}
-        for area_id, fact_kind, applies in (
-            (
-                "AREA-09",
-                "cmp_and_consent_infrastructure",
-                applicability.get("consent_infrastructure"),
-            ),
-            (
-                "AREA-10",
-                "direct_client_consent_architecture",
-                applicability.get("direct_non_advanced_browser_vendor"),
-            ),
-            (
-                "AREA-11",
-                "advanced_consent_classification",
-                applicability.get("advanced_google_destination_review"),
-            ),
-        ):
-            if applies:
-                rows.append(
-                    _obligation(
-                        area_id,
-                        "chain",
-                        "consent_route_classification",
-                        fact_kind,
-                        topology,
-                        subject_keys=[key],
-                        material_verification_triggers=["consent_architecture"],
-                    )
-                )
-        if applicability.get("client_to_server_transport"):
-            for area_id, fact_kind in (
-                ("AREA-12", "transporter_classification"),
-                ("AREA-13", "client_side_server_handoff_boundary"),
-            ):
-                rows.append(
-                    _obligation(
-                        area_id,
-                        "chain" if area_id == "AREA-12" else "container",
-                        "client_server_route_review",
-                        fact_kind,
-                        topology,
-                        subject_keys=[key],
-                        material_verification_triggers=["client_server_transport"],
-                    )
-                )
 
     consent_infrastructure = (
         scan.get("optimization_facts") or {}

@@ -94,21 +94,15 @@ Record its agent/context labels and locked input hash in its provenance, complet
 its `source-checkpoint.json`, then seal the checkpoint:
 
 `pending` means the fresh audit agent must author the scaffold from the locked
-evidence; it is not a blocked outcome. The agent may use a one-off programmatic
-edit inside its own audit scratch directory to apply repetitive evidence-based
-judgments, but may not use generic blanket text or inspect the peer audit. Review
-the completed checkpoint itself before invoking the command below.
-
-When using an audit-local authoring aid, pass the assigned package, bundle, and
-scratch paths as explicit absolute values. Require the package and assigned
-bundle to exist, then create the exact scratch path with missing parents as
-needed before the first write. Do not require the initially absent
-`audit-scratch` parent to pre-exist, and do not derive paths by counting parents.
-Before checkpoint sealing, do not read `work-units`: that directory does not yet
-exist. The checkpoint command creates it. After release, read each work-unit path
-from the manifest record's exact `filename` field. Do not add optional shell
-inspection pipelines or guess artifact filenames; the documented validators are
-the gates.
+evidence; it is not a blocked outcome. Review the complete locked inventory,
+copy its supplied `inventory_sha256` into `reviewed_inventory_sha256`, and
+directly complete the provenance, source-only conclusion, and any discoveries.
+Do not generate or execute an audit-local helper and do not inspect the peer
+audit. Before checkpoint sealing, do not read `work-units`: that directory does
+not yet exist. The checkpoint command creates it. After release, read each
+work-unit path from the manifest record's exact `filename` field. Do not add
+optional shell inspection pipelines or guess artifact filenames; the documented
+validators are the gates.
 For actionable decisions, write `operation_family` as a human-readable phrase of
 at least two words, such as `Remove redundant priority`, never as an underscore
 token such as `remove_priority`.

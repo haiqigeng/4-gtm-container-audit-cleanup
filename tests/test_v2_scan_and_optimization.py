@@ -1411,7 +1411,7 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         code_rows = [
             row
             for row in ledger["obligations"]
-            if row["audit_mechanism"] == "custom_code_segment_review"
+            if row["audit_mechanism"] == "custom_code_object_review"
         ]
         self.assertTrue(code_rows)
         self.assertTrue(

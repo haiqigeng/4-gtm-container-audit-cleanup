@@ -110,11 +110,14 @@ source, assurance rules, and canonical scan identity but no semantic findings. I
 must reread raw source and pass every applicable critical identity. Record its
 agent/context labels plus locked input and output hashes.
 
-Use the typed `obligation-ledger.json`. Every object, chain, family,
-relationship, singleton, source-owned branch/leaf/recursive trace, executable
-code segment, and container-level method receives work or a source-counted zero.
-Area 1 closes through evidence and assurance status, areas 2–26 through the two
-semantic audits, and area 27 through synthesis and fixed-point proof.
+Use the typed `obligation-ledger.json`. The assured scan and compact checkpoint
+account for every literal object, branch, leaf, trace, and executable-code line.
+The two audits receive transversal semantic work for every generated sanitation
+or optimisation candidate, source family, relationship candidate, tag-control
+topology, custom-code object, applicable configured branch group, container
+closure, and source-counted zero. Area 1 closes through evidence and assurance
+status, areas 2–26 through those two semantic audits, and area 27 through
+synthesis and fixed-point proof.
 
 ### 3. Run Two Complete Independent Audits
 
@@ -126,29 +129,29 @@ scratch work, or target proposals until both audits are complete and sealed. The
 orchestrator coordinates but authors neither audit.
 
 Audit A traverses object/chain first; Audit B traverses family/target first. Both
-complete every applicable semantic obligation in areas 2–26 and close object,
-chain, family, relationship, singleton, shared-infrastructure, and container
-coverage. Different traversal does not mean different scope.
+complete every applicable transversal semantic obligation in areas 2–26 and
+close candidate, family, relationship, tag-control topology, custom-code object,
+shared-infrastructure, and container coverage. Literal object and branch
+completeness comes from the assured scan plus compact source checkpoint; it is
+not repeated as thousands of generic semantic decisions. Different traversal
+does not mean different scope.
 
 Each audit seals its source-only checkpoint before approved requirement evidence
 is released. Audit B is also generated-candidate-blind before its checkpoint.
 Later inputs may add work but may not rewrite checkpointed discovery.
 
 A pending checkpoint is the assigned audit agent's work queue, not a blocker.
-The agent must populate the checkpoint from its locked evidence before running
-the checkpoint command. For repetitive JSON authoring, it may use a one-off
-programmatic edit kept inside its own audit scratch directory, provided the edit
-implements that agent's evidence-based judgments and never substitutes one
-generic conclusion for object-, family-, relationship-, or obligation-specific
-review. Such an edit is an audit-local authoring aid, not a skill dependency or
-shared semantic result, and must never read the peer audit.
+The agent reviews its complete locked inventory, then directly completes the
+compact checkpoint by binding `reviewed_inventory_sha256` to the supplied
+`inventory_sha256`, recording provenance, any source-only discoveries, and one
+source-only conclusion. The checkpoint does not duplicate per-object prose,
+families, relationships, or candidates already owned by the assured scan and
+later transversal obligations. Do not create or execute an audit-local helper.
 
-Before checkpoint sealing, an audit bundle has no `work-units` directory. An
-audit-local authoring aid may read only the checkpoint and locked inputs during
-that phase. The checkpoint command creates `work-units/work-unit-manifest.json`;
-only then may the aid read work units, using each manifest record's exact
-`filename` field. Create the assigned scratch directory with missing parents as
-needed, while requiring the package and assigned bundle to exist first.
+Before checkpoint sealing, an audit bundle has no `work-units` directory. The
+checkpoint command creates `work-units/work-unit-manifest.json`; only then may
+the agent review and complete the declared work units. Use each manifest
+record's exact `filename` field and never inspect the peer audit.
 
 Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B

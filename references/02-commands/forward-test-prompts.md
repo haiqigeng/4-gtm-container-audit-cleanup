@@ -50,7 +50,8 @@ defect family and every optimisation or architecture class in
 
 Measure:
 
-- complete object/chain/family/relationship/singleton/container obligation recall;
+- complete assured literal-inventory recall plus transversal
+  candidate/family/relationship/topology/custom-code/container obligation recall;
 - seeded material finding and optimisation recall;
 - false-positive rate against intentional variants and evidence limits;
 - independent discovery overlap and unique valid findings from Audit A/B;

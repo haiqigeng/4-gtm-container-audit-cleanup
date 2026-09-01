@@ -164,6 +164,7 @@ def _checkpoint_scaffold(
     source_sha256: str,
     inventory: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    inventory_sha256 = stable_hash(inventory, 64)
     return {
         "kind": "gtm_cleanroom_source_checkpoint",
         "schema_version": 1,
@@ -174,21 +175,9 @@ def _checkpoint_scaffold(
         "independent_context_id": "",
         "input_manifest_sha256": "",
         "candidate_blind_discovery": audit_id == "audit-b",
-        "object_behavior_map": [
-            {
-                "object_key": row["object_key"],
-                "source_json_path": row["source_json_path"],
-                "configured_role": "",
-                "current_configured_behavior": "",
-                "evidence_coordinates": [],
-            }
-            for row in inventory
-        ],
-        "discovered_families": [],
-        "discovered_relationships": [],
-        "singleton_object_keys": [],
+        "inventory_sha256": inventory_sha256,
+        "reviewed_inventory_sha256": "",
         "open_discoveries": [],
-        "generated_candidate_ids_reviewed": [],
         "source_only_conclusion": "",
         "approved_requirement_ids_used": [],
     }
@@ -384,7 +373,6 @@ def _checkpoint_errors(
     audit_id: str,
     source_sha256: str,
     inventory: list[dict[str, Any]],
-    generated_relationship_ids: set[str],
     bundle_manifest_sha256: str,
 ) -> list[str]:
     errors: list[str] = []
@@ -401,89 +389,35 @@ def _checkpoint_errors(
     errors.extend(
         _agent_context_errors(checkpoint, bundle_manifest_sha256, "source checkpoint")
     )
-    expected_keys = {str(row["object_key"]) for row in inventory}
-    behavior_rows = [
-        row for row in as_list(checkpoint.get("object_behavior_map")) if isinstance(row, dict)
-    ]
-    behavior_by_key = {str(row.get("object_key") or ""): row for row in behavior_rows}
-    if len(behavior_by_key) != len(behavior_rows) or "" in behavior_by_key:
-        errors.append("object behavior map has blank or duplicate object keys")
-    if set(behavior_by_key) != expected_keys:
-        errors.append("object behavior map must cover every source object exactly once")
-    source_path_by_key = {str(row["object_key"]): str(row["source_json_path"]) for row in inventory}
-    for key, row in behavior_by_key.items():
-        if row.get("source_json_path") != source_path_by_key.get(key):
-            errors.append(f"{key}: source_json_path differs from locked inventory")
-        if not _specific_text(row.get("configured_role"), 3):
-            errors.append(f"{key}: configured_role is incomplete")
-        if not _specific_text(row.get("current_configured_behavior"), 6):
-            errors.append(f"{key}: current configured behavior is incomplete")
-        coordinates = {
-            str(value) for value in as_list(row.get("evidence_coordinates")) if str(value)
-        }
-        if not coordinates or not any(
-            value.startswith(source_path_by_key.get(key, "__missing__")) for value in coordinates
-        ):
-            errors.append(f"{key}: evidence coordinates do not bind to its source object")
-
-    allocated: list[str] = []
-    family_ids: set[str] = set()
-    for family in as_list(checkpoint.get("discovered_families")):
-        if not isinstance(family, dict):
-            errors.append("discovered family row is malformed")
-            continue
-        family_id = str(family.get("discovery_family_id") or "")
-        if not family_id or family_id in family_ids:
-            errors.append("discovered family IDs must be unique and nonblank")
-        family_ids.add(family_id)
-        members = [str(value) for value in as_list(family.get("member_object_keys"))]
-        if not members or set(members) - expected_keys:
-            errors.append(f"{family_id or 'family'}: members are empty or unknown")
-        allocated.extend(members)
-        if not _specific_text(family.get("configured_purpose"), 6):
-            errors.append(f"{family_id or 'family'}: configured purpose is incomplete")
-        if not as_list(family.get("evidence_coordinates")):
-            errors.append(f"{family_id or 'family'}: evidence coordinates are missing")
-    singleton_keys = [str(value) for value in as_list(checkpoint.get("singleton_object_keys"))]
-    allocated.extend(singleton_keys)
-    if set(allocated) != expected_keys or len(allocated) != len(set(allocated)):
-        errors.append(
-            "discovered families plus singleton_object_keys must allocate every object exactly once"
-        )
-
-    relationship_ids: set[str] = set()
-    for relationship in as_list(checkpoint.get("discovered_relationships")):
-        if not isinstance(relationship, dict):
-            errors.append("discovered relationship row is malformed")
-            continue
-        relationship_id = str(relationship.get("discovery_relationship_id") or "")
-        if not relationship_id or relationship_id in relationship_ids:
-            errors.append("discovered relationship IDs must be unique and nonblank")
-        relationship_ids.add(relationship_id)
-        members = [str(value) for value in as_list(relationship.get("member_object_keys"))]
-        if len(set(members)) < 2 or set(members) - expected_keys:
-            errors.append(
-                f"{relationship_id or 'relationship'}: requires at least two known members"
-            )
-        if not _specific_text(relationship.get("configured_relationship"), 6):
-            errors.append(
-                f"{relationship_id or 'relationship'}: configured relationship is incomplete"
-            )
-        if not as_list(relationship.get("evidence_coordinates")):
-            errors.append(f"{relationship_id or 'relationship'}: evidence coordinates are missing")
-
-    if audit_id == "audit-a":
-        reviewed = {
-            str(value) for value in as_list(checkpoint.get("generated_candidate_ids_reviewed"))
-        }
-        if reviewed != generated_relationship_ids:
-            errors.append(
-                "Audit A source checkpoint must attest every generated relationship candidate"
-            )
-    elif as_list(checkpoint.get("generated_candidate_ids_reviewed")):
-        errors.append(
-            "Audit B is candidate-blind at checkpoint and cannot claim generated candidate IDs"
-        )
+    expected_fields = {
+        "kind",
+        "schema_version",
+        "audit_id",
+        "source_sha256",
+        "status",
+        "independent_agent_id",
+        "independent_context_id",
+        "input_manifest_sha256",
+        "candidate_blind_discovery",
+        "inventory_sha256",
+        "reviewed_inventory_sha256",
+        "open_discoveries",
+        "source_only_conclusion",
+        "approved_requirement_ids_used",
+    }
+    if set(checkpoint) != expected_fields:
+        errors.append("source checkpoint fields do not match the current compact schema")
+    inventory_sha256 = stable_hash(inventory, 64)
+    if checkpoint.get("inventory_sha256") != inventory_sha256:
+        errors.append("source checkpoint inventory identity differs from locked evidence")
+    if checkpoint.get("reviewed_inventory_sha256") != inventory_sha256:
+        errors.append("source checkpoint must attest the exact reviewed inventory identity")
+    if checkpoint.get("candidate_blind_discovery") is not (audit_id == "audit-b"):
+        errors.append("source checkpoint candidate-blind state is invalid")
+    if not isinstance(checkpoint.get("open_discoveries"), list) or any(
+        not isinstance(row, dict) for row in as_list(checkpoint.get("open_discoveries"))
+    ):
+        errors.append("source checkpoint open_discoveries must be a list of objects")
     if as_list(checkpoint.get("approved_requirement_ids_used")):
         errors.append("approved requirement evidence is prohibited before source checkpoint")
     if not _specific_text(checkpoint.get("source_only_conclusion"), 10):
@@ -663,17 +597,11 @@ def checkpoint_audit(
             raise ValueError(f"required package artifact is missing: {path.name}")
     scan = json.loads(scan_path.read_text(encoding="utf-8"))
     inventory = _object_inventory(scan)
-    generated_relationship_ids = {
-        str(row.get("comparison_id") or "")
-        for row in as_list((scan.get("architecture_evidence") or {}).get("relationships"))
-        if str(row.get("comparison_id") or "")
-    }
     errors = _checkpoint_errors(
         checkpoint,
         audit_id,
         str(scan.get("source_sha256") or ""),
         inventory,
-        generated_relationship_ids,
         str(manifest.get("bundle_manifest_sha256") or ""),
     )
     agent_id = str(checkpoint.get("independent_agent_id") or "")

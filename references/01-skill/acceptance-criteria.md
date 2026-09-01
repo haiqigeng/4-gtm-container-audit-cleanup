@@ -31,9 +31,11 @@
 - The obligation ledger preserves that boundary: enriched contract text cannot
   route a configuration obligation into a semantic area unless its exact raw
   source evidence anchors contain the corresponding signal.
-- The typed obligation ledger accounts for every object, chain, family,
-  relationship, singleton, source-owned branch/leaf/trace, code segment, and
-  container-level method.
+- The assured scan and compact checkpoint account for every literal object,
+  source-owned branch/leaf/trace, and executable-code line. The typed obligation
+  ledger accounts for every transversal sanitation or optimisation candidate,
+  source family, relationship candidate, tag-control topology, custom-code
+  object, applicable configured branch group, and container-level method.
 
 ## Independent Audit And Reconciliation
 

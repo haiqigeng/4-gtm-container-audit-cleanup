@@ -90,11 +90,14 @@ invented semantic decision classes.
 
 ## Stages 3 And 4 — Two Complete Independent Audits
 
-Audit A starts from literal objects and chains, then closes families and the
-container target. Audit B starts from destination, consent/routing ownership,
-families, and the greenfield target, then proves every member and field. Both
-complete every applicable semantic obligation in areas 2–26 using the same
-decision schema.
+Audit A starts from the assured literal inventory and chains, then closes
+transversal candidates, families, relationships, tag-control topology, custom
+code, shared infrastructure, and the container target. Audit B starts from
+destination, consent/routing ownership, families, and the greenfield target,
+then closes the same transversal units. Both complete every applicable semantic
+obligation in areas 2–26 using the same decision schema. Literal object and
+branch completeness is proven once by the scan assurance and compact checkpoint,
+not restated as repetitive per-object prose.
 
 Before approved external requirements are released, each audit seals a
 source-only checkpoint. Audit B is also generated-candidate-blind until its

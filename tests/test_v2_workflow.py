@@ -242,20 +242,7 @@ def complete_checkpoint(
     payload["independent_agent_id"] = agent_id or f"fixture-{audit_id}-agent"
     payload["independent_context_id"] = context_id
     payload["input_manifest_sha256"] = bundle_manifest["bundle_manifest_sha256"]
-    for row in payload["object_behavior_map"]:
-        row["configured_role"] = (
-            "Fixture source object role recorded from its locked configuration."
-        )
-        row["current_configured_behavior"] = (
-            "The locked fixture object has only the configuration visible at its source path."
-        )
-        row["evidence_coordinates"] = [row["source_json_path"]]
-    payload["singleton_object_keys"] = [row["object_key"] for row in payload["object_behavior_map"]]
-    if audit_id == "audit-a":
-        scan = json.loads((package / "canonical-scan.json").read_text(encoding="utf-8"))
-        payload["generated_candidate_ids_reviewed"] = [
-            row["comparison_id"] for row in scan["architecture_evidence"]["relationships"]
-        ]
+    payload["reviewed_inventory_sha256"] = payload["inventory_sha256"]
     payload["source_only_conclusion"] = (
         "The source-only fixture review allocated every object and found no hidden input dependency."
     )
@@ -1036,7 +1023,7 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue((audit_b / "blind-inventory.json").is_file())
         checkpoint = json.loads((audit_b / "source-checkpoint.json").read_text(encoding="utf-8"))
         self.assertTrue(checkpoint["candidate_blind_discovery"])
-        self.assertEqual([], checkpoint["generated_candidate_ids_reviewed"])
+        self.assertEqual("", checkpoint["reviewed_inventory_sha256"])
 
     def test_source_audit_peers_require_distinct_agents_and_contexts(self) -> None:
         for shared_field in ("agent", "context"):
