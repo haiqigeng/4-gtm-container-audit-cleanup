@@ -225,6 +225,15 @@ Each neutral row exposes `allowed_evidence_citations`, the deterministic union o
 its locked source coordinates and exact JSON paths inside locked neutral evidence.
 Authored citations must be exact members of that list.
 
+For an accepted actionable proposal or a non-neutral agreement, preserve one
+verified review's complete canonical payload, including its assessment prose,
+evidence boundary and decision citations. Matching the structured action alone
+is insufficient. Put the reconciler's explanation in `reconciliation_rationale`,
+and the neutral check's allowed citations in its own verification fields. A
+required neutral review may instead reject or narrow a proposal to a supported
+non-actionable decision. Never retain an inadequate claim just to pass the gate;
+report the exact owning decision that requires repair.
+
 When directly editing source or projection reconciliation JSON, use bounded
 patches anchored to exact row IDs. After each batch, check JSON parsing, complete
 row membership, and unchanged locked fields against the immutable scaffold or
