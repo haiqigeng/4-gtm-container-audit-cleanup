@@ -235,7 +235,8 @@ python -B scripts/gtm_reconciliation.py scaffold audit-package
 Complete `reconciliation.json` and every required neutral disposition in one
 separate fresh reconciliation-agent context after both audits are sealed. Record
 that agent/context label and the exact hashes of its locked inputs and sealed
-output. Then:
+output. Every neutral row includes the complete locked
+`allowed_evidence_citations` list; use only exact entries from that list. Then:
 
 ```powershell
 python -B scripts/gtm_reconciliation.py finalize audit-package

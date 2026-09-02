@@ -19,6 +19,7 @@ from gtm_cleanroom_audit import AUDIT_IDS, sealed_audit_errors
 from gtm_lib import (
     as_list,
     file_sha256,
+    locked_evidence_coordinates,
     require_safe_package_root,
     stable_hash,
     write_json,
@@ -254,6 +255,9 @@ def _comparison_row(
             "decision and narrowest safe target follow?"
         ),
         "neutral_evidence": obligation.get("evidence", {}),
+        "allowed_evidence_citations": locked_evidence_coordinates(
+            comparison["source_coordinates"], obligation.get("evidence", {})
+        ),
         "prohibited_context": (
             "Do not decide by vote count, expected outcome, reconciliation preference, "
             "or workbook wording; resolve the evidence and criteria directly."
@@ -460,6 +464,7 @@ def _neutral_errors(
             "verification_reasons",
             "neutral_question",
             "neutral_evidence",
+            "allowed_evidence_citations",
             "prohibited_context",
             "neutral_bundle_manifest_sha256",
         ):
@@ -482,9 +487,9 @@ def _neutral_errors(
         citations = {
             str(value) for value in as_list(row.get("evidence_citations"))
         }
-        allowed = set(as_list(expected_row.get("source_coordinates")))
+        allowed = set(as_list(expected_row.get("allowed_evidence_citations")))
         if allowed and (not citations or citations - allowed):
-            errors.append(f"{label}: citations must use supplied raw coordinates")
+            errors.append(f"{label}: citations must use allowed_evidence_citations")
         if not re.search(
             r"\b(?:because|shows|configured|evidence|source|field|route|object)\b",
             str(row.get("verification_rationale") or ""),

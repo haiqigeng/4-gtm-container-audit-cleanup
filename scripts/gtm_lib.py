@@ -92,6 +92,29 @@ def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def locked_evidence_coordinates(
+    source_coordinates: Any,
+    evidence: Any,
+) -> list[str]:
+    """Return exact JSON paths already present in one locked evidence bundle."""
+
+    coordinates = {
+        value
+        for value in as_list(source_coordinates)
+        if isinstance(value, str) and value.startswith("$.")
+    }
+    pending = [evidence]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, str) and value.startswith("$."):
+            coordinates.add(value)
+    return sorted(coordinates)
+
+
 def path_is_link_or_reparse(path: Path) -> bool:
     """Reject symlinks and Windows reparse points, including NTFS junctions."""
 

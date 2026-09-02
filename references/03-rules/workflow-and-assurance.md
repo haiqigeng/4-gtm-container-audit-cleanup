@@ -219,6 +219,9 @@ which conclusions came from each audit, expose every disagreement, and decide
 without voting or silently preferring one audit. It may confirm, narrow, reject,
 or keep a decision blocked; it cannot invent a third actionable target. Record
 the reconciliation agent/context labels and exact locked input/output hashes.
+Each neutral row exposes `allowed_evidence_citations`, the deterministic union of
+its locked source coordinates and exact JSON paths inside locked neutral evidence.
+Authored citations must be exact members of that list.
 
 Reconciliation scaffolds and the neutral-verification queue are reproducible
 projections of both sealed audits. Finalisation reconstructs both structures and

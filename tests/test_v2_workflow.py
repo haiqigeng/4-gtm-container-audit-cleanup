@@ -53,7 +53,7 @@ from gtm_fixed_point import (  # noqa: E402
     fixed_point_seal_errors,
     start_fixed_point,
 )
-from gtm_lib import file_sha256, stable_hash  # noqa: E402
+from gtm_lib import file_sha256, locked_evidence_coordinates, stable_hash  # noqa: E402
 from gtm_projection_review import (  # noqa: E402
     finalize_projection_reconciliation,
     scaffold_projection_reconciliation,
@@ -751,6 +751,25 @@ def complete_delivery_reviews(package: Path) -> None:
 
 
 class V2WorkflowTests(unittest.TestCase):
+    def test_locked_evidence_coordinates_expose_exact_supplied_json_paths(self) -> None:
+        self.assertEqual(
+            [
+                "$.containerVersion.tag[1]",
+                "$.containerVersion.tag[1].parameter[0].value",
+                "$.containerVersion.trigger[2]",
+            ],
+            locked_evidence_coordinates(
+                ["$.containerVersion.tag[1]"],
+                {
+                    "source_json_path": "$.containerVersion.trigger[2]",
+                    "evidence_anchors": [
+                        "$.containerVersion.tag[1].parameter[0].value"
+                    ],
+                    "statement": "No path is inferred from this prose.",
+                },
+            ),
+        )
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -1977,6 +1996,12 @@ class V2WorkflowTests(unittest.TestCase):
         }
         for row in neutral["verifications"]:
             self.assertTrue(forbidden.isdisjoint(row))
+            self.assertEqual(
+                locked_evidence_coordinates(
+                    row["source_coordinates"], row["neutral_evidence"]
+                ),
+                row["allowed_evidence_citations"],
+            )
 
     def test_projection_reviews_require_distinct_agents_and_contexts(self) -> None:
         for shared_field in ("agent", "context"):

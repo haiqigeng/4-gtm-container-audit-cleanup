@@ -19,6 +19,7 @@ from gtm_lib import (
     as_list,
     contained_relative_path,
     file_sha256,
+    locked_evidence_coordinates,
     require_safe_package_root,
     stable_hash,
     write_json,
@@ -485,6 +486,9 @@ def _projection_reconciliation_payloads(
                     "source-supported decision and narrowest safe target follow?"
                 ),
                 "neutral_evidence": obligation.get("evidence", {}),
+                "allowed_evidence_citations": locked_evidence_coordinates(
+                    obligation.get("source_coordinates"), obligation.get("evidence", {})
+                ),
                 "prohibited_context": (
                     "Do not decide by vote count, prior preference, expected fixed-point "
                     "outcome, or workbook wording; resolve evidence and criteria directly."
@@ -585,6 +589,7 @@ def _neutral_errors(
             "verification_reasons",
             "neutral_question",
             "neutral_evidence",
+            "allowed_evidence_citations",
             "prohibited_context",
             "neutral_bundle_manifest_sha256",
         ):
@@ -605,9 +610,9 @@ def _neutral_errors(
         else:
             errors.extend(semantic_contract_errors(decision, label))
         citations = {str(value) for value in as_list(row.get("evidence_citations"))}
-        allowed = set(as_list(expected_row.get("source_coordinates")))
+        allowed = set(as_list(expected_row.get("allowed_evidence_citations")))
         if allowed and (not citations or citations - allowed):
-            errors.append(f"{label}: citations are outside projected evidence")
+            errors.append(f"{label}: citations are outside allowed projected evidence")
         if len(str(row.get("verification_rationale") or "").split()) < 8:
             errors.append(f"{label}: verification rationale is incomplete")
     return errors

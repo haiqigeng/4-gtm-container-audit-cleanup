@@ -241,6 +241,9 @@ risk class listed in the workflow reference. This fresh reconciliation agent may
 perform the neutral review itself: it may confirm, narrow, reject, or keep a
 decision blocked, but cannot invent a third actionable target. Record its agent
 and context labels plus locked input and sealed output hashes.
+Each neutral row publishes `allowed_evidence_citations`, deterministically built
+from its locked source coordinates and exact JSON paths inside its locked neutral
+evidence. Cite only values from that list; do not infer or normalize a path.
 
 ### 5. Synthesize And Prove The Target
 
