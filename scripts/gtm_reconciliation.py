@@ -309,6 +309,26 @@ def _comparison_row(
         "reconciliation_rationale": "",
     }
     if not requires_neutral:
+        candidates = [
+            decision for decision in (left, right) if isinstance(decision, dict)
+        ]
+        canonical = min(
+            candidates,
+            key=lambda decision: stable_hash(
+                canonical_semantic_payload(decision), 64
+            ),
+        )
+        comparison.update(
+            {
+                "status": "complete",
+                "canonical_decision": canonical,
+                "reconciliation_rationale": (
+                    "Deterministic reconciliation retained one "
+                    f"{('equivalent' if classification == 'agreement' else 'compatible')} "
+                    "sealed audit decision."
+                ),
+            }
+        )
         return comparison, None
     queue = {
         "verification_id": verification_id,
@@ -576,6 +596,10 @@ def _merge_reconciliation_units(
             if isinstance(row, dict)
         ] != expected_unit["verification_ids"]:
             raise ValueError(f"{record['unit_id']}: verification membership changed")
+        if unit_comparisons != expected_unit["comparisons"]:
+            raise ValueError(
+                f"{record['unit_id']}: deterministic comparison rows changed"
+            )
         comparisons.extend(unit_comparisons)
         verifications.extend(unit_verifications)
     completion = _read_json(package_dir / RECONCILIATION_COMPLETION_FILE)
@@ -591,13 +615,38 @@ def _merge_reconciliation_units(
         "schema_version"
     ) != 1:
         raise ValueError("reconciliation completion identity changed")
+    verification_by_id = {
+        str(row.get("verification_id") or ""): row
+        for row in verifications
+        if isinstance(row, dict)
+    }
+    projected_comparisons = []
+    for comparison in comparisons:
+        projected = dict(comparison)
+        if comparison.get("neutral_verification_required"):
+            verification = verification_by_id.get(
+                str(comparison.get("neutral_verification_id") or "")
+            )
+            if verification:
+                projected.update(
+                    {
+                        "status": verification.get("status"),
+                        "canonical_decision": verification.get(
+                            "canonical_decision"
+                        ),
+                        "reconciliation_rationale": verification.get(
+                            "verification_rationale"
+                        ),
+                    }
+                )
+        projected_comparisons.append(projected)
     reconciliation = dict(expected_reconciliation)
     reconciliation.update(
         {
             "independent_agent_id": completion.get("independent_agent_id"),
             "independent_context_id": completion.get("independent_context_id"),
             "status": completion.get("status"),
-            "comparisons": comparisons,
+            "comparisons": projected_comparisons,
         }
     )
     neutral = dict(expected_neutral)
@@ -678,7 +727,7 @@ def _neutral_errors(
             str(value) for value in as_list(row.get("evidence_citations"))
         }
         allowed = set(as_list(expected_row.get("allowed_evidence_citations")))
-        if allowed and (not citations or citations - allowed):
+        if citations - allowed or (allowed and not citations):
             errors.append(f"{label}: citations must use allowed_evidence_citations")
         if not _has_minimum_words(row.get("verification_rationale")):
             errors.append(f"{label}: verification rationale is not evidence-bound")

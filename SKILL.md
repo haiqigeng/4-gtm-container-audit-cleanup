@@ -263,10 +263,12 @@ evidence. Cite only values from that list; do not infer or normalize a path.
 The reconciliation scaffold creates
 `reconciliation-units/manifest.json`, bounded unit files named exactly by that
 manifest, and `reconciliation-completion.json`. The one fresh reconciler reviews
-and completes every declared unit sequentially in the same context, then records
-its identity and `complete` status in the completion file. It never edits one
-monolithic reconciliation document. Finalisation reconstructs the manifest and
-unit membership, merges every row exactly once, validates the complete semantic
+and completes every declared neutral-verification row sequentially in the same
+context, then records its identity and `complete` status in the completion file.
+It does not edit comparison rows: non-neutral agreements are deterministically
+prefilled from sealed audit decisions, and each neutral comparison is projected
+from its completed verification. Finalisation reconstructs the manifest and unit
+membership, merges every row exactly once, validates the complete semantic
 result, and only then writes and seals the canonical reconciliation files.
 
 ### 5. Synthesize And Prove The Target

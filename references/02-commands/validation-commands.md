@@ -244,7 +244,11 @@ python -B scripts/gtm_reconciliation.py scaffold audit-package
 In one separate fresh reconciliation-agent context after both audits are sealed,
 read `reconciliation-units/manifest.json`, then complete every exact unit filename
 declared there. Do not enumerate or infer unit paths. Each unit contains its
-bounded comparison rows and matching neutral rows. Complete
+bounded deterministic comparison rows and matching neutral-verification rows.
+Edit only the neutral-verification rows. Non-neutral comparison decisions are
+prefilled from the sealed audits, and finalisation projects each completed neutral
+decision into its owning comparison so the same judgment is never authored twice.
+Complete
 `reconciliation-completion.json` with the fresh agent/context labels and status
 `complete`. Every neutral row includes the complete locked
 `allowed_evidence_citations` list; use only exact entries from that list. Then:

@@ -307,6 +307,8 @@ semantic record.
 
 Speed comes from parallel Audit A/B work, family-local shards, one reusable fact
 layer, focused assurance, targeted neutral checks instead of a third full audit,
-per-shard validation, hash-bound resume, and deterministic workbook generation.
+deterministically prefilled agreement rows, one authored neutral decision projected
+to its owning comparison, per-shard validation, hash-bound resume, and deterministic
+workbook generation.
 None may reduce obligation coverage, expose one audit to the other, turn judgment
 into a fact, or skip projected closure.

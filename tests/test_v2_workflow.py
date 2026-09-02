@@ -531,38 +531,21 @@ def complete_base_reconciliation(
     for record in manifest["units"]:
         unit_path = unit_root / record["filename"]
         unit = json.loads(unit_path.read_text(encoding="utf-8"))
-        comparison_by_verification = {
-            row["neutral_verification_id"]: row
-            for row in unit["comparisons"]
-            if row["neutral_verification_required"]
-        }
-        neutral_by_id = {}
         for row in unit["verifications"]:
-            comparison = comparison_by_verification[row["verification_id"]]
+            comparison = next(
+                item
+                for item in unit["comparisons"]
+                if item["neutral_verification_id"] == row["verification_id"]
+            )
             decision = copy.deepcopy(comparison["audit_decisions"]["audit-a"])
+            allowed = list(row.get("allowed_evidence_citations") or [])
             row.update(
                 {
                     "status": "complete",
                     "canonical_decision": decision,
-                    "evidence_citations": list(row.get("source_coordinates") or []),
+                    "evidence_citations": allowed[:1],
                     "verification_rationale": (
                         "The locked record directly supports this bounded conclusion."
-                    ),
-                }
-            )
-            neutral_by_id[row["verification_id"]] = decision
-        for row in unit["comparisons"]:
-            canonical = (
-                neutral_by_id[row["neutral_verification_id"]]
-                if row["neutral_verification_required"]
-                else copy.deepcopy(row["audit_decisions"]["audit-a"])
-            )
-            row.update(
-                {
-                    "status": "complete",
-                    "canonical_decision": canonical,
-                    "reconciliation_rationale": (
-                        "The locked records directly support this bounded conclusion."
                     ),
                 }
             )
@@ -2491,6 +2474,47 @@ class V2WorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(len(comparison_ids), manifest["comparison_count"])
         self.assertEqual(len(comparison_ids), len(set(comparison_ids)))
+        comparisons = []
+        for record in manifest["units"]:
+            unit = json.loads(
+                (unit_root / record["filename"]).read_text(encoding="utf-8")
+            )
+            comparisons.extend(unit["comparisons"])
+        for row in comparisons:
+            if not row["neutral_verification_required"]:
+                self.assertEqual("complete", row["status"])
+                self.assertTrue(row["canonical_decision"])
+                self.assertTrue(row["reconciliation_rationale"])
+
+    def test_reconciliation_projects_neutral_result_without_duplicate_authoring(
+        self,
+    ) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "neutral-projection-a")
+        complete_checkpoint(self.package, "audit-b", "neutral-projection-b")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(self.package)
+        reconciliation = json.loads(
+            (self.package / "reconciliation.json").read_text(encoding="utf-8")
+        )
+        neutral = json.loads(
+            (self.package / "neutral-verification.json").read_text(encoding="utf-8")
+        )
+        neutral_by_id = {
+            row["verification_id"]: row for row in neutral["verifications"]
+        }
+        for row in reconciliation["comparisons"]:
+            if row["neutral_verification_required"]:
+                verification = neutral_by_id[row["neutral_verification_id"]]
+                self.assertEqual(
+                    verification["canonical_decision"], row["canonical_decision"]
+                )
+                self.assertEqual(
+                    verification["verification_rationale"],
+                    row["reconciliation_rationale"],
+                )
 
     def test_reconciliation_rejects_changed_unit_membership_before_output(self) -> None:
         build_package(self.export, self.package)
@@ -2519,6 +2543,28 @@ class V2WorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "comparison membership changed"):
             finalize_reconciliation(self.package)
         self.assertFalse((self.package / "reconciliation.json").exists())
+
+    def test_reconciliation_rejects_authored_comparison_rows(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "fixture-a-context-001")
+        complete_checkpoint(self.package, "audit-b", "fixture-b-context-001")
+        complete_audit(self.package, "audit-a")
+        complete_audit(self.package, "audit-b")
+        scaffold_reconciliation(self.package)
+
+        unit_root = self.package / "reconciliation-units"
+        manifest = json.loads((unit_root / "manifest.json").read_text(encoding="utf-8"))
+        unit_path = unit_root / manifest["units"][0]["filename"]
+        unit = json.loads(unit_path.read_text(encoding="utf-8"))
+        unit["comparisons"][0]["reconciliation_rationale"] = (
+            "An agent must not author this deterministic comparison row."
+        )
+        unit_path.write_text(json.dumps(unit, indent=2) + "\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            ValueError, "deterministic comparison rows changed"
+        ):
+            finalize_reconciliation(self.package)
 
     def test_rehashed_replay_and_canonical_forgery_are_rejected(self) -> None:
         self.run_actionable_to_editorial()
