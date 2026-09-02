@@ -260,6 +260,12 @@ locked projected evidence and contract but not each other's findings. Seal both
 outputs, then reconcile them in a separate fresh context using the same neutral
 decision rules as Stage 5.
 
+Compare source coordinates through stable, unique GTM object identities. An
+export-array position shift alone does not require another semantic judgment.
+Keep the actual coordinates in all evidence; skip a repeat only when complete
+comparison evidence matches unambiguously. Changed configuration, code, scope,
+relationships, and opaque derived identities remain reviewable.
+
 Record projected graph, scan, obligation, relationship, decision, and operation
 hashes. A cycle is stable only when no new or changed actionable obligation
 remains, prior operations still resolve their decisions, bounded outcomes remain

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import tempfile
 from collections import defaultdict
@@ -217,12 +218,67 @@ def _build_projection_artifacts(
     return scan, assurance, ledger
 
 
+def _relocated_obligation_hash(
+    obligation: dict[str, Any], positions: dict[str, str]
+) -> str:
+    """Compare evidence by object identity without changing stored provenance."""
+    path_fields = {
+        "source_json_path", "json_path", "source_reference_path",
+        "source_coordinates", "source_json_paths",
+    }
+
+    def relocate(value: Any, field: str = "") -> Any:
+        if isinstance(value, dict):
+            result = {key: relocate(child, key) for key, child in value.items()}
+            # The ledger adds review_area_ids after hashing the scan topology.
+            # Retain malformed/opaque digests so they cannot hide a difference.
+            digest = value.get("control_topology_sha256")
+            if digest and digest == _hash_without(
+                value, "control_topology_sha256", "review_area_ids"
+            )[:32]:
+                result["control_topology_sha256"] = _hash_without(
+                    result, "control_topology_sha256", "review_area_ids"
+                )[:32]
+            return result
+        if isinstance(value, list):
+            result = [relocate(child, field) for child in value]
+            if field in {"source_coordinates", "source_json_paths"}:
+                return sorted(result)
+            return result
+        if isinstance(value, str) and (
+            field in path_fields or field.endswith("_evidence_anchors")
+        ):
+            match = re.match(r"^(\$(?:\.containerVersion)?\.[A-Za-z]+\[\d+\])(?=\.|\[|$)", value)
+            if match and match[1] in positions:
+                return positions[match[1]] + value[len(match[1]):]
+        return value
+
+    comparable = relocate(obligation)
+    comparable.pop("obligation_id", None)
+    return _semantic_obligation_sha256(comparable)
+
+
+def _object_positions(scan: dict[str, Any]) -> dict[str, str]:
+    """Use only unambiguous scan-owned object coordinates."""
+    rows = as_list(scan.get("objects"))
+    keys = [row.get("object_key") for row in rows]
+    paths = [row.get("source_json_path") for row in rows]
+    if len(set(keys)) != len(keys) or len(set(paths)) != len(paths):
+        raise ValueError("projection comparison requires unique object identities and paths")
+    return {
+        row["source_json_path"]: "@" + row["object_key"]
+        for row in rows
+        if row.get("source_json_path") and row.get("object_key")
+    }
+
+
 def _projection_delta(
     cycle_number: int,
     previous_ledger: dict[str, Any],
     current_ledger: dict[str, Any],
     scan: dict[str, Any],
     assurance: dict[str, Any],
+    previous_scan: dict[str, Any],
 ) -> dict[str, Any]:
     previous = {
         str(row.get("obligation_id") or ""): row
@@ -234,11 +290,26 @@ def _projection_delta(
         for row in as_list(current_ledger.get("obligations"))
         if isinstance(row, dict)
     }
+    prior_positions = _object_positions(previous_scan)
+    current_positions = _object_positions(scan)
+    previous_meanings: dict[str, list[str]] = defaultdict(list)
+    current_meanings: dict[str, list[str]] = defaultdict(list)
+    for identity, row in previous.items():
+        previous_meanings[_relocated_obligation_hash(row, prior_positions)].append(identity)
+    for identity, row in current.items():
+        current_meanings[_relocated_obligation_hash(row, current_positions)].append(identity)
+    unchanged = {
+        current_ids[0]: previous_meanings[meaning][0]
+        for meaning, current_ids in current_meanings.items()
+        if len(current_ids) == 1 and len(previous_meanings.get(meaning, [])) == 1
+    }
     rows = []
     for obligation_id in sorted(current):
         row = current[obligation_id]
         prior = previous.get(obligation_id)
         if prior and _semantic_obligation_sha256(prior) == _semantic_obligation_sha256(row):
+            continue
+        if obligation_id in unchanged:
             continue
         rows.append(
             {
@@ -258,7 +329,7 @@ def _projection_delta(
             "subject_keys": previous[obligation_id].get("subject_keys", []),
             "retirement_basis": "absent_from_complete_projected_obligation_graph",
         }
-        for obligation_id in sorted(set(previous) - set(current))
+        for obligation_id in sorted(set(previous) - set(current) - set(unchanged.values()))
     ]
     payload = {
         "kind": "gtm_projection_obligation_delta",
@@ -396,7 +467,11 @@ def _create_cycle(
         package_dir, cycle_dir, projected
     )
     delta = _projection_delta(
-        cycle_number, previous_ledger, ledger, scan, assurance
+        cycle_number, previous_ledger, ledger, scan, assurance,
+        _load(
+            (package_dir if cycle_number == 1 else _cycle_directory(package_dir, cycle_number - 1))
+            / "canonical-scan.json"
+        ),
     )
     write_json(cycle_dir / "projection-obligations.json", delta)
     hashes = _projection_hashes(
