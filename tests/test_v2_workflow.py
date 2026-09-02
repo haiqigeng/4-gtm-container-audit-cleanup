@@ -942,6 +942,14 @@ class V2WorkflowTests(unittest.TestCase):
         )
         self.assertIn("High", contract["priorities_case_sensitive"])
         self.assertIn("Evidence limited", contract["confidence_levels_case_sensitive"])
+        self.assertEqual(
+            r"OP-[A-Z0-9][A-Z0-9_-]{5,80}",
+            contract["actionable_operation_contract"]["operation_id_pattern"],
+        )
+        self.assertRegex(
+            contract["actionable_operation_contract"]["operation_id_example"],
+            r"^OP-[A-Z0-9][A-Z0-9_-]{5,80}$",
+        )
         self.assertEqual([], contract["open_discoveries_contract"]["default"])
         self.assertTrue(
             contract["open_discoveries_contract"][

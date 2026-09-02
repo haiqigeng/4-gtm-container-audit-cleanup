@@ -40,6 +40,8 @@ from gtm_lib import (
     write_json,
 )
 
+OPERATION_ID_PATTERN = r"OP-[A-Z0-9][A-Z0-9_-]{5,80}"
+
 AUDIT_IDS = ("audit-a", "audit-b")
 BUNDLE_DIRECTORY = "audit-bundles"
 SEAL_DIRECTORY = "audit-seals"
@@ -729,7 +731,7 @@ def operation_proposal_errors(
 ) -> list[str]:
     errors: list[str] = []
     operation_id = str(proposal.get("operation_id") or "")
-    if not re.fullmatch(r"OP-[A-Z0-9][A-Z0-9_-]{5,80}", operation_id):
+    if not re.fullmatch(OPERATION_ID_PATTERN, operation_id):
         errors.append(f"{label}: operation_id must use the stable OP-* form")
     elif operation_id in operation_ids:
         errors.append(f"{label}: operation_id is duplicated")

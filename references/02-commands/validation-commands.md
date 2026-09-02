@@ -169,7 +169,8 @@ Each group has exactly this nesting; decision fields never sit beside
 Use only the case-sensitive priority and confidence values in
 `authoring_contract`. Every actionable decision must include the complete
 declared `operation_proposal`; all action-list fields are present, even when
-empty. Leave plan `open_discoveries` as `[]` unless a genuinely new semantic
+empty. Its uppercase `operation_id` must match the exact pattern and example in
+`authoring_contract`. Leave plan `open_discoveries` as `[]` unless a genuinely new semantic
 record satisfies the complete structured discovery contract. Do not copy the
 checkpoint's concise string notes into the plan.
 The scaffold's locked `authoring_contract` lists class-required fields. Missing

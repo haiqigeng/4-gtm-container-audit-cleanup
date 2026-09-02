@@ -31,7 +31,7 @@ from gtm_audit_work_units import (
     work_unit_contract_errors,
     work_unit_identity_hash,
 )
-from gtm_cleanroom_audit import operation_proposal_errors
+from gtm_cleanroom_audit import OPERATION_ID_PATTERN, operation_proposal_errors
 from gtm_lib import as_list, require_safe_package_root, write_json
 from gtm_projection_review import REVIEW_IDS, validate_projection_review
 
@@ -75,6 +75,8 @@ def _authoring_contract() -> dict[str, Any]:
             for decision_class in DECISION_CLASSES
         },
         "actionable_operation_contract": {
+            "operation_id_pattern": OPERATION_ID_PATTERN,
+            "operation_id_example": "OP-TAG-943-REMOVE-BLOCKER",
             "proposal_fields": sorted(OPERATION_PROPOSAL_FIELDS),
             "action_row_fields": {
                 field: sorted(fields)
