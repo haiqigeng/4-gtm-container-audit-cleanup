@@ -106,7 +106,10 @@ semantic decision objects.
 Do not generate or execute an audit-local helper and do not inspect the peer
 audit. Before checkpoint sealing, do not read `work-units`: that directory does
 not yet exist. The checkpoint command creates it. After release, read each
-work-unit path from the manifest record's exact `filename` field. Do not add
+work unit at
+`audit-package/audit-bundles/<audit-id>/work-units/<filename>`, using the
+manifest record's exact `filename` field. `audit-scratch/<audit-id>` contains
+only `audit-plan.json`, never work units or evidence. Do not add
 optional shell inspection pipelines or guess artifact filenames; the documented
 validators are the gates.
 Do not use `rg`, `grep`, repository search, or exploratory shell commands during

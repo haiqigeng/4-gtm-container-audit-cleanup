@@ -156,7 +156,10 @@ or execute an audit-local helper.
 Before checkpoint sealing, an audit bundle has no `work-units` directory. The
 checkpoint command creates `work-units/work-unit-manifest.json`; only then may
 the agent review and complete the declared work units. Use each manifest
-record's exact `filename` field and never inspect the peer audit.
+record's exact `filename` under
+`audit-bundles/<audit-id>/work-units/<filename>` and never inspect the peer audit.
+`audit-scratch/<audit-id>` contains only `audit-plan.json`; it never contains
+locked evidence or work units.
 
 Semantic-audit execution is closed-command. Read only the exact assigned bundle
 files, the locked shared rules, and the declared work-unit filenames. The audit
