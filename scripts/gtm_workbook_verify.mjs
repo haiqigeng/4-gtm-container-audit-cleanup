@@ -128,6 +128,15 @@ function containsExactString(value, expected) {
   return false;
 }
 
+function previewRange(sheetModel) {
+  const columnCount = sheetModel.dimensions.columns.length;
+  const endColumn = String.fromCharCode(64 + columnCount);
+  const endRow = sheetModel.name === "01 Overview"
+    ? 50
+    : Math.min(30, 5 + Math.max((sheetModel.rows || []).length, 1));
+  return `A1:${endColumn}${endRow}`;
+}
+
 async function main() {
   const packageArg = process.argv[2];
   if (!packageArg) throw new Error("Usage: gtm_workbook_verify.mjs <package-dir>");
@@ -310,8 +319,23 @@ async function main() {
   await fs.mkdir(verificationPreviewDir, { recursive: true });
   const renderChecks = [];
   for (const sheetName of expectedSheets) {
+    const sheetModel = manifest.normalized_model.sheets.find(
+      (sheet) => sheet.name === sheetName,
+    );
+    if (!sheetModel) {
+      errors.push(`${sheetName}: normalized render model is missing`);
+      continue;
+    }
+    const range = previewRange(sheetModel);
+    const builtPreview = (manifest.previews || []).find(
+      (preview) => preview.sheet === sheetName,
+    );
+    if (!builtPreview || builtPreview.range !== range) {
+      errors.push(`${sheetName}: build preview range is missing or changed`);
+    }
     const preview = await workbook.render({
       sheetName,
+      range,
       autoCrop: "all",
       scale: 1,
       format: "png",
@@ -325,6 +349,7 @@ async function main() {
     if (bytes.length < 500) errors.push(`${sheetName}: verification render is empty or corrupt`);
     renderChecks.push({
       sheet: sheetName,
+      range,
       path: path.relative(packageDir, previewPath).replaceAll("\\", "/"),
       bytes: bytes.length,
       sha256: await fileHash(previewPath),

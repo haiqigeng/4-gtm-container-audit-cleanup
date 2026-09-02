@@ -32,6 +32,15 @@ class ReleaseHealthTests(unittest.TestCase):
         self.assertEqual(1, skill.count(start))
         self.assertEqual(1, skill.count(completion))
 
+    def test_workbook_rendering_is_bounded_in_build_and_verification(self) -> None:
+        for relative_path in (
+            "scripts/gtm_workbook_build.mjs",
+            "scripts/gtm_workbook_verify.mjs",
+        ):
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn("function previewRange(sheetModel)", source)
+            self.assertIn("range,\n      autoCrop", source)
+
     def test_declared_runtime_rejects_dirty_build_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

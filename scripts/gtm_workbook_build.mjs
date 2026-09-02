@@ -203,6 +203,15 @@ function mappedRows(deliveryMap, sheetName) {
   return deliveryMap.rows.filter((row) => row.primary_sheet === sheetName);
 }
 
+function previewRange(sheetModel) {
+  const columnCount = sheetModel.dimensions.columns.length;
+  const endColumn = String.fromCharCode(64 + columnCount);
+  const endRow = sheetModel.name === "01 Overview"
+    ? 50
+    : Math.min(30, 5 + Math.max((sheetModel.rows || []).length, 1));
+  return `A1:${endColumn}${endRow}`;
+}
+
 function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
   if (row.primary_sheet !== "02 Recommendations") return;
   const note = {
@@ -619,8 +628,12 @@ async function main() {
   await fs.mkdir(previewDir, { recursive: true });
   const previews = [];
   for (const sheetName of deliveryMap.visible_sheets) {
+    const sheetModel = first.model.sheets.find((sheet) => sheet.name === sheetName);
+    if (!sheetModel) throw new Error(`Missing normalized model for ${sheetName}`);
+    const range = previewRange(sheetModel);
     const preview = await first.workbook.render({
       sheetName,
+      range,
       autoCrop: "all",
       scale: 1,
       format: "png",
@@ -632,6 +645,7 @@ async function main() {
     await fs.writeFile(previewPath, new Uint8Array(await preview.arrayBuffer()));
     previews.push({
       sheet: sheetName,
+      range,
       path: path.relative(packageDir, previewPath).replaceAll("\\", "/"),
       sha256: await fileHash(previewPath),
     });
