@@ -125,9 +125,12 @@ Before reconciliation:
   from the locked scan, assurance, and audit before merge and again at final
   validation;
 - each fresh agent authors one isolated declarative plan using shared rules only
-  where conclusions are genuinely identical and obligation overrides wherever
-  evidence or target meaning differs; the maintained applicator validates the
-  whole plan before writing and deterministically merges declared work units;
+  for genuinely identical appropriate-as-configured or source-proven
+  not-applicable conclusions; every generated candidate and every actionable,
+  owner-decision, or evidence-limit conclusion uses an exact obligation override.
+  Runtime uncertainty bounds runtime claims but does not defer a static verdict.
+  The maintained applicator validates the whole plan before writing and
+  deterministically merges declared work units;
 - manifests, records, units, decisions, discoveries, proposals, and structured
   action rows use recursively closed declared schemas; unknown or malformed
   nested authoring context blocks before merge;

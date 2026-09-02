@@ -137,12 +137,16 @@ python -B scripts/gtm_audit_plan.py scaffold audit-package/audit-bundles/audit-b
 ```
 
 In its own fresh context, each agent edits only its own plan. Use concise rules
-for obligations that genuinely share one conclusion and exact overrides for
-evidence-specific, actionable, owner-decision, or evidence-limit conclusions.
+only for obligations that genuinely share a `justified_as_is` or source-proven
+`not_applicable` conclusion. Use exact overrides for every generated candidate
+and every actionable, owner-decision, or evidence-limit conclusion.
 Every non-overridden obligation must match exactly one rule. Do not use a broad
 rule where the evidence, target, preserved distinctions, or next action differs.
-The plan has a closed schema: `rules`, `overrides`, `open_discoveries`, and the
-two global review conclusions. A rule match may use only `area_id`,
+The scaffold's locked `authoring_contract` lists class-required fields. Missing
+runtime evidence limits runtime claims; it does not replace a static verdict for
+container-visible configuration. The plan has a closed schema: `rules`,
+`overrides`, `open_discoveries`, and the two global review conclusions. A rule
+match may use only `area_id`,
 `scope_level`, `audit_mechanism`, `fact_kind`, `candidate_id`, and
 `applicability`. The applicator preserves locked identity/evidence fields,
 validates the full authored result before writing, and performs the declared

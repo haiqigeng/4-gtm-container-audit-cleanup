@@ -10,7 +10,10 @@ from typing import Any
 
 from gtm_audit_contract import (
     ACTIONABLE_DECISION_CLASSES,
+    BASE_REQUIRED_DECISION_FIELDS,
     CANONICAL_DECISION_FIELDS,
+    CLASS_REQUIRED_DECISION_FIELDS,
+    DECISION_CLASSES,
     OPERATION_ACTION_FIELDS,
     semantic_contract_errors,
 )
@@ -29,6 +32,7 @@ PLAN_FIELDS = {
     "kind",
     "schema_version",
     "audit_id",
+    "authoring_contract",
     "rules",
     "overrides",
     "open_discoveries",
@@ -50,6 +54,21 @@ PLAN_DECISION_FIELDS = {
     "operation_proposal",
     "evidence_citations",
 }
+RULE_DECISION_CLASSES = {"justified_as_is", "not_applicable"}
+
+
+def _authoring_contract() -> dict[str, Any]:
+    return {
+        "rule_decision_classes": sorted(RULE_DECISION_CLASSES),
+        "candidate_obligations_require_overrides": True,
+        "required_fields_by_class": {
+            decision_class: [
+                *BASE_REQUIRED_DECISION_FIELDS,
+                *CLASS_REQUIRED_DECISION_FIELDS[decision_class],
+            ]
+            for decision_class in DECISION_CLASSES
+        },
+    }
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -83,6 +102,7 @@ def scaffold_plan(bundle: Path, output: Path) -> dict[str, Any]:
         "kind": "gtm_independent_audit_plan",
         "schema_version": 1,
         "audit_id": audit_id,
+        "authoring_contract": _authoring_contract(),
         "rules": [],
         "overrides": [],
         "open_discoveries": [],
@@ -114,6 +134,8 @@ def _plan_errors(plan: dict[str, Any], audit_id: str) -> list[str]:
         errors.append("audit plan schema_version must be 1")
     if plan.get("audit_id") != audit_id:
         errors.append("audit plan belongs to another audit")
+    if plan.get("authoring_contract") != _authoring_contract():
+        errors.append("audit plan authoring_contract differs from the current contract")
     rule_ids: set[str] = set()
     for index, rule in enumerate(as_list(plan.get("rules")), start=1):
         label = f"rule {index}"
@@ -130,6 +152,11 @@ def _plan_errors(plan: dict[str, Any], audit_id: str) -> list[str]:
         decision = rule.get("decision")
         if not isinstance(decision, dict) or set(decision) - PLAN_DECISION_FIELDS:
             errors.append(f"{label} decision uses unsupported fields")
+        elif decision.get("decision_class") not in RULE_DECISION_CLASSES:
+            errors.append(
+                f"{label} must use justified_as_is or not_applicable; "
+                "other classes require an obligation override"
+            )
     override_ids: set[str] = set()
     for index, override in enumerate(as_list(plan.get("overrides")), start=1):
         label = f"override {index}"
@@ -237,6 +264,11 @@ def apply_plan(bundle: Path, plan_path: Path) -> dict[str, Any]:
     for obligation_id, locked in locked_by_obligation.items():
         selected = overrides.get(obligation_id)
         if selected is None:
+            if str(locked.get("candidate_id") or ""):
+                errors.append(
+                    f"{obligation_id}: generated candidate requires an exact override"
+                )
+                continue
             matches = [
                 row
                 for row in as_list(plan.get("rules"))
