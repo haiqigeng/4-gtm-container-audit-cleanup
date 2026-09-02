@@ -2082,6 +2082,58 @@ class V2WorkflowTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, expected):
                     complete_base_reconciliation(package, **kwargs)
 
+    def test_projection_neutral_citations_respect_empty_and_nonempty_allowlists(self) -> None:
+        coordinate = "$.containerVersion.tag[0]"
+        invented = "invented:$.not_evidence"
+        cases = (
+            ([], [], True),
+            ([], [invented], False),
+            ([coordinate], [], False),
+            ([coordinate], [coordinate], True),
+            ([coordinate], [coordinate, invented], False),
+        )
+        for allowed, citations, valid in cases:
+            with self.subTest(allowed=allowed, citations=citations):
+                row = dict.fromkeys(projection_review.LOCKED_DECISION_FIELDS)
+                row.update(
+                    {
+                        "verification_id": "PNV-CITATION-FIXTURE",
+                        "source_coordinates": allowed,
+                        "verification_reasons": ["conflicting_verdict"],
+                        "neutral_question": "What does the locked source support?",
+                        "neutral_evidence": {},
+                        "allowed_evidence_citations": allowed,
+                        "prohibited_context": "Do not invent evidence.",
+                        "status": "pending",
+                        "canonical_decision": {},
+                        "evidence_citations": [],
+                        "verification_rationale": "",
+                    }
+                )
+                row["neutral_bundle_manifest_sha256"] = (
+                    projection_review.neutral_bundle_manifest_sha256(row)
+                )
+                expected = {"status": "pending", "verifications": [row]}
+                supplied = copy.deepcopy(expected)
+                supplied["status"] = "complete"
+                supplied["verifications"][0].update(
+                    {
+                        "status": "complete",
+                        "canonical_decision": fixture_plan_decision("applicable"),
+                        "evidence_citations": citations,
+                        "verification_rationale": (
+                            "This fixture retains the sealed conclusion solely to test evidence citation boundaries."
+                        ),
+                    }
+                )
+                errors = projection_review._neutral_errors(
+                    self.root, supplied, expected
+                )
+                if valid:
+                    self.assertEqual([], errors)
+                else:
+                    self.assertTrue(any("citations" in error for error in errors))
+
     def test_neutral_rows_have_no_agent_context_or_receipt_fields(self) -> None:
         self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
         build_package(self.export, self.package)

@@ -619,7 +619,7 @@ def _neutral_errors(
             errors.extend(semantic_contract_errors(decision, label))
         citations = {str(value) for value in as_list(row.get("evidence_citations"))}
         allowed = set(as_list(expected_row.get("allowed_evidence_citations")))
-        if allowed and (not citations or citations - allowed):
+        if citations - allowed or (allowed and not citations):
             errors.append(f"{label}: citations are outside allowed projected evidence")
         if len(str(row.get("verification_rationale") or "").split()) < 8:
             errors.append(f"{label}: verification rationale is incomplete")
