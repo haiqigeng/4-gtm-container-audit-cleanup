@@ -240,7 +240,11 @@ cycle starts from the locked original, applies the complete packet, reruns globa
 scan and independent assurance, and sends every materially changed semantic
 obligation to two fresh review agents. The two review agents receive the same
 locked projected evidence but not each other's findings; reconcile their sealed
-results in a fresh context. Permit at most three cycles.
+results in a fresh context. Each reviewer uses the same maintained declarative
+plan command as the source audits, with one isolated
+`projection-scratch/cycle-<nn>/<review-id>/review-plan.json`; never create a
+projection-local resolver or infer a configured object from normalized display
+text. Permit at most three cycles.
 Block as `non_convergent_target_state` on cycle-three actionability, recurring
 actionable hashes, oscillation, conflicts, or no exact safe operation.
 Construct each next cycle in staging and commit its decision record, operation

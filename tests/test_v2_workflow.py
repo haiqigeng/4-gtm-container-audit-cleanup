@@ -24,7 +24,12 @@ from gtm_audit_contract import (  # noqa: E402
     OPERATION_ACTION_FIELDS,
 )
 from gtm_audit_package_build import build_package as executable_build_package  # noqa: E402
-from gtm_audit_plan import apply_plan, scaffold_plan  # noqa: E402
+from gtm_audit_plan import (  # noqa: E402
+    apply_plan,
+    apply_projection_plan,
+    scaffold_plan,
+    scaffold_projection_plan,
+)
 from gtm_audit_work_units import merge_work_units  # noqa: E402
 from gtm_canonical_record import (  # noqa: E402
     build_canonical_record,
@@ -274,6 +279,50 @@ def write_fixture_audit_plan(package: Path, audit_id: str) -> Path:
     plan["global_target_architecture_review"] = (
         "The complete fixture target remains empty because no proven implementation need exists."
     )
+    plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+    return plan_path
+
+
+def write_fixture_projection_plan(
+    package: Path, cycle_number: int, review_id: str
+) -> Path:
+    plan_path = (
+        package
+        / "projection-scratch"
+        / f"cycle-{cycle_number:02d}"
+        / review_id
+        / "review-plan.json"
+    )
+    scaffold_projection_plan(package, cycle_number, review_id, plan_path)
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    review_path = (
+        package
+        / "fixed-point"
+        / f"cycle-{cycle_number:02d}"
+        / "reviews"
+        / review_id
+        / "review.json"
+    )
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    applicability_values = sorted(
+        {str(row["applicability"]) for row in review["decisions"]}
+    )
+    plan["rules"] = [
+        {
+            "rule_id": f"projection-fixture-{index:02d}",
+            "match": {"applicability": applicability},
+            "decision": fixture_plan_decision(applicability),
+        }
+        for index, applicability in enumerate(applicability_values, start=1)
+    ]
+    plan["overrides"] = [
+        {
+            "obligation_id": row["obligation_id"],
+            "decision": fixture_plan_decision(str(row["applicability"])),
+        }
+        for row in review["decisions"]
+        if str(row.get("candidate_id") or "")
+    ]
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     return plan_path
 
@@ -1901,6 +1950,88 @@ class V2WorkflowTests(unittest.TestCase):
                 self.package,
                 int(result["cycle"]),
                 review_input_manifest_override="f" * 64,
+            )
+
+    def test_projection_plan_completes_review_without_ad_hoc_resolver(self) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "projection-plan-a")
+        complete_checkpoint(self.package, "audit-b", "projection-plan-b")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(self.package)
+        compile_operation_packet(self.package)
+        result = start_fixed_point(self.package)
+        cycle = int(result["cycle"])
+        plan_path = write_fixture_projection_plan(
+            self.package, cycle, "review-a"
+        )
+
+        applied = apply_projection_plan(
+            self.package,
+            cycle,
+            "review-a",
+            plan_path,
+            agent_id="projection-plan-agent",
+            context_id="projection-plan-context",
+        )
+        seal = seal_projection_review(self.package, cycle, "review-a")
+
+        self.assertEqual("pass", applied["status"])
+        self.assertGreater(applied["decisions"], 0)
+        self.assertEqual("pass", seal["validator_status"])
+
+    def test_projection_plan_rejects_wrong_owner_path_and_provenance(self) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "projection-guard-a")
+        complete_checkpoint(self.package, "audit-b", "projection-guard-b")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(self.package)
+        compile_operation_packet(self.package)
+        cycle = int(start_fixed_point(self.package)["cycle"])
+        with self.assertRaisesRegex(ValueError, "unsupported projection review"):
+            scaffold_projection_plan(
+                self.package,
+                cycle,
+                "review-x",
+                self.root / "invalid-review-plan.json",
+            )
+        with self.assertRaisesRegex(ValueError, "isolated path"):
+            scaffold_projection_plan(
+                self.package,
+                cycle,
+                "review-a",
+                self.root / "misplaced-review-plan.json",
+            )
+        plan_path = write_fixture_projection_plan(
+            self.package, cycle, "review-a"
+        )
+        with self.assertRaisesRegex(FileExistsError, "already exists"):
+            scaffold_projection_plan(
+                self.package, cycle, "review-a", plan_path
+            )
+        with self.assertRaisesRegex(ValueError, "non-blank agent"):
+            apply_projection_plan(
+                self.package,
+                cycle,
+                "review-a",
+                plan_path,
+                agent_id="",
+                context_id="projection-guard-context",
+            )
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["owner_id"] = "review-b"
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "another owner"):
+            apply_projection_plan(
+                self.package,
+                cycle,
+                "review-a",
+                plan_path,
+                agent_id="projection-guard-agent",
+                context_id="projection-guard-context",
             )
 
     def test_projection_reconciliation_is_distinct_from_both_reviews(self) -> None:

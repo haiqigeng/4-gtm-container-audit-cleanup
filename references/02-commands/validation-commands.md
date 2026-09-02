@@ -228,8 +228,19 @@ python -B scripts/gtm_fixed_point.py start audit-package
 
 When a cycle awaits review, complete `review-a` and `review-b` with two fresh
 review agents over the same locked projected evidence. Do not give either agent
-the peer findings. Seal both, reconcile them in a separate fresh context, then
-advance:
+the peer findings. Each reviewer scaffolds and applies its isolated declarative
+plan; use only locked obligation IDs and coordinates, and never create an ad hoc
+reference resolver:
+
+```powershell
+python -B scripts/gtm_audit_plan.py scaffold-projection audit-package 1 review-a audit-package/projection-scratch/cycle-01/review-a/review-plan.json
+python -B scripts/gtm_audit_plan.py scaffold-projection audit-package 1 review-b audit-package/projection-scratch/cycle-01/review-b/review-plan.json
+python -B scripts/gtm_audit_plan.py apply-projection audit-package 1 review-a audit-package/projection-scratch/cycle-01/review-a/review-plan.json --agent-id <review-a-agent> --context-id <review-a-context>
+python -B scripts/gtm_audit_plan.py apply-projection audit-package 1 review-b audit-package/projection-scratch/cycle-01/review-b/review-plan.json --agent-id <review-b-agent> --context-id <review-b-context>
+```
+
+Use the actual cycle number in both the command and zero-padded scratch path.
+Seal both, reconcile them in a separate fresh context, then advance:
 
 ```powershell
 python -B scripts/gtm_projection_review.py seal-review audit-package 1 review-a
