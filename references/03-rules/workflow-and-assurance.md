@@ -225,6 +225,14 @@ Each neutral row exposes `allowed_evidence_citations`, the deterministic union o
 its locked source coordinates and exact JSON paths inside locked neutral evidence.
 Authored citations must be exact members of that list.
 
+When directly editing source or projection reconciliation JSON, use bounded
+patches anchored to exact row IDs. After each batch, check JSON parsing, complete
+row membership, and unchanged locked fields against the immutable scaffold or
+queue before continuing. A successful text patch is not a validation result.
+If a draft is damaged, restore its locked content from that reference, preserve
+validated authored rows, and repair only the affected draft; do not restart the
+audits or infer replacement judgments.
+
 Reconciliation scaffolds and the neutral-verification queue are reproducible
 projections of both sealed audits. They are partitioned into deterministic units
 of at most 30 comparisons so the same fresh reconciler can complete the whole
