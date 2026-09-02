@@ -110,6 +110,14 @@ scaffolds are the complete authoring schema.
 If no filesystem read tool exists, an exact-path read such as PowerShell
 `Get-Content -LiteralPath` is allowed. Do not enumerate directories or infer a
 path from command output.
+
+The pre-checkpoint manifest is exactly `bundle-manifest.json`, never
+`input-manifest.json`; copy its `bundle_manifest_sha256` value into checkpoint
+`input_manifest_sha256`. Common pre-checkpoint files are `audit-contract.json`,
+`bundle-manifest.json`, `context.json`, `locked-source.json`,
+`source-checkpoint.json`, and `vendor-registry.toml`. Audit A also has
+`canonical-scan.json`, `scan-assurance.json`, and `source-obligations.json`.
+Candidate-blind Audit B instead has `blind-inventory.json`.
 For actionable decisions, write `operation_family` as a human-readable phrase of
 at least two words, such as `Remove redundant priority`, never as an underscore
 token such as `remove_priority`.

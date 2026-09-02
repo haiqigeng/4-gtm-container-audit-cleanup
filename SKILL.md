@@ -163,6 +163,16 @@ commands. Other than exact-path reads and the agent's structured file edits, the
 only executable commands are the documented checkpoint, merge, validate, seal,
 and post-seal validate gates.
 
+Before checkpoint sealing, the only audit-bundle filenames are explicit. Both
+audits use `audit-contract.json`, `bundle-manifest.json`, `context.json`,
+`locked-source.json`, `source-checkpoint.json`, and `vendor-registry.toml`.
+Audit A additionally has `canonical-scan.json`, `scan-assurance.json`, and
+`source-obligations.json`; Audit B additionally has `blind-inventory.json` and
+must not seek candidate artifacts. Set checkpoint `input_manifest_sha256` from
+the exact `bundle_manifest_sha256` field in `bundle-manifest.json`. There is no
+`input-manifest.json`. After the checkpoint command, use only its declared
+outputs plus `work-units/work-unit-manifest.json` and each exact `filename`.
+
 Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B
 must use distinct agent and context labels.
