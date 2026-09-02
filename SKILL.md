@@ -108,7 +108,10 @@ decide correctness, necessity, priority, consolidation, or target architecture.
 Run scan assurance in a separate fresh agent context that receives the locked raw
 source, assurance rules, and canonical scan identity but no semantic findings. It
 must reread raw source and pass every applicable critical identity. Record its
-agent/context labels plus locked input and output hashes.
+agent/context labels plus locked input and output hashes. When the orchestrator
+supplies exact source, scan, registry, and output paths, run the maintained scan-
+assurance command directly. Do not add shell path checks, searches, directory
+enumeration, or inferred filenames.
 
 Use the typed `obligation-ledger.json`. The assured scan and compact checkpoint
 account for every literal object, branch, leaf, trace, and executable-code line.

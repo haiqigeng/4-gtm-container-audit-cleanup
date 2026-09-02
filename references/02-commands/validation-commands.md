@@ -36,6 +36,10 @@ python -B scripts/gtm_scan_assurance.py container.json canonical-scan.json --ven
 python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --scan-assurance scan-assurance.json --pretty
 ```
 
+When those exact paths are supplied, run the maintained assurance command
+directly. Do not precede it with a shell path probe, search, directory listing,
+or filename inference.
+
 Run the assurance command in its own fresh agent context. The package builder
 reconstructs the canonical scan and assurance result and accepts the supplied
 artifact only when its provenance and complete content match exactly.
