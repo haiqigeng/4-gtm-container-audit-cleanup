@@ -155,10 +155,13 @@ record's exact `filename` field and never inspect the peer audit.
 
 Semantic-audit execution is closed-command. Read only the exact assigned bundle
 files, the locked shared rules, and the declared work-unit filenames. The audit
-contract and JSON scaffolds are the complete schema. Do not search implementation
-source with `rg`, `grep`, or another discovery command; do not run exploratory
-shell commands. The only executable commands in these stages are the documented
-checkpoint, merge, validate, seal, and post-seal validate gates.
+contract and JSON scaffolds are the complete schema. A direct exact-path file
+read such as PowerShell `Get-Content -LiteralPath` is allowed when no filesystem
+tool is available. Do not search implementation source with `rg`, `grep`, or
+another discovery command, enumerate unknown paths, or run exploratory shell
+commands. Other than exact-path reads and the agent's structured file edits, the
+only executable commands are the documented checkpoint, merge, validate, seal,
+and post-seal validate gates.
 
 Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B

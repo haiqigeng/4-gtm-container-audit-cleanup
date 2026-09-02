@@ -107,6 +107,9 @@ Do not use `rg`, `grep`, repository search, or exploratory shell commands during
 semantic audit execution. Read the exact assigned bundle files directly. The
 locked `audit-contract.json`, checkpoint scaffold, work-unit manifest, and unit
 scaffolds are the complete authoring schema.
+If no filesystem read tool exists, an exact-path read such as PowerShell
+`Get-Content -LiteralPath` is allowed. Do not enumerate directories or infer a
+path from command output.
 For actionable decisions, write `operation_family` as a human-readable phrase of
 at least two words, such as `Remove redundant priority`, never as an underscore
 token such as `remove_priority`.
