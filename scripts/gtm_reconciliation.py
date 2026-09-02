@@ -45,6 +45,10 @@ def _normalized_text(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
 
 
+def _has_minimum_words(value: Any, minimum: int = 4) -> bool:
+    return len(re.findall(r"\b[\w'-]+\b", str(value or ""), re.UNICODE)) >= minimum
+
+
 def neutral_bundle_manifest_sha256(row: dict[str, Any]) -> str:
     """Hash exactly the evidence and question released to one neutral verifier."""
 
@@ -383,12 +387,25 @@ def _reconciliation_scaffold_payloads(
         "independent_agent_id": "",
         "independent_context_id": "",
         "input_manifest_sha256": reconciliation_input_sha256,
+        "authoring_contract": {
+            "reconciliation_rationale": (
+                "Write a concise human-readable explanation of at least four words. "
+                "No specific keyword is required."
+            )
+        },
         "status": "pending",
         "comparisons": comparisons,
     }
     neutral = {
         "kind": "gtm_neutral_verification_queue",
         "schema_version": 1,
+        "authoring_contract": {
+            "verification_rationale": (
+                "Write a concise human-readable explanation of at least four words. "
+                "Evidence binding is enforced by allowed_evidence_citations; no "
+                "specific keyword is required."
+            )
+        },
         "source_sha256": ledger.get("source_sha256"),
         "canonical_scan_sha256": ledger.get("canonical_scan_sha256"),
         "status": "pending" if neutral_queue else "not_required",
@@ -490,11 +507,7 @@ def _neutral_errors(
         allowed = set(as_list(expected_row.get("allowed_evidence_citations")))
         if allowed and (not citations or citations - allowed):
             errors.append(f"{label}: citations must use allowed_evidence_citations")
-        if not re.search(
-            r"\b(?:because|shows|configured|evidence|source|field|route|object)\b",
-            str(row.get("verification_rationale") or ""),
-            re.I,
-        ):
+        if not _has_minimum_words(row.get("verification_rationale")):
             errors.append(f"{label}: verification rationale is not evidence-bound")
     return errors
 
@@ -687,11 +700,7 @@ def finalize_reconciliation(
             allow_neutral_rejection=bool(row.get("neutral_verification_required")),
         ):
             errors.append(f"{label}: actionable target was not proposed by either audit")
-        if not re.search(
-            r"\b(?:both|source|evidence|configured|decision|target|audit)\b",
-            str(row.get("reconciliation_rationale") or ""),
-            re.I,
-        ):
+        if not _has_minimum_words(row.get("reconciliation_rationale")):
             errors.append(f"{label}: reconciliation rationale is incomplete")
         canonical_rows.append(
             {

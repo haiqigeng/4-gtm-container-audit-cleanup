@@ -242,6 +242,9 @@ separate fresh reconciliation-agent context after both audits are sealed. Record
 that agent/context label and the exact hashes of its locked inputs and sealed
 output. Every neutral row includes the complete locked
 `allowed_evidence_citations` list; use only exact entries from that list. Then:
+Follow each scaffold's `authoring_contract` for rationale prose. Evidence binding
+comes from the locked citation allowlist; rationale validation does not require
+magic words.
 
 ```powershell
 python -B scripts/gtm_reconciliation.py finalize audit-package

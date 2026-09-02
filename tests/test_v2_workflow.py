@@ -543,7 +543,7 @@ def complete_base_reconciliation(
                 "canonical_decision": decision,
                 "evidence_citations": list(row.get("source_coordinates") or []),
                 "verification_rationale": (
-                    "The supplied source evidence shows the same bounded fixture conclusion without runtime claims."
+                    "The locked record directly supports this bounded conclusion."
                 ),
             }
         )
@@ -560,7 +560,7 @@ def complete_base_reconciliation(
                 "status": "complete",
                 "canonical_decision": canonical,
                 "reconciliation_rationale": (
-                    "Both source audits support the same evidence-bound fixture decision and unchanged target."
+                    "The locked records directly support this bounded conclusion."
                 ),
             }
         )
