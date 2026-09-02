@@ -144,7 +144,10 @@ python -B scripts/gtm_audit_plan.py scaffold audit-package/audit-bundles/audit-b
 ```
 
 In its own fresh context, each agent edits only its own plan. Author compact
-`decision_groups`; every group must enumerate exact obligation IDs. Share one
+`decision_groups`; the scaffold already supplies neutral clerical candidates
+grouped from locked structural fields. Review every obligation and split any
+candidate whose judgment, target, evidence meaning, or action differs. Every
+group must enumerate exact obligation IDs. Share one
 decision only when the criteria assessment, target, preserved distinctions,
 next step, and evidence meaning are genuinely identical. Put each actionable
 operation in a one-obligation group because its operation and target are unique.

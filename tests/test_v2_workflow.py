@@ -873,6 +873,26 @@ class V2WorkflowTests(unittest.TestCase):
                 self.root / "guessed-plan.json",
             )
 
+    def test_audit_plan_scaffolds_neutral_exact_once_candidate_groups(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "candidate-group-context")
+        bundle = self.package / "audit-bundles" / "audit-a"
+        plan_path = self.package / "audit-scratch" / "audit-a" / "audit-plan.json"
+        plan = scaffold_plan(bundle, plan_path)
+        audit = json.loads((bundle / "audit.json").read_text(encoding="utf-8"))
+        obligation_ids = [
+            obligation_id
+            for group in plan["decision_groups"]
+            for obligation_id in group["obligation_ids"]
+        ]
+        self.assertEqual(
+            sorted(row["obligation_id"] for row in audit["decisions"]),
+            sorted(obligation_ids),
+        )
+        self.assertEqual(len(obligation_ids), len(set(obligation_ids)))
+        self.assertTrue(all(group["decision"] == {} for group in plan["decision_groups"]))
+        self.assertLessEqual(len(plan["decision_groups"]), len(audit["decisions"]))
+
     def test_audit_plan_applies_an_exact_actionable_group(self) -> None:
         self.export.write_text(
             json.dumps(actionable_priority_export()), encoding="utf-8"

@@ -61,6 +61,11 @@ PLAN_DECISION_FIELDS = {
 def _authoring_contract() -> dict[str, Any]:
     return {
         "authoring_unit": "exact_obligation_id_group",
+        "candidate_group_rule": (
+            "Scaffolded groups are neutral clerical candidates only. Review every "
+            "obligation and split any group whose judgment, target, evidence meaning, "
+            "or action differs."
+        ),
         "decision_group_fields": sorted(DECISION_GROUP_FIELDS),
         "decision_group_shape": {
             "group_id": "one unique non-blank string",
@@ -148,13 +153,38 @@ def _projection_plan_path(
     return expected
 
 
-def _empty_plan(owner_id: str) -> dict[str, Any]:
+def _candidate_decision_groups(decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[Any, ...], list[str]] = {}
+    for row in decisions:
+        obligation_id = str(row.get("obligation_id") or "")
+        if not obligation_id:
+            continue
+        key = (
+            str(row.get("area_id") or ""),
+            str(row.get("scope_level") or ""),
+            str(row.get("audit_mechanism") or ""),
+            str(row.get("fact_kind") or ""),
+            str(row.get("applicability") or ""),
+            tuple(sorted(str(value) for value in as_list(row.get("material_verification_triggers")))),
+        )
+        grouped.setdefault(key, []).append(obligation_id)
+    return [
+        {
+            "group_id": f"candidate-{index:03d}",
+            "obligation_ids": sorted(grouped[key]),
+            "decision": {},
+        }
+        for index, key in enumerate(sorted(grouped), start=1)
+    ]
+
+
+def _empty_plan(owner_id: str, decisions: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "kind": "gtm_independent_semantic_plan",
         "schema_version": 2,
         "owner_id": owner_id,
         "authoring_contract": _authoring_contract(),
-        "decision_groups": [],
+        "decision_groups": _candidate_decision_groups(decisions),
         "open_discoveries": [],
         "global_shared_infrastructure_review": "",
         "global_target_architecture_review": "",
@@ -171,7 +201,7 @@ def scaffold_plan(bundle: Path, output: Path) -> dict[str, Any]:
     if output.exists():
         raise FileExistsError(f"plan output already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=False)
-    payload = _empty_plan(audit_id)
+    payload = _empty_plan(audit_id, as_list(audit.get("decisions")))
     write_json(output, payload)
     return payload
 
@@ -470,7 +500,7 @@ def scaffold_projection_plan(
     if output.exists():
         raise FileExistsError(f"plan output already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=False)
-    payload = _empty_plan(review_id)
+    payload = _empty_plan(review_id, as_list(review.get("decisions")))
     payload["global_shared_infrastructure_review"] = (
         "This projection plan preserves the source audit shared-infrastructure review without reinterpretation."
     )
