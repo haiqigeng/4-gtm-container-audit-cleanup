@@ -119,8 +119,9 @@ Before reconciliation:
 - neither receives the other's verdicts, scratch, discoveries, rationales, or
   target proposals until both are complete and sealed;
 - the orchestrator coordinates but authors neither result;
-- sharding is allowed only by complete implementation family plus one shared-
-  infrastructure unit;
+- sharding keeps each implementation family complete and partitions transversal
+  shared-infrastructure obligations by audit area into bounded deterministic
+  units; no obligation is split or omitted;
 - workload counts and the sharding decision are deterministically reconstructed
   from the locked scan, assurance, and audit before merge and again at final
   validation;

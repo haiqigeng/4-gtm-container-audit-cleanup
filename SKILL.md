@@ -215,11 +215,12 @@ Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B
 must use distinct agent and context labels.
 
-Use deterministic family work units and one shared-infrastructure unit when the
-bundle requires sharding. Never reduce evidence or reviewer count for context
-size. Validate and immutably seal both audits. If the AI environment cannot run
-the required separate fresh agent contexts, block with a concise capability
-message.
+Use deterministic whole-family work units when the bundle requires sharding.
+Partition transversal shared-infrastructure obligations by audit area into
+bounded deterministic units; never split a single obligation or implementation
+family. Never reduce evidence or reviewer count for context size. Validate and
+immutably seal both audits. If the AI environment cannot run the required
+separate fresh agent contexts, block with a concise capability message.
 
 Author decision fields by class. Every decision needs its class, concise
 criteria assessment, priority, confidence, and locked evidence citations.

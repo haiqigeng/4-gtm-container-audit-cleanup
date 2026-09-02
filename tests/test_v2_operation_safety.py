@@ -797,10 +797,15 @@ class V2OperationSafetyTests(unittest.TestCase):
             unit_path.write_text(
                 json.dumps(unit, indent=2) + "\n", encoding="utf-8"
             )
-            unit["unit_closure"] = (
-                "Every shared-infrastructure obligation in this complete work unit was reviewed."
-            )
-            unit_path.write_text(json.dumps(unit, indent=2) + "\n", encoding="utf-8")
+            for declared_unit in manifest["work_units"]:
+                declared_path = bundle / "work-units" / declared_unit["filename"]
+                closed_unit = json.loads(declared_path.read_text(encoding="utf-8"))
+                closed_unit["unit_closure"] = (
+                    "Every obligation in this complete work unit was reviewed."
+                )
+                declared_path.write_text(
+                    json.dumps(closed_unit, indent=2) + "\n", encoding="utf-8"
+                )
             merge_work_units(bundle)
             merged = json.loads((bundle / "audit.json").read_text(encoding="utf-8"))
             self.assertEqual([], work_unit_completion_errors(bundle, merged, manifest))

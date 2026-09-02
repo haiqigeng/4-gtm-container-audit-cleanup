@@ -24,6 +24,7 @@ WORK_UNIT_MANIFEST = "work-unit-manifest.json"
 MAX_SINGLE_OBLIGATIONS = 420
 MAX_SINGLE_ESTIMATED_TOKENS = 180_000
 MAX_FAMILY_OBLIGATIONS = 700
+MAX_SHARED_AREA_OBLIGATIONS = 60
 WORK_UNIT_MANIFEST_IDENTITY_FIELDS = (
     "kind",
     "schema_version",
@@ -569,20 +570,37 @@ def build_work_units(
         if not isinstance(decision, dict):
             continue
         grouped[_decision_owner_family(decision, families)].append(decision)
-    ordered_owners = [
-        *sorted(key for key in grouped if key != "shared-infrastructure"),
-        *( ["shared-infrastructure"] if "shared-infrastructure" in grouped else [] ),
-    ]
-    for index, owner in enumerate(ordered_owners, start=1):
+    unit_specs: list[tuple[str, str, list[dict[str, Any]]]] = []
+    for owner in sorted(key for key in grouped if key != "shared-infrastructure"):
+        unit_specs.append((owner, owner, grouped[owner]))
+    shared_by_area: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for decision in grouped.get("shared-infrastructure", []):
+        shared_by_area[str(decision.get("area_id") or "AREA-UNKNOWN")].append(decision)
+    for area_id in sorted(shared_by_area):
         decisions = sorted(
-            grouped[owner], key=lambda row: str(row.get("obligation_id") or "")
+            shared_by_area[area_id],
+            key=lambda row: str(row.get("obligation_id") or ""),
+        )
+        for offset in range(0, len(decisions), MAX_SHARED_AREA_OBLIGATIONS):
+            part = offset // MAX_SHARED_AREA_OBLIGATIONS + 1
+            unit_specs.append(
+                (
+                    "shared-infrastructure",
+                    f"shared-infrastructure-{area_id}-part-{part:02d}",
+                    decisions[offset : offset + MAX_SHARED_AREA_OBLIGATIONS],
+                )
+            )
+    for index, (owner, unit_label, unsorted_decisions) in enumerate(unit_specs, start=1):
+        decisions = sorted(
+            unsorted_decisions,
+            key=lambda row: str(row.get("obligation_id") or ""),
         )
         if owner != "shared-infrastructure" and len(decisions) > MAX_FAMILY_OBLIGATIONS:
             raise ValueError(
                 f"{owner} exceeds the fixed complete-family schema ceiling; "
                 "the audit is blocked rather than split into incomplete micro-shards"
             )
-        filename_owner = re.sub(r"[^A-Za-z0-9_-]+", "-", owner).strip("-")
+        filename_owner = re.sub(r"[^A-Za-z0-9_-]+", "-", unit_label).strip("-")
         filename = f"unit-{index:03d}-{filename_owner}.json"
         work_unit = {
             "kind": "gtm_cleanroom_family_work_unit",

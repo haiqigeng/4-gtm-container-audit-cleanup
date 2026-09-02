@@ -834,6 +834,36 @@ class V2WorkflowTests(unittest.TestCase):
         )
         self.assertEqual(expected, estimate["estimated_authored_tokens"])
 
+    def test_shared_infrastructure_is_bounded_without_splitting_obligations(self) -> None:
+        build_package(self.export, self.package)
+        with (
+            mock.patch("gtm_audit_work_units.MAX_SINGLE_OBLIGATIONS", 1),
+            mock.patch("gtm_audit_work_units.MAX_SHARED_AREA_OBLIGATIONS", 1),
+        ):
+            complete_checkpoint(self.package, "audit-a", "bounded-shared-context")
+        manifest = json.loads(
+            (
+                self.package
+                / "audit-bundles"
+                / "audit-a"
+                / "work-units"
+                / "work-unit-manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        shared = [
+            row
+            for row in manifest["work_units"]
+            if row["owner_family_id"] == "shared-infrastructure"
+        ]
+        self.assertGreater(len(shared), 1)
+        self.assertTrue(all(len(row["obligation_ids"]) == 1 for row in shared))
+        all_ids = [
+            obligation_id
+            for row in manifest["work_units"]
+            for obligation_id in row["obligation_ids"]
+        ]
+        self.assertEqual(len(all_ids), len(set(all_ids)))
+
     def test_audit_plan_rejects_a_path_outside_its_audit_scratch(self) -> None:
         build_package(self.export, self.package)
         complete_checkpoint(self.package, "audit-a", "plan-path-context")
