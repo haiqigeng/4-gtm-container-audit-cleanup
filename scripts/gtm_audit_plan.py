@@ -81,6 +81,12 @@ def _authoring_contract() -> dict[str, Any]:
         "actionable_operation_contract": {
             "operation_id_pattern": OPERATION_ID_PATTERN,
             "operation_id_example": "OP-TAG-943-REMOVE-BLOCKER",
+            "source_decision_id_must_match_locked_decision_id": True,
+            "operation_family_rule": (
+                "human-readable phrase of at least two words with no underscore"
+            ),
+            "at_least_one_structured_action": True,
+            "depends_on_rule": "list containing only OP-* operation IDs",
             "text_fields_minimum_words": OPERATION_TEXT_FIELDS_MINIMUM_WORDS,
             "text_fields_require_strings": True,
             "proposal_fields": sorted(OPERATION_PROPOSAL_FIELDS),

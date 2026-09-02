@@ -985,6 +985,20 @@ class V2WorkflowTests(unittest.TestCase):
                 "text_fields_require_strings"
             ]
         )
+        self.assertTrue(
+            contract["actionable_operation_contract"][
+                "source_decision_id_must_match_locked_decision_id"
+            ]
+        )
+        self.assertTrue(
+            contract["actionable_operation_contract"][
+                "at_least_one_structured_action"
+            ]
+        )
+        self.assertEqual(
+            "list containing only OP-* operation IDs",
+            contract["actionable_operation_contract"]["depends_on_rule"],
+        )
         self.assertEqual([], contract["open_discoveries_contract"]["default"])
         self.assertTrue(
             contract["open_discoveries_contract"][
