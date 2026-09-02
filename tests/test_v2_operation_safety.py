@@ -36,6 +36,7 @@ from gtm_fixed_point import MAX_CYCLES, _block_non_convergent  # noqa: E402
 from gtm_lib import (  # noqa: E402
     CONSENT_INITIALIZATION_TRIGGER_ID,
     container_version,
+    is_system_trigger_reference,
     stable_hash,
 )
 from gtm_operation_model import (  # noqa: E402
@@ -140,6 +141,12 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_consent_initialization_is_a_known_system_trigger(self) -> None:
+        self.assertEqual("2147479572", CONSENT_INITIALIZATION_TRIGGER_ID)
+        self.assertTrue(
+            is_system_trigger_reference(CONSENT_INITIALIZATION_TRIGGER_ID)
+        )
+
     def test_source_proven_obligations_cannot_be_grouped_as_justified(self) -> None:
         justified = {
             "decision_class": "justified_as_is",
@@ -191,7 +198,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                     {
                         "object_key": "tag:2",
                         "commands": ["default", "update"],
-                        "firing_trigger_ids": ["2147479572"],
+                        "firing_trigger_ids": ["2147479573"],
                         "default_uses_consent_initialization": False,
                     }
                 ]
@@ -215,7 +222,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                     {
                         "object_key": "tag:2",
                         "json_path": "$.firingTriggerId[0]",
-                        "before": "2147479572",
+                        "before": "2147479573",
                         "after": CONSENT_INITIALIZATION_TRIGGER_ID,
                     }
                 ],
@@ -227,7 +234,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                 actionable, late_consent_default, "decision"
             ),
         )
-        actionable["operation_proposal"]["changes"][0]["after"] = "2147479573"
+        actionable["operation_proposal"]["changes"][0]["after"] = "2147479593"
         self.assertTrue(
             any(
                 "must move the default writer to Consent Initialization" in error

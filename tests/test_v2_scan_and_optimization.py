@@ -22,6 +22,7 @@ from gtm_canonical_scan import (  # noqa: E402
     neutral_fact_judgment_leaks,
 )
 from gtm_context_model import build_context_model  # noqa: E402
+from gtm_lib import CONSENT_INITIALIZATION_TRIGGER_ID  # noqa: E402
 from gtm_obligation_ledger import build_obligation_ledger  # noqa: E402
 from gtm_optimization_facts import _consent_metadata  # noqa: E402
 from gtm_scan_assurance import assure_scan  # noqa: E402
@@ -309,7 +310,7 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
                             ),
                         }
                     ],
-                    "firingTriggerId": ["2147479593"],
+                    "firingTriggerId": [CONSENT_INITIALIZATION_TRIGGER_ID],
                 },
                 {
                     "tagId": "306",

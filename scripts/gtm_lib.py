@@ -73,7 +73,7 @@ SYSTEM_VARIABLE_REFERENCES = {
     "_event": "GTM internal current event name used by Custom Event trigger filters",
 }
 
-CONSENT_INITIALIZATION_TRIGGER_ID = "2147479593"
+CONSENT_INITIALIZATION_TRIGGER_ID = "2147479572"
 
 # GTM serializes a small number of built-in variables with a user-facing name
 # while referring to them through an internal token elsewhere in the export.
@@ -85,10 +85,10 @@ BUILTIN_REFERENCE_ALIASES_BY_TYPE = {
 
 KNOWN_SYSTEM_TRIGGER_REFERENCES = {
     "2147479553": "GTM system trigger reference, commonly exported for all-pages/pageview routes",
-    "2147479573": "GTM system trigger reference, commonly exported for initialization or Google tag routes",
     CONSENT_INITIALIZATION_TRIGGER_ID: (
         "GTM system trigger reference exported for Consent Initialization - All Pages"
     ),
+    "2147479573": "GTM system trigger reference exported for Initialization - All Pages",
 }
 
 
