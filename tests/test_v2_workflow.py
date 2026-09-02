@@ -15,13 +15,16 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import gtm_cleanroom_audit as cleanroom_audit  # noqa: E402
+import gtm_delivery_reviews as delivery_reviews  # noqa: E402
 import gtm_projection_review as projection_review  # noqa: E402
 from gtm_audit_contract import (  # noqa: E402
+    CANONICAL_DECISION_FIELDS,
     DECISION_CLASSES,
     HUMAN_DECISION_LABELS,
     OPERATION_ACTION_FIELDS,
 )
 from gtm_audit_package_build import build_package as executable_build_package  # noqa: E402
+from gtm_audit_plan import apply_plan, scaffold_plan  # noqa: E402
 from gtm_audit_work_units import merge_work_units  # noqa: E402
 from gtm_canonical_record import (  # noqa: E402
     build_canonical_record,
@@ -227,6 +230,44 @@ def complete_semantic_decision(row: dict) -> None:
             "evidence_citations": list(row.get("source_coordinates") or []),
         }
     )
+
+
+def fixture_plan_decision(applicability: str) -> dict:
+    row = {
+        "applicability": applicability,
+        "source_coordinates": [],
+    }
+    complete_semantic_decision(row)
+    return {
+        field: row[field] for field in CANONICAL_DECISION_FIELDS
+    } | {"operation_proposal": {}}
+
+
+def write_fixture_audit_plan(package: Path, audit_id: str) -> Path:
+    bundle = package / "audit-bundles" / audit_id
+    plan_path = package / "audit-scratch" / audit_id / "audit-plan.json"
+    scaffold_plan(bundle, plan_path)
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    audit = json.loads((bundle / "audit.json").read_text(encoding="utf-8"))
+    applicability_values = sorted(
+        {str(row["applicability"]) for row in audit["decisions"]}
+    )
+    plan["rules"] = [
+        {
+            "rule_id": f"fixture-{index:02d}",
+            "match": {"applicability": applicability},
+            "decision": fixture_plan_decision(applicability),
+        }
+        for index, applicability in enumerate(applicability_values, start=1)
+    ]
+    plan["global_shared_infrastructure_review"] = (
+        "The complete fixture has no shared infrastructure object and no unresolved shared ownership."
+    )
+    plan["global_target_architecture_review"] = (
+        "The complete fixture target remains empty because no proven implementation need exists."
+    )
+    plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+    return plan_path
 
 
 def complete_checkpoint(
@@ -674,6 +715,114 @@ class V2WorkflowTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_audit_plan_applies_and_seals_single_file_audit(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "plan-single-context")
+        plan_path = write_fixture_audit_plan(self.package, "audit-a")
+
+        result = apply_plan(
+            self.package / "audit-bundles" / "audit-a",
+            plan_path,
+        )
+
+        self.assertEqual("single_file", result["strategy"])
+        self.assertGreater(result["decisions"], 0)
+        self.assertEqual([], validate_audit(self.package, "audit-a"))
+        seal_audit(self.package, "audit-a")
+
+    def test_audit_plan_applies_and_merges_sharded_audit(self) -> None:
+        build_package(self.export, self.package)
+        with mock.patch("gtm_audit_work_units.MAX_SINGLE_OBLIGATIONS", 1):
+            complete_checkpoint(self.package, "audit-a", "plan-sharded-context")
+            plan_path = write_fixture_audit_plan(self.package, "audit-a")
+            result = apply_plan(
+                self.package / "audit-bundles" / "audit-a",
+                plan_path,
+            )
+            self.assertEqual("family_sharded", result["strategy"])
+            self.assertGreater(result["work_units"], 0)
+            self.assertEqual([], validate_audit(self.package, "audit-a"))
+            seal_audit(self.package, "audit-a")
+
+    def test_audit_plan_rejects_a_path_outside_its_audit_scratch(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "plan-path-context")
+        with self.assertRaisesRegex(ValueError, "isolated path"):
+            scaffold_plan(
+                self.package / "audit-bundles" / "audit-a",
+                self.root / "guessed-plan.json",
+            )
+
+    def test_audit_plan_applies_an_exact_actionable_override(self) -> None:
+        self.export.write_text(
+            json.dumps(actionable_priority_export()), encoding="utf-8"
+        )
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "plan-actionable-context")
+        plan_path = write_fixture_audit_plan(self.package, "audit-a")
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        audit_path = self.package / "audit-bundles" / "audit-a" / "audit.json"
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        priority = next(
+            row for row in audit["decisions"]
+            if row.get("fact_kind") == "explicit_firing_priority"
+        )
+        authored = copy.deepcopy(priority)
+        complete_semantic_decision(authored)
+        complete_priority_removal_decision(authored)
+        plan["overrides"] = [
+            {
+                "obligation_id": priority["obligation_id"],
+                "decision": {
+                    field: authored[field] for field in CANONICAL_DECISION_FIELDS
+                } | {"operation_proposal": authored["operation_proposal"]},
+            }
+        ]
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+
+        apply_plan(audit_path.parent, plan_path)
+
+        completed = json.loads(audit_path.read_text(encoding="utf-8"))
+        result = next(
+            row for row in completed["decisions"]
+            if row["obligation_id"] == priority["obligation_id"]
+        )
+        self.assertEqual(
+            result["decision_id"],
+            result["operation_proposal"]["source_decision_id"],
+        )
+        self.assertEqual("correct_but_materially_non_optimal", result["decision_class"])
+        self.assertEqual([], validate_audit(self.package, "audit-a"))
+
+    def test_audit_plan_rejects_ambiguous_rules_before_writing(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "plan-ambiguous-context")
+        plan_path = write_fixture_audit_plan(self.package, "audit-a")
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan["rules"].append(copy.deepcopy(plan["rules"][0]))
+        plan["rules"][-1]["rule_id"] = "fixture-overlap"
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+        audit_path = self.package / "audit-bundles" / "audit-a" / "audit.json"
+        before = audit_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "expected exactly one rule"):
+            apply_plan(audit_path.parent, plan_path)
+
+        self.assertEqual(before, audit_path.read_bytes())
+
+    def test_delivery_review_file_hash_inventory_is_exact(self) -> None:
+        review_root = self.root / "review-files"
+        review_root.mkdir()
+        (review_root / "evidence.json").write_text("{}\n", encoding="utf-8")
+        self.assertEqual(
+            {"evidence.json": file_sha256(review_root / "evidence.json")},
+            delivery_reviews._relative_file_hashes(review_root),
+        )
+        self.assertEqual(
+            {},
+            delivery_reviews._relative_file_hashes(self.root / "missing-review"),
+        )
 
     def test_package_requires_separately_produced_scan_assurance(self) -> None:
         with mock.patch(

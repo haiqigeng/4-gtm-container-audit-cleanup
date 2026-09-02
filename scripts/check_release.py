@@ -76,6 +76,7 @@ CODE_ONLY_PYTHON_COVERAGE_MINIMUMS = {
     "scripts/gtm_architecture_review.py": 73,
     "scripts/gtm_audit_contract.py": 78,
     "scripts/gtm_audit_package_build.py": 71,
+    "scripts/gtm_audit_plan.py": 75,
     "scripts/gtm_audit_work_units.py": 77,
     "scripts/gtm_baseline_audit.py": 60,
     "scripts/gtm_canonical_record.py": 72,

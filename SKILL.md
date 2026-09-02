@@ -159,9 +159,18 @@ contract and JSON scaffolds are the complete schema. A direct exact-path file
 read such as PowerShell `Get-Content -LiteralPath` is allowed when no filesystem
 tool is available. Do not search implementation source with `rg`, `grep`, or
 another discovery command, enumerate unknown paths, or run exploratory shell
-commands. Other than exact-path reads and the agent's structured file edits, the
-only executable commands are the documented checkpoint, merge, validate, seal,
-and post-seal validate gates.
+commands. Other than exact-path reads and one structured edit of the isolated
+declarative audit plan, the only executable commands are the documented
+checkpoint, plan scaffold/apply, validate, seal, and post-seal validate gates.
+
+After checkpoint release, use `scripts/gtm_audit_plan.py` to scaffold exactly
+`audit-scratch/<audit-id>/audit-plan.json`. The assigned fresh agent authors
+semantic rules plus obligation-specific overrides there; rules reduce repeated
+prose but never replace evidence-specific judgment. The maintained applicator
+requires exactly one decision per obligation, validates every decision,
+operation, discovery, manifest, and work unit before writing, and performs the
+deterministic work-unit merge when sharding applies. Never create a substitute
+helper, write into the peer scratch directory, or expose one plan to the peer.
 
 Before checkpoint sealing, the only audit-bundle filenames are explicit. Both
 audits use `audit-contract.json`, `bundle-manifest.json`, `context.json`,

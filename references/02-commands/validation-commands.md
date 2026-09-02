@@ -127,17 +127,31 @@ python -B scripts/gtm_cleanroom_audit.py checkpoint audit-package audit-a
 python -B scripts/gtm_cleanroom_audit.py checkpoint audit-package audit-b
 ```
 
-After checkpoint release, complete every obligation in that audit's `audit.json`
-and seal independently. When `work-units/work-unit-manifest.json` declares
-`family_sharded`, complete and close every unit, then merge it before validation:
+After checkpoint release, scaffold each audit's isolated declarative plan:
 
 ```powershell
-python -B scripts/gtm_audit_work_units.py audit-package/audit-bundles/audit-a
-python -B scripts/gtm_audit_work_units.py audit-package/audit-bundles/audit-b
+python -B scripts/gtm_audit_plan.py scaffold audit-package/audit-bundles/audit-a audit-package/audit-scratch/audit-a/audit-plan.json
+python -B scripts/gtm_audit_plan.py scaffold audit-package/audit-bundles/audit-b audit-package/audit-scratch/audit-b/audit-plan.json
 ```
 
-For `single_file`, edit `audit.json` directly and do not run the merge command.
-Then validate and seal:
+In its own fresh context, each agent edits only its own plan. Use concise rules
+for obligations that genuinely share one conclusion and exact overrides for
+evidence-specific, actionable, owner-decision, or evidence-limit conclusions.
+Every non-overridden obligation must match exactly one rule. Do not use a broad
+rule where the evidence, target, preserved distinctions, or next action differs.
+The plan has a closed schema: `rules`, `overrides`, `open_discoveries`, and the
+two global review conclusions. A rule match may use only `area_id`,
+`scope_level`, `audit_mechanism`, `fact_kind`, `candidate_id`, and
+`applicability`. The applicator preserves locked identity/evidence fields,
+validates the full authored result before writing, and performs the declared
+work-unit merge automatically:
+
+```powershell
+python -B scripts/gtm_audit_plan.py apply audit-package/audit-bundles/audit-a audit-package/audit-scratch/audit-a/audit-plan.json
+python -B scripts/gtm_audit_plan.py apply audit-package/audit-bundles/audit-b audit-package/audit-scratch/audit-b/audit-plan.json
+```
+
+Then validate and seal independently:
 
 ```powershell
 python -B scripts/gtm_cleanroom_audit.py validate audit-package audit-a

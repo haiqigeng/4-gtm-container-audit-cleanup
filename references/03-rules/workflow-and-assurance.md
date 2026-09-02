@@ -124,6 +124,10 @@ Before reconciliation:
 - workload counts and the sharding decision are deterministically reconstructed
   from the locked scan, assurance, and audit before merge and again at final
   validation;
+- each fresh agent authors one isolated declarative plan using shared rules only
+  where conclusions are genuinely identical and obligation overrides wherever
+  evidence or target meaning differs; the maintained applicator validates the
+  whole plan before writing and deterministically merges declared work units;
 - manifests, records, units, decisions, discoveries, proposals, and structured
   action rows use recursively closed declared schemas; unknown or malformed
   nested authoring context blocks before merge;
