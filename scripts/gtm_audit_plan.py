@@ -45,12 +45,16 @@ PLAN_FIELDS = {
     "schema_version",
     "owner_id",
     "authoring_contract",
-    "decision_groups",
+    "candidate_groups",
+    "decision_profiles",
+    "obligation_overrides",
     "open_discoveries",
     "global_shared_infrastructure_review",
     "global_target_architecture_review",
 }
-DECISION_GROUP_FIELDS = {"group_id", "obligation_ids", "decision"}
+CANDIDATE_GROUP_FIELDS = {"group_id", "obligation_ids"}
+PROFILE_FIELDS = {"profile_id", "candidate_group_ids", "decision"}
+OVERRIDE_FIELDS = {"override_id", "obligation_ids", "decision"}
 PLAN_DECISION_FIELDS = {
     *CANONICAL_DECISION_FIELDS,
     "operation_proposal",
@@ -60,17 +64,18 @@ PLAN_DECISION_FIELDS = {
 
 def _authoring_contract() -> dict[str, Any]:
     return {
-        "authoring_unit": "exact_obligation_id_group",
+        "authoring_unit": "candidate_group_profile_with_exact_obligation_overrides",
         "candidate_group_rule": (
-            "Scaffolded groups are neutral clerical candidates only. Review every "
-            "obligation and split any group whose judgment, target, evidence meaning, "
-            "or action differs."
+            "candidate_groups are locked neutral clerical candidates. Assign groups "
+            "with decision_profiles; use obligation_overrides for every obligation in "
+            "a candidate whose judgment, target, evidence meaning, or action differs."
         ),
-        "decision_group_fields": sorted(DECISION_GROUP_FIELDS),
-        "decision_group_shape": {
+        "profile_fields": sorted(PROFILE_FIELDS),
+        "override_fields": sorted(OVERRIDE_FIELDS),
+        "candidate_group_fields": sorted(CANDIDATE_GROUP_FIELDS),
+        "candidate_group_shape": {
             "group_id": "one unique non-blank string",
             "obligation_ids": ["one or more exact obligation IDs"],
-            "decision": "one nested decision object",
         },
         "every_obligation_id_exactly_once": True,
         "actionable_groups_require_one_obligation": True,
@@ -172,7 +177,6 @@ def _candidate_decision_groups(decisions: list[dict[str, Any]]) -> list[dict[str
         {
             "group_id": f"candidate-{index:03d}",
             "obligation_ids": sorted(grouped[key]),
-            "decision": {},
         }
         for index, key in enumerate(sorted(grouped), start=1)
     ]
@@ -181,10 +185,12 @@ def _candidate_decision_groups(decisions: list[dict[str, Any]]) -> list[dict[str
 def _empty_plan(owner_id: str, decisions: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "kind": "gtm_independent_semantic_plan",
-        "schema_version": 2,
+        "schema_version": 3,
         "owner_id": owner_id,
         "authoring_contract": _authoring_contract(),
-        "decision_groups": _candidate_decision_groups(decisions),
+        "candidate_groups": _candidate_decision_groups(decisions),
+        "decision_profiles": [],
+        "obligation_overrides": [],
         "open_discoveries": [],
         "global_shared_infrastructure_review": "",
         "global_target_architecture_review": "",
@@ -206,49 +212,47 @@ def scaffold_plan(bundle: Path, output: Path) -> dict[str, Any]:
     return payload
 
 
-def _plan_errors(plan: dict[str, Any], owner_id: str) -> list[str]:
+def _plan_errors(
+    plan: dict[str, Any], owner_id: str, expected_candidates: list[dict[str, Any]]
+) -> list[str]:
     errors: list[str] = []
     if set(plan) != PLAN_FIELDS:
         errors.append("audit plan fields differ from the closed schema")
     if plan.get("kind") != "gtm_independent_semantic_plan":
         errors.append("semantic plan kind is invalid")
-    if plan.get("schema_version") != 2:
-        errors.append("audit plan schema_version must be 2")
+    if plan.get("schema_version") != 3:
+        errors.append("audit plan schema_version must be 3")
     if plan.get("owner_id") != owner_id:
         errors.append("semantic plan belongs to another owner")
     if plan.get("authoring_contract") != _authoring_contract():
         errors.append("audit plan authoring_contract differs from the current contract")
-    group_ids: set[str] = set()
-    for index, group in enumerate(as_list(plan.get("decision_groups")), start=1):
-        label = f"decision group {index}"
-        if not isinstance(group, dict) or set(group) != DECISION_GROUP_FIELDS:
-            errors.append(f"{label} fields differ from the closed schema")
-            continue
-        group_id = str(group.get("group_id") or "")
-        if not group_id or group_id in group_ids:
-            errors.append(f"{label} group_id is blank or duplicated")
-        group_ids.add(group_id)
-        obligation_ids = group.get("obligation_ids")
-        if (
-            not isinstance(obligation_ids, list)
-            or not obligation_ids
-            or any(not isinstance(value, str) or not value for value in obligation_ids)
-            or len(set(obligation_ids)) != len(obligation_ids)
-        ):
-            errors.append(
-                f"{label} obligation_ids must be a non-empty list of unique non-blank strings"
-            )
-        decision = group.get("decision")
-        if not isinstance(decision, dict) or set(decision) - PLAN_DECISION_FIELDS:
-            errors.append(f"{label} decision uses unsupported fields")
-        elif (
-            decision.get("decision_class") in ACTIONABLE_DECISION_CLASSES
-            and isinstance(obligation_ids, list)
-            and len(obligation_ids) != 1
-        ):
-            errors.append(
-                f"{label} actionable decision must name exactly one obligation"
-            )
+    if plan.get("candidate_groups") != expected_candidates:
+        errors.append("audit plan candidate_groups differ from the locked scaffold")
+    for collection, fields, id_field, member_field in (
+        ("decision_profiles", PROFILE_FIELDS, "profile_id", "candidate_group_ids"),
+        ("obligation_overrides", OVERRIDE_FIELDS, "override_id", "obligation_ids"),
+    ):
+        row_ids: set[str] = set()
+        for index, row in enumerate(as_list(plan.get(collection)), start=1):
+            label = f"{collection} row {index}"
+            if not isinstance(row, dict) or set(row) != fields:
+                errors.append(f"{label} fields differ from the closed schema")
+                continue
+            row_id = str(row.get(id_field) or "")
+            if not row_id or row_id in row_ids:
+                errors.append(f"{label} identifier is blank or duplicated")
+            row_ids.add(row_id)
+            obligation_ids = row.get(member_field)
+            if (
+                not isinstance(obligation_ids, list)
+                or not obligation_ids
+                or any(not isinstance(value, str) or not value for value in obligation_ids)
+                or len(set(obligation_ids)) != len(obligation_ids)
+            ):
+                errors.append(f"{label} members must be unique non-blank strings")
+            decision = row.get("decision")
+            if not isinstance(decision, dict) or set(decision) - PLAN_DECISION_FIELDS:
+                errors.append(f"{label} decision uses unsupported fields")
     if not isinstance(plan.get("open_discoveries"), list):
         errors.append("audit plan open_discoveries must be a list")
     else:
@@ -304,17 +308,51 @@ def _author_decisions(
     plan: dict[str, Any],
 ) -> tuple[dict[str, dict[str, Any]], int, list[str]]:
     errors: list[str] = []
+    candidates = as_list(plan.get("candidate_groups"))
+    candidate_by_id = {
+        str(row.get("group_id") or ""): row for row in candidates if isinstance(row, dict)
+    }
     selected_by_obligation: dict[str, dict[str, Any]] = {}
     duplicated_ids: set[str] = set()
-    for group in as_list(plan.get("decision_groups")):
-        if not isinstance(group, dict) or not isinstance(group.get("decision"), dict):
+    for override in as_list(plan.get("obligation_overrides")):
+        if not isinstance(override, dict) or not isinstance(override.get("decision"), dict):
             continue
-        for obligation_id in as_list(group.get("obligation_ids")):
+        for obligation_id in as_list(override.get("obligation_ids")):
             obligation_id = str(obligation_id)
             if obligation_id in selected_by_obligation:
                 duplicated_ids.add(obligation_id)
             else:
-                selected_by_obligation[obligation_id] = group["decision"]
+                selected_by_obligation[obligation_id] = override["decision"]
+    assigned_candidates: set[str] = set()
+    for profile in as_list(plan.get("decision_profiles")):
+        if not isinstance(profile, dict) or not isinstance(profile.get("decision"), dict):
+            continue
+        profile_expanded_ids: list[str] = []
+        for candidate_id in as_list(profile.get("candidate_group_ids")):
+            candidate_id = str(candidate_id)
+            if candidate_id in assigned_candidates:
+                errors.append(f"semantic plan assigns candidate group more than once: {candidate_id}")
+                continue
+            assigned_candidates.add(candidate_id)
+            candidate = candidate_by_id.get(candidate_id)
+            if not candidate:
+                errors.append(f"semantic plan assigns unknown candidate group: {candidate_id}")
+                continue
+            expanded_ids = [
+                str(value)
+                for value in as_list(candidate.get("obligation_ids"))
+                if str(value) not in selected_by_obligation
+            ]
+            profile_expanded_ids.extend(expanded_ids)
+            for obligation_id in expanded_ids:
+                selected_by_obligation[obligation_id] = profile["decision"]
+        if (
+            profile["decision"].get("decision_class") in ACTIONABLE_DECISION_CLASSES
+            and len(profile_expanded_ids) != 1
+        ):
+            errors.append(
+                f"actionable decision profile must resolve to one obligation: {profile.get('profile_id')}"
+            )
     if duplicated_ids:
         errors.append(
             "semantic plan assigns obligations more than once: "
@@ -355,7 +393,7 @@ def _author_decisions(
                 operation_proposal_errors(proposal, completed, operation_ids, label)
             )
         authored[obligation_id] = completed
-    return authored, len(as_list(plan.get("decision_groups"))), errors
+    return authored, len(as_list(plan.get("decision_profiles"))) + len(as_list(plan.get("obligation_overrides"))), errors
 
 
 def apply_plan(bundle: Path, plan_path: Path) -> dict[str, Any]:
@@ -366,7 +404,9 @@ def apply_plan(bundle: Path, plan_path: Path) -> dict[str, Any]:
     audit_id = str(audit.get("audit_id") or "")
     plan_path = _audit_plan_path(package, audit_id, plan_path)
     plan = _read_json(plan_path)
-    errors = _plan_errors(plan, audit_id)
+    errors = _plan_errors(
+        plan, audit_id, _candidate_decision_groups(as_list(audit.get("decisions")))
+    )
     manifest = _read_json(bundle / "work-units" / WORK_UNIT_MANIFEST)
     if manifest.get("work_unit_manifest_sha256") != work_unit_identity_hash(manifest):
         errors.append("work-unit manifest identity changed")
@@ -531,7 +571,9 @@ def apply_projection_plan(
     review = _read_json(review_path)
     plan_path = _projection_plan_path(package, cycle_number, review_id, plan_path)
     plan = _read_json(plan_path)
-    errors = _plan_errors(plan, review_id)
+    errors = _plan_errors(
+        plan, review_id, _candidate_decision_groups(as_list(review.get("decisions")))
+    )
     if plan.get("open_discoveries"):
         errors.append("projection plans cannot introduce open discoveries")
     rows = [row for row in as_list(review.get("decisions")) if isinstance(row, dict)]

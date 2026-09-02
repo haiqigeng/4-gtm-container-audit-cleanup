@@ -173,11 +173,14 @@ checkpoint, plan scaffold/apply, validate, seal, and post-seal validate gates.
 
 After checkpoint release, use `scripts/gtm_audit_plan.py` to scaffold exactly
 `audit-scratch/<audit-id>/audit-plan.json`. The assigned fresh agent authors
-compact decision groups there. The scaffold prepopulates neutral candidate groups
+compact decision profiles there. The scaffold locks neutral candidate groups
 from locked area, mechanism, fact, applicability, and verification-trigger fields
 so the agent does not rebuild obligation-ID plumbing. These are not verdicts:
 review every obligation and split any candidate whose judgment, target, evidence
-meaning, or action differs. Every group names its exact obligation IDs and
+meaning, or action differs. Assign complete candidates through compact
+`decision_profiles`; use exact `obligation_overrides` for all obligations that
+must split from a candidate. The applicator expands profiles and proves every
+obligation is assigned exactly once. Every candidate names its exact obligation IDs and
 may share one decision only when the criteria assessment, target, preserved
 distinctions, next step, and evidence meaning are genuinely identical. Put each
 actionable operation in its own one-obligation group because its operation and

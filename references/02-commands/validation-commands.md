@@ -143,23 +143,23 @@ python -B scripts/gtm_audit_plan.py scaffold audit-package/audit-bundles/audit-a
 python -B scripts/gtm_audit_plan.py scaffold audit-package/audit-bundles/audit-b audit-package/audit-scratch/audit-b/audit-plan.json
 ```
 
-In its own fresh context, each agent edits only its own plan. Author compact
-`decision_groups`; the scaffold already supplies neutral clerical candidates
-grouped from locked structural fields. Review every obligation and split any
-candidate whose judgment, target, evidence meaning, or action differs. Every
-group must enumerate exact obligation IDs. Share one
+In its own fresh context, each agent edits only its own plan. The scaffold locks
+neutral `candidate_groups` from structural fields. Author compact
+`decision_profiles` that assign complete candidate-group IDs, and exact
+`obligation_overrides` for every obligation in a candidate that must split.
+Review every obligation. The applicator expands profiles and proves exact-once
+coverage. Share one
 decision only when the criteria assessment, target, preserved distinctions,
 next step, and evidence meaning are genuinely identical. Put each actionable
-operation in a one-obligation group because its operation and target are unique.
+operation in a one-obligation profile or override because its target is unique.
 Every obligation ID must appear exactly once. Do not group obligations where the
 evidence, target, preserved distinctions, or next action differs.
-Each group has exactly this nesting; decision fields never sit beside
-`obligation_ids`:
+Each profile has exactly this nesting:
 
 ```json
 {
-  "group_id": "unique-group-id",
-  "obligation_ids": ["OBL-..."],
+  "profile_id": "unique-profile-id",
+  "candidate_group_ids": ["candidate-001"],
   "decision": {
     "decision_class": "justified_as_is",
     "criteria_assessment": "...",
@@ -183,8 +183,9 @@ record satisfies the complete structured discovery contract. Do not copy the
 checkpoint's concise string notes into the plan.
 The scaffold's locked `authoring_contract` lists class-required fields. Missing
 runtime evidence limits runtime claims; it does not replace a static verdict for
-container-visible configuration. The plan has a closed schema:
-`decision_groups`, `open_discoveries`, and the two global review conclusions.
+container-visible configuration. The plan has a closed schema: locked
+`candidate_groups`, authored `decision_profiles`, exact `obligation_overrides`,
+`open_discoveries`, and the two global review conclusions.
 The applicator preserves locked identity/evidence fields,
 validates the full authored result before writing, and performs the declared
 work-unit merge automatically:

@@ -248,25 +248,37 @@ def fixture_plan_decision(applicability: str) -> dict:
     } | {"operation_proposal": {}}
 
 
+def fixture_decision_profiles(plan: dict, decisions: list[dict], prefix: str) -> list[dict]:
+    applicability_by_id = {
+        str(row["obligation_id"]): str(row["applicability"]) for row in decisions
+    }
+    grouped: dict[str, list[str]] = {}
+    for candidate in plan["candidate_groups"]:
+        values = {
+            applicability_by_id[obligation_id]
+            for obligation_id in candidate["obligation_ids"]
+        }
+        assert len(values) == 1
+        grouped.setdefault(values.pop(), []).append(candidate["group_id"])
+    return [
+        {
+            "profile_id": f"{prefix}-{index:02d}",
+            "candidate_group_ids": grouped[applicability],
+            "decision": fixture_plan_decision(applicability),
+        }
+        for index, applicability in enumerate(sorted(grouped), start=1)
+    ]
+
+
 def write_fixture_audit_plan(package: Path, audit_id: str) -> Path:
     bundle = package / "audit-bundles" / audit_id
     plan_path = package / "audit-scratch" / audit_id / "audit-plan.json"
     scaffold_plan(bundle, plan_path)
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     audit = json.loads((bundle / "audit.json").read_text(encoding="utf-8"))
-    applicability_values = sorted({str(row["applicability"]) for row in audit["decisions"]})
-    plan["decision_groups"] = [
-        {
-            "group_id": f"fixture-{index:02d}",
-            "obligation_ids": [
-                row["obligation_id"]
-                for row in audit["decisions"]
-                if str(row["applicability"]) == applicability
-            ],
-            "decision": fixture_plan_decision(applicability),
-        }
-        for index, applicability in enumerate(applicability_values, start=1)
-    ]
+    plan["decision_profiles"] = fixture_decision_profiles(
+        plan, audit["decisions"], "fixture"
+    )
     plan["global_shared_infrastructure_review"] = (
         "The complete fixture has no shared infrastructure object and no unresolved shared ownership."
     )
@@ -298,19 +310,9 @@ def write_fixture_projection_plan(
         / "review.json"
     )
     review = json.loads(review_path.read_text(encoding="utf-8"))
-    applicability_values = sorted({str(row["applicability"]) for row in review["decisions"]})
-    plan["decision_groups"] = [
-        {
-            "group_id": f"projection-fixture-{index:02d}",
-            "obligation_ids": [
-                row["obligation_id"]
-                for row in review["decisions"]
-                if str(row["applicability"]) == applicability
-            ],
-            "decision": fixture_plan_decision(applicability),
-        }
-        for index, applicability in enumerate(applicability_values, start=1)
-    ]
+    plan["decision_profiles"] = fixture_decision_profiles(
+        plan, review["decisions"], "projection-fixture"
+    )
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     return plan_path
 
@@ -882,7 +884,7 @@ class V2WorkflowTests(unittest.TestCase):
         audit = json.loads((bundle / "audit.json").read_text(encoding="utf-8"))
         obligation_ids = [
             obligation_id
-            for group in plan["decision_groups"]
+            for group in plan["candidate_groups"]
             for obligation_id in group["obligation_ids"]
         ]
         self.assertEqual(
@@ -890,8 +892,9 @@ class V2WorkflowTests(unittest.TestCase):
             sorted(obligation_ids),
         )
         self.assertEqual(len(obligation_ids), len(set(obligation_ids)))
-        self.assertTrue(all(group["decision"] == {} for group in plan["decision_groups"]))
-        self.assertLessEqual(len(plan["decision_groups"]), len(audit["decisions"]))
+        self.assertEqual([], plan["decision_profiles"])
+        self.assertEqual([], plan["obligation_overrides"])
+        self.assertLessEqual(len(plan["candidate_groups"]), len(audit["decisions"]))
 
     def test_audit_plan_applies_an_exact_actionable_group(self) -> None:
         self.export.write_text(
@@ -910,17 +913,9 @@ class V2WorkflowTests(unittest.TestCase):
         authored = copy.deepcopy(priority)
         complete_semantic_decision(authored)
         complete_priority_removal_decision(authored)
-        source_group = next(
-            row for row in plan["decision_groups"]
-            if priority["obligation_id"] in row["obligation_ids"]
-        )
-        source_group["obligation_ids"].remove(priority["obligation_id"])
-        plan["decision_groups"] = [
-            row for row in plan["decision_groups"] if row["obligation_ids"]
-        ]
-        plan["decision_groups"].append(
+        plan["obligation_overrides"].append(
             {
-                "group_id": "priority-removal",
+                "override_id": "priority-removal",
                 "obligation_ids": [priority["obligation_id"]],
                 "decision": {
                     field: authored[field] for field in CANONICAL_DECISION_FIELDS
@@ -928,7 +923,7 @@ class V2WorkflowTests(unittest.TestCase):
                 | {"operation_proposal": authored["operation_proposal"]},
             }
         )
-        removal = plan["decision_groups"][-1]["decision"]["operation_proposal"][
+        removal = plan["obligation_overrides"][-1]["decision"]["operation_proposal"][
             "removals"
         ][0]
         removal["json_path"] = "$.containerVersion.tag[0].tagFiringPriority"
@@ -960,13 +955,13 @@ class V2WorkflowTests(unittest.TestCase):
         complete_checkpoint(self.package, "audit-a", "plan-ambiguous-context")
         plan_path = write_fixture_audit_plan(self.package, "audit-a")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        plan["decision_groups"].append(copy.deepcopy(plan["decision_groups"][0]))
-        plan["decision_groups"][-1]["group_id"] = "fixture-overlap"
+        plan["decision_profiles"].append(copy.deepcopy(plan["decision_profiles"][0]))
+        plan["decision_profiles"][-1]["profile_id"] = "fixture-overlap"
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         audit_path = self.package / "audit-bundles" / "audit-a" / "audit.json"
         before = audit_path.read_bytes()
 
-        with self.assertRaisesRegex(ValueError, "assigns obligations more than once"):
+        with self.assertRaisesRegex(ValueError, "assigns candidate group more than once"):
             apply_plan(audit_path.parent, plan_path)
 
         self.assertEqual(before, audit_path.read_bytes())
@@ -980,20 +975,20 @@ class V2WorkflowTests(unittest.TestCase):
         plan_path = write_fixture_audit_plan(self.package, "audit-a")
         audit_bundle = self.package / "audit-bundles" / "audit-a"
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        removed_obligation_id = plan["decision_groups"][0]["obligation_ids"].pop()
+        removed_candidate_id = plan["decision_profiles"][0]["candidate_group_ids"].pop()
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "leaves obligations unassigned"):
             apply_plan(audit_bundle, plan_path)
 
-        plan["decision_groups"][0]["obligation_ids"].append(removed_obligation_id)
-        multi_obligation_group = max(
-            plan["decision_groups"], key=lambda row: len(row["obligation_ids"])
+        plan["decision_profiles"][0]["candidate_group_ids"].append(removed_candidate_id)
+        multi_obligation_profile = max(
+            plan["decision_profiles"], key=lambda row: len(row["candidate_group_ids"])
         )
-        multi_obligation_group["decision"]["decision_class"] = (
+        multi_obligation_profile["decision"]["decision_class"] = (
             "correct_but_materially_non_optimal"
         )
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "actionable decision must name exactly one"):
+        with self.assertRaisesRegex(ValueError, "actionable decision profile must resolve to one"):
             apply_plan(audit_bundle, plan_path)
 
     def test_audit_plan_rejects_changed_authoring_contract(self) -> None:
@@ -1013,12 +1008,16 @@ class V2WorkflowTests(unittest.TestCase):
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         contract = plan["authoring_contract"]
         self.assertEqual(
-            ["decision", "group_id", "obligation_ids"],
-            contract["decision_group_fields"],
+            ["group_id", "obligation_ids"],
+            contract["candidate_group_fields"],
         )
         self.assertEqual(
-            "one nested decision object",
-            contract["decision_group_shape"]["decision"],
+            ["candidate_group_ids", "decision", "profile_id"],
+            contract["profile_fields"],
+        )
+        self.assertEqual(
+            ["decision", "obligation_ids", "override_id"],
+            contract["override_fields"],
         )
         self.assertIn("High", contract["priorities_case_sensitive"])
         self.assertIn("Evidence limited", contract["confidence_levels_case_sensitive"])
@@ -1076,7 +1075,7 @@ class V2WorkflowTests(unittest.TestCase):
         complete_checkpoint(self.package, "audit-a", "plan-shape-context")
         plan_path = write_fixture_audit_plan(self.package, "audit-a")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        group = plan["decision_groups"][0]
+        group = plan["decision_profiles"][0]
         decision = group.pop("decision")
         group.update(decision)
         plan["open_discoveries"] = ["checkpoint-only note"]
