@@ -1400,6 +1400,17 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(canonical_matches_allowed(copy.deepcopy(source), [source]))
         self.assertFalse(canonical_matches_allowed(invented, [source]))
 
+    def test_projection_decision_identity_is_cycle_addressed(self) -> None:
+        cycle_one = projection_review.projection_canonical_decision_id(
+            1, "PREC-SAME-COMPARISON"
+        )
+        cycle_two = projection_review.projection_canonical_decision_id(
+            2, "PREC-SAME-COMPARISON"
+        )
+        self.assertEqual("PCD-C01-SAME-COMPARISON", cycle_one)
+        self.assertEqual("PCD-C02-SAME-COMPARISON", cycle_two)
+        self.assertNotEqual(cycle_one, cycle_two)
+
     def run_to_editorial(self) -> None:
         build_package(self.export, self.package)
         complete_checkpoint(self.package, "audit-a", "fixture-a-context-001")

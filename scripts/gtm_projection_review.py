@@ -68,6 +68,14 @@ def _hash_without(payload: dict[str, Any], *fields: str) -> str:
     )
 
 
+def projection_canonical_decision_id(
+    cycle_number: int, comparison_id: str
+) -> str:
+    """Keep one canonical projection decision addressable in every cycle."""
+
+    return f"PCD-C{cycle_number:02d}-" + comparison_id.removeprefix("PREC-")
+
+
 def _scaffold_decision(
     review_id: str, cycle_number: int, obligation: dict[str, Any]
 ) -> dict[str, Any]:
@@ -735,7 +743,9 @@ def finalize_projection_reconciliation(
             errors.append(f"{label}: reconciliation rationale is incomplete")
         canonical_rows.append(
             {
-                "canonical_decision_id": "PCD-" + comparison_id.removeprefix("PREC-"),
+                "canonical_decision_id": projection_canonical_decision_id(
+                    int(expected.get("cycle_number") or 0), comparison_id
+                ),
                 **{field: row.get(field) for field in LOCKED_DECISION_FIELDS},
                 "reconciliation_class": row.get("classification"),
                 "neutral_verification_id": row.get("neutral_verification_id"),

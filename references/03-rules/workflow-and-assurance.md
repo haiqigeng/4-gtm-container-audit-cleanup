@@ -235,6 +235,10 @@ equality, including closed nested rows, before authored dispositions can
 influence a canonical decision. A self-rehashed scaffold or expected-answer hint
 is not evidence.
 
+Focused projection decisions use cycle-addressed canonical identities. Re-reviewing
+the same obligation in a later fixed-point cycle therefore preserves both sealed
+cycle records without colliding with or overwriting the earlier decision.
+
 ## Stage 6 — Exact Operations And Fixed Point
 
 Only reconciled and required-neutral-verified decisions enter target synthesis.
