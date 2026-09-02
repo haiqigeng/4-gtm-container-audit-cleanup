@@ -775,6 +775,111 @@ def operation_proposal_errors(
     return errors
 
 
+def decision_obligation_alignment_errors(
+    decision: dict[str, Any], obligation: dict[str, Any], label: str
+) -> list[str]:
+    """Reject verdicts that contradict an exact source-proven obligation."""
+
+    errors: list[str] = []
+    evidence = obligation.get("evidence") or {}
+    decision_class = str(decision.get("decision_class") or "")
+    proposal = decision.get("operation_proposal") or {}
+    action_rows = [
+        (field, row)
+        for field in OPERATION_ACTION_FIELDS
+        for row in as_list(proposal.get(field))
+        if isinstance(row, dict)
+    ]
+
+    configuration = evidence.get("configuration_obligation") or {}
+    repair = configuration.get("source_known_repair") or {}
+    if configuration.get("required_outcome") == "Issue" and repair:
+        if decision_class not in ACTIONABLE_DECISION_CLASSES:
+            errors.append(f"{label}: source-known configuration repair must be actionable")
+        if (
+            configuration.get("obligation_key") == "unused_document_write_support"
+            and decision_class != "correct_but_materially_non_optimal"
+        ):
+            errors.append(
+                f"{label}: unused document.write support is a material optimisation"
+            )
+        root_path = str(evidence.get("source_json_path") or "")
+        repair_path = str(repair.get("json_path") or "")
+        relative_path = (
+            "$" + repair_path.removeprefix(root_path)
+            if root_path and repair_path.startswith(root_path)
+            else repair_path
+        )
+        field = {
+            "change": "changes",
+            "addition": "additions",
+            "removal": "removals",
+        }.get(str(repair.get("mode") or ""))
+        expected = {
+            "object_key": repair.get("object_key"),
+            "json_path": relative_path,
+            "before": repair.get("before"),
+            "after": repair.get("after"),
+        }
+        if decision_class in ACTIONABLE_DECISION_CLASSES and (
+            field is None or action_rows != [(field, expected)]
+        ):
+            errors.append(
+                f"{label}: operation must exactly implement the source-known repair"
+            )
+
+    if obligation.get("fact_kind") == "ineffective_blocking_trigger":
+        object_ids = [str(value) for value in as_list(evidence.get("object_ids"))]
+        tag_id = object_ids[0] if object_ids else ""
+        blocker_id = object_ids[1] if len(object_ids) > 1 else ""
+        if decision_class != "defect":
+            errors.append(f"{label}: statically ineffective blocker is a defect")
+        matching = [
+            row
+            for field, row in action_rows
+            if field == "changes"
+            and row.get("object_key") == f"tag:{tag_id}"
+            and row.get("json_path") == "$.blockingTriggerId"
+            and blocker_id in {str(value) for value in as_list(row.get("before"))}
+            and blocker_id not in {str(value) for value in as_list(row.get("after"))}
+        ]
+        if decision_class in ACTIONABLE_DECISION_CLASSES and len(matching) != 1:
+            errors.append(
+                f"{label}: operation must remove the exact ineffective blocker"
+            )
+
+    if obligation.get("fact_kind") == "source_visible_default_update_architecture":
+        writers = [
+            row
+            for row in as_list(evidence.get("writer_facts"))
+            if isinstance(row, dict)
+            and "default" in as_list(row.get("commands"))
+            and row.get("default_uses_consent_initialization") is False
+        ]
+        if writers and decision_class != "defect":
+            errors.append(
+                f"{label}: source-visible late default consent writer is a defect"
+            )
+        for writer in writers:
+            trigger_ids = [
+                str(value) for value in as_list(writer.get("firing_trigger_ids"))
+            ]
+            matching = [
+                row
+                for field, row in action_rows
+                if field == "changes"
+                and row.get("object_key") == writer.get("object_key")
+                and str(row.get("json_path") or "").startswith("$.firingTriggerId")
+                and str(row.get("before")) in trigger_ids
+                and str(row.get("after")) == "2147479573"
+            ]
+            if decision_class in ACTIONABLE_DECISION_CLASSES and len(matching) != 1:
+                errors.append(
+                    f"{label}: operation must move the default writer to Consent Initialization"
+                )
+    return errors
+
+
 def _locked_decision_fields(obligation: dict[str, Any]) -> dict[str, Any]:
     return {
         "obligation_id": obligation["obligation_id"],
@@ -1269,6 +1374,9 @@ def validate_audit(
         if decision.get("status") != "complete":
             errors.append(f"{label}: status must be complete")
         errors.extend(semantic_contract_errors(decision, label))
+        errors.extend(
+            decision_obligation_alignment_errors(decision, obligation, label)
+        )
         if obligation.get("applicability") == "source_counted_zero":
             if decision.get("decision_class") != "not_applicable":
                 errors.append(f"{label}: source-counted zero must be Not applicable")

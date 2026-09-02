@@ -34,6 +34,7 @@ from gtm_audit_work_units import (
 from gtm_cleanroom_audit import (
     OPERATION_ID_PATTERN,
     OPERATION_TEXT_FIELDS_MINIMUM_WORDS,
+    decision_obligation_alignment_errors,
     operation_proposal_errors,
 )
 from gtm_lib import as_list, require_safe_package_root, write_json
@@ -433,6 +434,22 @@ def apply_plan(bundle: Path, plan_path: Path) -> dict[str, Any]:
         locked_by_obligation, plan
     )
     errors.extend(authored_errors)
+    ledger = _read_json(package / "obligation-ledger.json")
+    obligation_by_id = {
+        str(row.get("obligation_id") or ""): row
+        for row in as_list(ledger.get("obligations"))
+        if isinstance(row, dict)
+    }
+    for obligation_id, decision in authored.items():
+        obligation = obligation_by_id.get(obligation_id)
+        if obligation:
+            errors.extend(
+                decision_obligation_alignment_errors(
+                    decision,
+                    obligation,
+                    str(decision.get("decision_id") or obligation_id),
+                )
+            )
     operations = [
         row["operation_proposal"]
         for row in authored.values()

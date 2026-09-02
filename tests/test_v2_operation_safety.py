@@ -28,7 +28,10 @@ from gtm_audit_work_units import (  # noqa: E402
     work_unit_identity_hash,
     workload_estimate_schema_errors,
 )
-from gtm_cleanroom_audit import operation_proposal_errors  # noqa: E402
+from gtm_cleanroom_audit import (  # noqa: E402
+    decision_obligation_alignment_errors,
+    operation_proposal_errors,
+)
 from gtm_fixed_point import MAX_CYCLES, _block_non_convergent  # noqa: E402
 from gtm_lib import container_version, stable_hash  # noqa: E402
 from gtm_operation_model import (  # noqa: E402
@@ -133,6 +136,117 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_source_proven_obligations_cannot_be_grouped_as_justified(self) -> None:
+        justified = {
+            "decision_class": "justified_as_is",
+            "operation_proposal": {},
+        }
+        known_repair = {
+            "fact_kind": "configuration_obligation",
+            "evidence": {
+                "source_json_path": "$.containerVersion.tag[0]",
+                "configuration_obligation": {
+                    "obligation_key": "unused_document_write_support",
+                    "required_outcome": "Issue",
+                    "source_known_repair": {
+                        "mode": "change",
+                        "object_key": "tag:1",
+                        "json_path": "$.containerVersion.tag[0].parameter[1].value",
+                        "before": "true",
+                        "after": "false",
+                    },
+                },
+            },
+        }
+        self.assertTrue(
+            any(
+                "source-known configuration repair must be actionable" in error
+                for error in decision_obligation_alignment_errors(
+                    justified, known_repair, "decision"
+                )
+            )
+        )
+
+        ineffective_blocker = {
+            "fact_kind": "ineffective_blocking_trigger",
+            "evidence": {"object_ids": ["1", "9"]},
+        }
+        self.assertTrue(
+            any(
+                "statically ineffective blocker is a defect" in error
+                for error in decision_obligation_alignment_errors(
+                    justified, ineffective_blocker, "decision"
+                )
+            )
+        )
+
+        late_consent_default = {
+            "fact_kind": "source_visible_default_update_architecture",
+            "evidence": {
+                "writer_facts": [
+                    {
+                        "object_key": "tag:2",
+                        "commands": ["default", "update"],
+                        "firing_trigger_ids": ["2147479572"],
+                        "default_uses_consent_initialization": False,
+                    }
+                ]
+            },
+        }
+        self.assertTrue(
+            any(
+                "late default consent writer is a defect" in error
+                for error in decision_obligation_alignment_errors(
+                    justified, late_consent_default, "decision"
+                )
+            )
+        )
+
+    def test_source_known_repair_requires_the_exact_operation(self) -> None:
+        obligation = {
+            "fact_kind": "configuration_obligation",
+            "evidence": {
+                "source_json_path": "$.containerVersion.tag[0]",
+                "configuration_obligation": {
+                    "obligation_key": "unused_document_write_support",
+                    "required_outcome": "Issue",
+                    "source_known_repair": {
+                        "mode": "change",
+                        "object_key": "tag:1",
+                        "json_path": "$.containerVersion.tag[0].parameter[1].value",
+                        "before": "true",
+                        "after": "false",
+                    },
+                },
+            },
+        }
+        decision = {
+            "decision_class": "correct_but_materially_non_optimal",
+            "operation_proposal": {
+                **{field: [] for field in OPERATION_ACTION_FIELDS},
+                "changes": [
+                    {
+                        "object_key": "tag:1",
+                        "json_path": "$.parameter[1].value",
+                        "before": "true",
+                        "after": "false",
+                    }
+                ],
+            },
+        }
+        self.assertEqual(
+            [], decision_obligation_alignment_errors(decision, obligation, "decision")
+        )
+        decision["operation_proposal"]["changes"][0]["after"] = "true"
+        self.assertTrue(
+            any(
+                "exactly implement the source-known repair" in error
+                for error in decision_obligation_alignment_errors(
+                    decision, obligation, "decision"
+                )
+            )
+        )
+
     def test_non_actionable_decision_uses_compact_class_specific_fields(self) -> None:
         decision = {
             "decision_class": "justified_as_is",

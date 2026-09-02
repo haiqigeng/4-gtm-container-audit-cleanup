@@ -238,6 +238,16 @@ limits need only their class-specific question or boundary plus the context
 required to act. Do not pad appropriate-as-configured or not-applicable records
 with repetitive delivery prose.
 
+Do not hide an exact source-proven obligation inside a broad retained, owner, or
+evidence-limit profile. A locked source-known configuration repair must remain an
+exact actionable decision. A blocker proven unable to intersect any firing event
+is a defect with that blocker removed. A visible default consent writer firing
+later than Consent Initialization is a defect moved to Consent Initialization.
+Unused Custom HTML `document.write` support with no call is a material
+optimisation using its locked one-field repair. These rules classify only facts
+already proven by the locked container; they do not convert ambiguous candidates
+or runtime gaps into recommendations.
+
 ### 4. Reconcile And Verify Neutrally
 
 Use `scripts/gtm_reconciliation.py`. Compare atomic decisions by exact obligation,

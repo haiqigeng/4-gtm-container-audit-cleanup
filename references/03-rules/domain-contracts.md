@@ -113,6 +113,17 @@ direct-browser/client-to-server route (including the route host where applicable
 carries concrete approval evidence, and the source visibly contains coherent
 default/update writers, consent types, and Consent Initialization timing.
 
+Exact source-proven obligations are not discretionary semantic candidates. When
+the locked evidence proves that a blocker event cannot intersect any positive
+firing event, classify the blocker as defective and remove only that blocker.
+When a visible default consent writer does not use Consent Initialization,
+classify its timing as defective and move that writer to Consent Initialization.
+When a configuration obligation carries a complete `source_known_repair`, keep
+it actionable and implement exactly that repair. In particular, enabled Custom
+HTML `document.write` support with no `document.write` call is a material
+optimisation, not an evidence limit. Do not apply these deterministic outcomes to
+lookalike candidates lacking the same locked proof.
+
 For Didomi resolve documented `didomi-ready`, `didomi-consent`, and
 `didomi-consent-changed` timing plus exact `didomiVendorsEnabled` token matching.
 For OneTrust resolve `OneTrustGroupsUpdated`, `OTConsentApplied`, and

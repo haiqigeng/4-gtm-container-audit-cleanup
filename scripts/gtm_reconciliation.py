@@ -15,7 +15,11 @@ from gtm_audit_contract import (
     OPERATION_ACTION_FIELDS,
     semantic_contract_errors,
 )
-from gtm_cleanroom_audit import AUDIT_IDS, sealed_audit_errors
+from gtm_cleanroom_audit import (
+    AUDIT_IDS,
+    decision_obligation_alignment_errors,
+    sealed_audit_errors,
+)
 from gtm_lib import (
     as_list,
     file_sha256,
@@ -861,6 +865,12 @@ def finalize_reconciliation(
         for row in as_list(neutral.get("verifications"))
     }
     canonical_rows = []
+    ledger = _read_json(package_dir / "obligation-ledger.json")
+    obligation_by_id = {
+        str(row.get("obligation_id") or ""): row
+        for row in as_list(ledger.get("obligations"))
+        if isinstance(row, dict)
+    }
     for comparison_id, expected in expected_rows.items():
         row = supplied.get(comparison_id)
         if not row:
@@ -897,6 +907,11 @@ def finalize_reconciliation(
             errors.append(f"{label}: canonical decision is missing")
             continue
         errors.extend(semantic_contract_errors(canonical, label))
+        obligation = obligation_by_id.get(str(row.get("obligation_id") or ""))
+        if obligation:
+            errors.extend(
+                decision_obligation_alignment_errors(canonical, obligation, label)
+            )
         if row.get("applicability") == "source_counted_zero":
             if canonical.get("decision_class") != "not_applicable":
                 errors.append(f"{label}: source-counted zero must be Not applicable")
