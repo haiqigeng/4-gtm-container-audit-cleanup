@@ -37,6 +37,7 @@ from gtm_configuration_review_groups import (
 from gtm_consent_model import server_route_hosts
 from gtm_custom_code_extract import extract_export
 from gtm_lib import (
+    CONSENT_INITIALIZATION_TRIGGER_ID,
     ID_KEYS,
     as_list,
     behavior_projection,
@@ -344,9 +345,6 @@ JS_OBJECT_FIELD_RE = re.compile(
     r"\{\{[^{}]+\}\}|[^,}\r\n]+)",
     re.S,
 )
-CONSENT_INITIALIZATION_TRIGGER_ID = "2147479593"
-
-
 def consent_initialization_trigger_ids(cv: dict[str, Any]) -> set[str]:
     """Return system and exported filtered Consent Initialization routes.
 

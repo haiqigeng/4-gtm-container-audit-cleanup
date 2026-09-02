@@ -18,6 +18,7 @@ from gtm_audit_contract import CONSENT_ROUTE_CLASSES
 from gtm_configuration_facts import build_consumers, object_consumers
 from gtm_consent_model import CONSENT_PURPOSES, server_route_hosts
 from gtm_lib import (
+    CONSENT_INITIALIZATION_TRIGGER_ID,
     as_list,
     container_root_path,
     container_version,
@@ -107,7 +108,6 @@ CMP_EVENT_NAMES = {
     "OneTrustGroupsUpdated": "OneTrust",
     "OTConsentApplied": "OneTrust",
 }
-CONSENT_INITIALIZATION_TRIGGER_ID = "2147479593"
 DEFAULT_CONSENT_CALL_RE = re.compile(
     r"\bsetDefaultConsentState\s*\(|"
     r"\bgtag\s*\(\s*['\"]consent['\"]\s*,\s*['\"]default['\"]",

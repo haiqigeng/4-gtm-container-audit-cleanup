@@ -33,7 +33,11 @@ from gtm_cleanroom_audit import (  # noqa: E402
     operation_proposal_errors,
 )
 from gtm_fixed_point import MAX_CYCLES, _block_non_convergent  # noqa: E402
-from gtm_lib import container_version, stable_hash  # noqa: E402
+from gtm_lib import (  # noqa: E402
+    CONSENT_INITIALIZATION_TRIGGER_ID,
+    container_version,
+    stable_hash,
+)
 from gtm_operation_model import (  # noqa: E402
     apply_operations,
     dependency_order,
@@ -198,6 +202,37 @@ class V2OperationSafetyTests(unittest.TestCase):
                 "late default consent writer is a defect" in error
                 for error in decision_obligation_alignment_errors(
                     justified, late_consent_default, "decision"
+                )
+            )
+        )
+
+        actionable = {
+            **justified,
+            "decision_class": "defect",
+            "operation_proposal": {
+                **{field: [] for field in OPERATION_ACTION_FIELDS},
+                "changes": [
+                    {
+                        "object_key": "tag:2",
+                        "json_path": "$.firingTriggerId[0]",
+                        "before": "2147479572",
+                        "after": CONSENT_INITIALIZATION_TRIGGER_ID,
+                    }
+                ],
+            },
+        }
+        self.assertEqual(
+            [],
+            decision_obligation_alignment_errors(
+                actionable, late_consent_default, "decision"
+            ),
+        )
+        actionable["operation_proposal"]["changes"][0]["after"] = "2147479573"
+        self.assertTrue(
+            any(
+                "must move the default writer to Consent Initialization" in error
+                for error in decision_obligation_alignment_errors(
+                    actionable, late_consent_default, "decision"
                 )
             )
         )

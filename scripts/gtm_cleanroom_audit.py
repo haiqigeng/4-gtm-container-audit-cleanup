@@ -31,6 +31,7 @@ from gtm_audit_work_units import (
     work_unit_identity_hash,
 )
 from gtm_lib import (
+    CONSENT_INITIALIZATION_TRIGGER_ID,
     as_list,
     contained_relative_path,
     file_sha256,
@@ -871,7 +872,7 @@ def decision_obligation_alignment_errors(
                 and row.get("object_key") == writer.get("object_key")
                 and str(row.get("json_path") or "").startswith("$.firingTriggerId")
                 and str(row.get("before")) in trigger_ids
-                and str(row.get("after")) == "2147479573"
+                and str(row.get("after")) == CONSENT_INITIALIZATION_TRIGGER_ID
             ]
             if decision_class in ACTIONABLE_DECISION_CLASSES and len(matching) != 1:
                 errors.append(
