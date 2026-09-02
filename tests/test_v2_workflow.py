@@ -254,24 +254,18 @@ def write_fixture_audit_plan(package: Path, audit_id: str) -> Path:
     scaffold_plan(bundle, plan_path)
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     audit = json.loads((bundle / "audit.json").read_text(encoding="utf-8"))
-    applicability_values = sorted(
-        {str(row["applicability"]) for row in audit["decisions"]}
-    )
-    plan["rules"] = [
+    applicability_values = sorted({str(row["applicability"]) for row in audit["decisions"]})
+    plan["decision_groups"] = [
         {
-            "rule_id": f"fixture-{index:02d}",
-            "match": {"applicability": applicability},
+            "group_id": f"fixture-{index:02d}",
+            "obligation_ids": [
+                row["obligation_id"]
+                for row in audit["decisions"]
+                if str(row["applicability"]) == applicability
+            ],
             "decision": fixture_plan_decision(applicability),
         }
         for index, applicability in enumerate(applicability_values, start=1)
-    ]
-    plan["overrides"] = [
-        {
-            "obligation_id": row["obligation_id"],
-            "decision": fixture_plan_decision(str(row["applicability"])),
-        }
-        for row in audit["decisions"]
-        if str(row.get("candidate_id") or "")
     ]
     plan["global_shared_infrastructure_review"] = (
         "The complete fixture has no shared infrastructure object and no unresolved shared ownership."
@@ -304,24 +298,18 @@ def write_fixture_projection_plan(
         / "review.json"
     )
     review = json.loads(review_path.read_text(encoding="utf-8"))
-    applicability_values = sorted(
-        {str(row["applicability"]) for row in review["decisions"]}
-    )
-    plan["rules"] = [
+    applicability_values = sorted({str(row["applicability"]) for row in review["decisions"]})
+    plan["decision_groups"] = [
         {
-            "rule_id": f"projection-fixture-{index:02d}",
-            "match": {"applicability": applicability},
+            "group_id": f"projection-fixture-{index:02d}",
+            "obligation_ids": [
+                row["obligation_id"]
+                for row in review["decisions"]
+                if str(row["applicability"]) == applicability
+            ],
             "decision": fixture_plan_decision(applicability),
         }
         for index, applicability in enumerate(applicability_values, start=1)
-    ]
-    plan["overrides"] = [
-        {
-            "obligation_id": row["obligation_id"],
-            "decision": fixture_plan_decision(str(row["applicability"])),
-        }
-        for row in review["decisions"]
-        if str(row.get("candidate_id") or "")
     ]
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     return plan_path
@@ -802,6 +790,31 @@ class V2WorkflowTests(unittest.TestCase):
             self.assertEqual([], validate_audit(self.package, "audit-a"))
             seal_audit(self.package, "audit-a")
 
+    def test_workload_estimate_reflects_compact_exact_id_groups(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "compact-plan-context")
+        manifest = json.loads(
+            (
+                self.package
+                / "audit-bundles"
+                / "audit-a"
+                / "work-units"
+                / "work-unit-manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        estimate = manifest["workload_estimate"]
+        scan = json.loads(
+            (self.package / "canonical-scan.json").read_text(encoding="utf-8")
+        )
+        candidate_count = min(
+            estimate["obligation_count"], scan["counts"]["operational_candidates"]
+        )
+        expected = (
+            candidate_count * 90
+            + (estimate["obligation_count"] - candidate_count) * 16
+        )
+        self.assertEqual(expected, estimate["estimated_authored_tokens"])
+
     def test_audit_plan_rejects_a_path_outside_its_audit_scratch(self) -> None:
         build_package(self.export, self.package)
         complete_checkpoint(self.package, "audit-a", "plan-path-context")
@@ -811,7 +824,7 @@ class V2WorkflowTests(unittest.TestCase):
                 self.root / "guessed-plan.json",
             )
 
-    def test_audit_plan_applies_an_exact_actionable_override(self) -> None:
+    def test_audit_plan_applies_an_exact_actionable_group(self) -> None:
         self.export.write_text(
             json.dumps(actionable_priority_export()), encoding="utf-8"
         )
@@ -828,13 +841,24 @@ class V2WorkflowTests(unittest.TestCase):
         authored = copy.deepcopy(priority)
         complete_semantic_decision(authored)
         complete_priority_removal_decision(authored)
-        priority_override = next(
-            row for row in plan["overrides"]
-            if row["obligation_id"] == priority["obligation_id"]
+        source_group = next(
+            row for row in plan["decision_groups"]
+            if priority["obligation_id"] in row["obligation_ids"]
         )
-        priority_override["decision"] = {
-            field: authored[field] for field in CANONICAL_DECISION_FIELDS
-        } | {"operation_proposal": authored["operation_proposal"]}
+        source_group["obligation_ids"].remove(priority["obligation_id"])
+        plan["decision_groups"] = [
+            row for row in plan["decision_groups"] if row["obligation_ids"]
+        ]
+        plan["decision_groups"].append(
+            {
+                "group_id": "priority-removal",
+                "obligation_ids": [priority["obligation_id"]],
+                "decision": {
+                    field: authored[field] for field in CANONICAL_DECISION_FIELDS
+                }
+                | {"operation_proposal": authored["operation_proposal"]},
+            }
+        )
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
         apply_plan(audit_path.parent, plan_path)
@@ -851,23 +875,23 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertEqual("correct_but_materially_non_optimal", result["decision_class"])
         self.assertEqual([], validate_audit(self.package, "audit-a"))
 
-    def test_audit_plan_rejects_ambiguous_rules_before_writing(self) -> None:
+    def test_audit_plan_rejects_duplicate_obligation_assignment_before_writing(self) -> None:
         build_package(self.export, self.package)
         complete_checkpoint(self.package, "audit-a", "plan-ambiguous-context")
         plan_path = write_fixture_audit_plan(self.package, "audit-a")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        plan["rules"].append(copy.deepcopy(plan["rules"][0]))
-        plan["rules"][-1]["rule_id"] = "fixture-overlap"
+        plan["decision_groups"].append(copy.deepcopy(plan["decision_groups"][0]))
+        plan["decision_groups"][-1]["group_id"] = "fixture-overlap"
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         audit_path = self.package / "audit-bundles" / "audit-a" / "audit.json"
         before = audit_path.read_bytes()
 
-        with self.assertRaisesRegex(ValueError, "expected exactly one rule"):
+        with self.assertRaisesRegex(ValueError, "assigns obligations more than once"):
             apply_plan(audit_path.parent, plan_path)
 
         self.assertEqual(before, audit_path.read_bytes())
 
-    def test_audit_plan_requires_candidate_and_owner_specific_overrides(self) -> None:
+    def test_audit_plan_requires_exact_complete_groups_and_singleton_actions(self) -> None:
         self.export.write_text(
             json.dumps(actionable_priority_export()), encoding="utf-8"
         )
@@ -876,14 +900,20 @@ class V2WorkflowTests(unittest.TestCase):
         plan_path = write_fixture_audit_plan(self.package, "audit-a")
         audit_bundle = self.package / "audit-bundles" / "audit-a"
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        plan["overrides"] = []
+        removed_obligation_id = plan["decision_groups"][0]["obligation_ids"].pop()
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "candidate requires an exact override"):
+        with self.assertRaisesRegex(ValueError, "leaves obligations unassigned"):
             apply_plan(audit_bundle, plan_path)
 
-        plan["rules"][0]["decision"]["decision_class"] = "owner_decision"
+        plan["decision_groups"][0]["obligation_ids"].append(removed_obligation_id)
+        multi_obligation_group = max(
+            plan["decision_groups"], key=lambda row: len(row["obligation_ids"])
+        )
+        multi_obligation_group["decision"]["decision_class"] = (
+            "correct_but_materially_non_optimal"
+        )
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "require an obligation override"):
+        with self.assertRaisesRegex(ValueError, "actionable decision must name exactly one"):
             apply_plan(audit_bundle, plan_path)
 
     def test_audit_plan_rejects_changed_authoring_contract(self) -> None:
@@ -891,7 +921,7 @@ class V2WorkflowTests(unittest.TestCase):
         complete_checkpoint(self.package, "audit-a", "plan-contract-context")
         plan_path = write_fixture_audit_plan(self.package, "audit-a")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        plan["authoring_contract"]["candidate_obligations_require_overrides"] = False
+        plan["authoring_contract"]["every_obligation_id_exactly_once"] = False
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "authoring_contract differs"):
             apply_plan(self.package / "audit-bundles" / "audit-a", plan_path)

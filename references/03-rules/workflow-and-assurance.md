@@ -124,11 +124,12 @@ Before reconciliation:
 - workload counts and the sharding decision are deterministically reconstructed
   from the locked scan, assurance, and audit before merge and again at final
   validation;
-- each fresh agent authors one isolated declarative plan using shared rules only
-  for genuinely identical appropriate-as-configured or source-proven
-  not-applicable conclusions; every generated candidate and every actionable,
-  owner-decision, or evidence-limit conclusion uses an exact obligation override.
-  Runtime uncertainty bounds runtime claims but does not defer a static verdict.
+- each fresh agent authors one isolated declarative plan made of compact groups
+  that enumerate exact obligation IDs. A group may share one decision only when
+  its criteria assessment, target, preserved distinctions, next step, and
+  evidence meaning are genuinely identical. Each actionable operation uses a
+  one-obligation group because its operation and target are unique. Runtime
+  uncertainty bounds runtime claims but does not defer a static verdict.
   The maintained applicator validates the whole plan before writing and
   deterministically merges declared work units;
 - manifests, records, units, decisions, discoveries, proposals, and structured

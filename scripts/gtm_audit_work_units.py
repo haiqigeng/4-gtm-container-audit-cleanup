@@ -321,10 +321,14 @@ def workload_estimate(
         len(as_list(row.get("execution_dependency_traces")))
         for row in as_list(scan.get("objects"))
     )
-    # Only semantic decisions require authored text. Objects, relationships,
-    # source code lines, and dependency traces are locked evidence already
-    # represented by those decisions and must not be charged a second time.
-    estimated_tokens = obligations * 90
+    candidate_count = min(
+        obligations,
+        int((scan.get("counts") or {}).get("operational_candidates") or 0),
+    )
+    # Exact-ID decision groups carry each obligation identity once while sharing
+    # genuinely identical prose. Candidate decisions retain the full per-finding
+    # allowance because their targets and evidence commonly differ.
+    estimated_tokens = candidate_count * 90 + (obligations - candidate_count) * 16
     return {
         "object_count": objects,
         "obligation_count": obligations,

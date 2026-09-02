@@ -173,12 +173,13 @@ checkpoint, plan scaffold/apply, validate, seal, and post-seal validate gates.
 
 After checkpoint release, use `scripts/gtm_audit_plan.py` to scaffold exactly
 `audit-scratch/<audit-id>/audit-plan.json`. The assigned fresh agent authors
-semantic rules plus obligation-specific overrides there; rules reduce repeated
-prose but never replace evidence-specific judgment. Rules may express only
-genuinely shared `justified_as_is` or source-proven `not_applicable` conclusions.
-Every generated candidate and every actionable, owner-decision, or evidence-limit
-conclusion requires an exact obligation override. Missing runtime evidence limits
-runtime claims; it does not justify deferring a container-visible static verdict.
+compact decision groups there. Every group names its exact obligation IDs and
+may share one decision only when the criteria assessment, target, preserved
+distinctions, next step, and evidence meaning are genuinely identical. Put each
+actionable operation in its own one-obligation group because its operation and
+target are unique. This exact-ID grouping removes repeated prose without using
+broad selectors or replacing evidence-specific judgment. Missing runtime evidence
+limits runtime claims; it does not justify deferring a container-visible static verdict.
 The maintained applicator
 requires exactly one decision per obligation, validates every decision,
 operation, discovery, manifest, and work unit before writing, and performs the
