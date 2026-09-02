@@ -125,12 +125,13 @@ Before reconciliation:
 - workload counts and the sharding decision are deterministically reconstructed
   from the locked scan, assurance, and audit before merge and again at final
   validation;
-- each fresh agent authors one isolated declarative plan made of compact groups
-  that enumerate exact obligation IDs. A group may share one decision only when
+- each fresh agent authors one isolated declarative plan. Locked neutral
+  candidate groups enumerate exact obligation IDs; compact decision profiles
+  assign whole candidates, while exact obligation overrides split candidates.
+  A profile may share one decision only when
   its criteria assessment, target, preserved distinctions, next step, and
-  evidence meaning are genuinely identical. Each actionable operation uses a
-  one-obligation group because its operation and target are unique. Group fields
-  are exactly `group_id`, `obligation_ids`, and a nested `decision`; case-sensitive
+  evidence meaning are genuinely identical. Each actionable operation resolves
+  to one obligation because its operation and target are unique. Case-sensitive
   vocabulary and complete actionable operation proposals come from the locked
   authoring contract. Runtime
   uncertainty bounds runtime claims but does not defer a static verdict.
@@ -225,10 +226,14 @@ its locked source coordinates and exact JSON paths inside locked neutral evidenc
 Authored citations must be exact members of that list.
 
 Reconciliation scaffolds and the neutral-verification queue are reproducible
-projections of both sealed audits. Finalisation reconstructs both structures and
-requires exact equality, including closed nested rows, before authored
-dispositions can influence a canonical decision. A self-rehashed scaffold or an
-expected-answer hint is not evidence.
+projections of both sealed audits. They are partitioned into deterministic units
+of at most 30 comparisons so the same fresh reconciler can complete the whole
+queue without one oversized edit. One locked manifest names every unit and row;
+one small completion record carries the reconciler identity. Finalisation
+reconstructs the manifest, membership, scaffolds, and queue and requires exact
+equality, including closed nested rows, before authored dispositions can
+influence a canonical decision. A self-rehashed scaffold or expected-answer hint
+is not evidence.
 
 ## Stage 6 — Exact Operations And Fixed Point
 

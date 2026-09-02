@@ -31,6 +31,10 @@ RECONCILIATION_SCAFFOLD_FILE = "reconciliation-scaffold.json"
 NEUTRAL_QUEUE_FILE = "neutral-verification-queue.json"
 RECONCILED_RECORD_FILE = "reconciled-decisions.json"
 RECONCILIATION_SEAL_FILE = "reconciliation-seal.json"
+RECONCILIATION_UNIT_DIRECTORY = "reconciliation-units"
+RECONCILIATION_UNIT_MANIFEST = "manifest.json"
+RECONCILIATION_COMPLETION_FILE = "reconciliation-completion.json"
+MAX_RECONCILIATION_UNIT_COMPARISONS = 30
 
 NEUTRAL_MUTABLE_FIELDS = {
     "status",
@@ -43,6 +47,69 @@ NEUTRAL_MUTABLE_FIELDS = {
 
 def _normalized_text(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"JSON root must be an object: {path}")
+    return value
+
+
+def _reconciliation_unit_payloads(
+    reconciliation: dict[str, Any], neutral: dict[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    comparisons = as_list(reconciliation.get("comparisons"))
+    verification_by_id = {
+        str(row.get("verification_id") or ""): row
+        for row in as_list(neutral.get("verifications"))
+        if isinstance(row, dict)
+    }
+    units: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
+    for offset in range(0, len(comparisons), MAX_RECONCILIATION_UNIT_COMPARISONS):
+        rows = comparisons[offset : offset + MAX_RECONCILIATION_UNIT_COMPARISONS]
+        unit_number = offset // MAX_RECONCILIATION_UNIT_COMPARISONS + 1
+        unit_id = f"reconciliation-unit-{unit_number:03d}"
+        filename = f"unit-{unit_number:03d}.json"
+        comparison_ids = [str(row.get("comparison_id") or "") for row in rows]
+        verification_ids = [
+            str(row.get("neutral_verification_id") or "")
+            for row in rows
+            if row.get("neutral_verification_required")
+        ]
+        unit = {
+            "kind": "gtm_reconciliation_work_unit",
+            "schema_version": 1,
+            "unit_id": unit_id,
+            "comparison_ids": comparison_ids,
+            "verification_ids": verification_ids,
+            "comparisons": rows,
+            "verifications": [verification_by_id[value] for value in verification_ids],
+        }
+        units.append(unit)
+        records.append(
+            {
+                "unit_id": unit_id,
+                "filename": filename,
+                "comparison_ids": comparison_ids,
+                "verification_ids": verification_ids,
+            }
+        )
+    manifest = {
+        "kind": "gtm_reconciliation_work_unit_manifest",
+        "schema_version": 1,
+        "reconciliation_scaffold_sha256": reconciliation.get(
+            "reconciliation_scaffold_sha256"
+        ),
+        "neutral_queue_sha256": neutral.get("neutral_queue_sha256"),
+        "max_comparisons_per_unit": MAX_RECONCILIATION_UNIT_COMPARISONS,
+        "comparison_count": len(comparisons),
+        "verification_count": len(verification_by_id),
+        "units": records,
+    }
+    manifest["manifest_sha256"] = stable_hash(manifest, 64)
+    return manifest, units
 
 
 def _has_minimum_words(value: Any, minimum: int = 4) -> bool:
@@ -426,15 +493,121 @@ def scaffold_reconciliation(package_dir: Path) -> dict[str, Any]:
     reconciliation, neutral = _reconciliation_scaffold_payloads(package_dir)
     write_json(package_dir / RECONCILIATION_SCAFFOLD_FILE, reconciliation)
     write_json(package_dir / NEUTRAL_QUEUE_FILE, neutral)
-    write_json(package_dir / RECONCILIATION_FILE, reconciliation)
-    write_json(package_dir / NEUTRAL_FILE, neutral)
+    unit_root = package_dir / RECONCILIATION_UNIT_DIRECTORY
+    if unit_root.exists():
+        raise FileExistsError(f"reconciliation unit directory already exists: {unit_root}")
+    unit_root.mkdir()
+    manifest, units = _reconciliation_unit_payloads(reconciliation, neutral)
+    write_json(unit_root / RECONCILIATION_UNIT_MANIFEST, manifest)
+    for record, unit in zip(manifest["units"], units, strict=True):
+        write_json(unit_root / record["filename"], unit)
+    write_json(
+        package_dir / RECONCILIATION_COMPLETION_FILE,
+        {
+            "kind": "gtm_reconciliation_completion",
+            "schema_version": 1,
+            "independent_agent_id": "",
+            "independent_context_id": "",
+            "status": "pending",
+        },
+    )
     return {
         "status": "pass",
         "comparisons": len(as_list(reconciliation.get("comparisons"))),
         "neutral_verifications": len(as_list(neutral.get("verifications"))),
-        "reconciliation_file": RECONCILIATION_FILE,
-        "neutral_file": NEUTRAL_FILE,
+        "work_units": len(units),
+        "unit_manifest": (
+            f"{RECONCILIATION_UNIT_DIRECTORY}/{RECONCILIATION_UNIT_MANIFEST}"
+        ),
+        "completion_file": RECONCILIATION_COMPLETION_FILE,
     }
+
+
+def _merge_reconciliation_units(
+    package_dir: Path,
+    expected_reconciliation: dict[str, Any],
+    expected_neutral: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    unit_root = package_dir / RECONCILIATION_UNIT_DIRECTORY
+    expected_manifest, expected_units = _reconciliation_unit_payloads(
+        expected_reconciliation, expected_neutral
+    )
+    manifest = _read_json(unit_root / RECONCILIATION_UNIT_MANIFEST)
+    if manifest != expected_manifest:
+        raise ValueError("reconciliation unit manifest differs from reconstruction")
+    expected_filenames = {
+        RECONCILIATION_UNIT_MANIFEST,
+        *(str(row["filename"]) for row in expected_manifest["units"]),
+    }
+    actual_entries = list(unit_root.iterdir())
+    actual_filenames = {path.name for path in actual_entries}
+    if actual_filenames != expected_filenames or not all(
+        path.is_file() for path in actual_entries
+    ):
+        raise ValueError("reconciliation unit file inventory differs from its manifest")
+    comparisons: list[dict[str, Any]] = []
+    verifications: list[dict[str, Any]] = []
+    identity_fields = {
+        "kind",
+        "schema_version",
+        "unit_id",
+        "comparison_ids",
+        "verification_ids",
+    }
+    for record, expected_unit in zip(
+        expected_manifest["units"], expected_units, strict=True
+    ):
+        unit = _read_json(unit_root / str(record["filename"]))
+        if set(unit) != set(expected_unit):
+            raise ValueError(f"{record['unit_id']}: work-unit schema changed")
+        if any(unit.get(field) != expected_unit.get(field) for field in identity_fields):
+            raise ValueError(f"{record['unit_id']}: work-unit identity changed")
+        unit_comparisons = as_list(unit.get("comparisons"))
+        unit_verifications = as_list(unit.get("verifications"))
+        if [
+            str(row.get("comparison_id") or "")
+            for row in unit_comparisons
+            if isinstance(row, dict)
+        ] != expected_unit["comparison_ids"]:
+            raise ValueError(f"{record['unit_id']}: comparison membership changed")
+        if [
+            str(row.get("verification_id") or "")
+            for row in unit_verifications
+            if isinstance(row, dict)
+        ] != expected_unit["verification_ids"]:
+            raise ValueError(f"{record['unit_id']}: verification membership changed")
+        comparisons.extend(unit_comparisons)
+        verifications.extend(unit_verifications)
+    completion = _read_json(package_dir / RECONCILIATION_COMPLETION_FILE)
+    if set(completion) != {
+        "kind",
+        "schema_version",
+        "independent_agent_id",
+        "independent_context_id",
+        "status",
+    }:
+        raise ValueError("reconciliation completion schema changed")
+    if completion.get("kind") != "gtm_reconciliation_completion" or completion.get(
+        "schema_version"
+    ) != 1:
+        raise ValueError("reconciliation completion identity changed")
+    reconciliation = dict(expected_reconciliation)
+    reconciliation.update(
+        {
+            "independent_agent_id": completion.get("independent_agent_id"),
+            "independent_context_id": completion.get("independent_context_id"),
+            "status": completion.get("status"),
+            "comparisons": comparisons,
+        }
+    )
+    neutral = dict(expected_neutral)
+    neutral.update(
+        {
+            "status": "complete" if verifications else "not_required",
+            "verifications": verifications,
+        }
+    )
+    return reconciliation, neutral
 
 
 def _neutral_errors(
@@ -558,14 +731,15 @@ def finalize_reconciliation(
         base_reconciliation_path.read_text(encoding="utf-8")
     )
     stored_neutral = json.loads(base_neutral_path.read_text(encoding="utf-8"))
-    reconciliation = json.loads(
-        (reconciliation_path or package_dir / RECONCILIATION_FILE).read_text(
-            encoding="utf-8"
+    if (reconciliation_path is None) != (neutral_path is None):
+        raise ValueError("reconciliation and neutral paths must be supplied together")
+    if reconciliation_path is None:
+        reconciliation, neutral = _merge_reconciliation_units(
+            package_dir, expected_reconciliation, expected_neutral
         )
-    )
-    neutral = json.loads(
-        (neutral_path or package_dir / NEUTRAL_FILE).read_text(encoding="utf-8")
-    )
+    else:
+        reconciliation = _read_json(reconciliation_path)
+        neutral = _read_json(neutral_path)
     errors: list[str] = []
     if stored_reconciliation != expected_reconciliation:
         errors.append(
@@ -761,6 +935,9 @@ def finalize_reconciliation(
     record["reconciled_record_sha256"] = stable_hash(record, 64)
     if _validate_only:
         return record
+    if reconciliation_path is None:
+        write_json(package_dir / RECONCILIATION_FILE, reconciliation)
+        write_json(package_dir / NEUTRAL_FILE, neutral)
     record_path = package_dir / RECONCILED_RECORD_FILE
     write_json(record_path, record)
     seal = {
@@ -854,18 +1031,12 @@ def main() -> int:
     scaffold.add_argument("package_dir", type=Path)
     finalize = subparsers.add_parser("finalize")
     finalize.add_argument("package_dir", type=Path)
-    finalize.add_argument("--reconciliation", type=Path)
-    finalize.add_argument("--neutral", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "scaffold":
             result = scaffold_reconciliation(args.package_dir)
         else:
-            result = finalize_reconciliation(
-                args.package_dir,
-                args.reconciliation,
-                args.neutral,
-            )
+            result = finalize_reconciliation(args.package_dir)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "blocked", "errors": [str(exc)]}))
         return 2

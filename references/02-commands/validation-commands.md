@@ -241,12 +241,14 @@ labels remain distinct.
 python -B scripts/gtm_reconciliation.py scaffold audit-package
 ```
 
-Complete `reconciliation.json` and every required neutral disposition in one
-separate fresh reconciliation-agent context after both audits are sealed. Record
-that agent/context label and the exact hashes of its locked inputs and sealed
-output. Every neutral row includes the complete locked
+In one separate fresh reconciliation-agent context after both audits are sealed,
+read `reconciliation-units/manifest.json`, then complete every exact unit filename
+declared there. Do not enumerate or infer unit paths. Each unit contains its
+bounded comparison rows and matching neutral rows. Complete
+`reconciliation-completion.json` with the fresh agent/context labels and status
+`complete`. Every neutral row includes the complete locked
 `allowed_evidence_citations` list; use only exact entries from that list. Then:
-Follow each scaffold's `authoring_contract` for rationale prose. Evidence binding
+Follow each unit row's scaffolded contract for rationale prose. Evidence binding
 comes from the locked citation allowlist; rationale validation does not require
 magic words.
 

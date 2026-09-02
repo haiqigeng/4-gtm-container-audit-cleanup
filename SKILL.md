@@ -180,12 +180,12 @@ review every obligation and split any candidate whose judgment, target, evidence
 meaning, or action differs. Assign complete candidates through compact
 `decision_profiles`; use exact `obligation_overrides` for all obligations that
 must split from a candidate. The applicator expands profiles and proves every
-obligation is assigned exactly once. Every candidate names its exact obligation IDs and
-may share one decision only when the criteria assessment, target, preserved
-distinctions, next step, and evidence meaning are genuinely identical. Put each
-actionable operation in its own one-obligation group because its operation and
-target are unique. Each group has exactly `group_id`, `obligation_ids`, and a
-nested `decision` object; never flatten decision fields into the group. Use the
+obligation is assigned exactly once. Every candidate names its exact obligation
+IDs and may share one decision only when the criteria assessment, target,
+preserved distinctions, next step, and evidence meaning are genuinely identical.
+Put each actionable operation in a profile or override that resolves to exactly
+one obligation because its operation and target are unique. Candidate membership
+is locked; profiles and overrides contain the nested decision. Use the
 case-sensitive priority and confidence values in `authoring_contract`. An
 actionable decision includes the complete declared `operation_proposal`. This
 includes an uppercase `operation_id` matching the exact pattern and example in
@@ -259,6 +259,15 @@ and context labels plus locked input and sealed output hashes.
 Each neutral row publishes `allowed_evidence_citations`, deterministically built
 from its locked source coordinates and exact JSON paths inside its locked neutral
 evidence. Cite only values from that list; do not infer or normalize a path.
+
+The reconciliation scaffold creates
+`reconciliation-units/manifest.json`, bounded unit files named exactly by that
+manifest, and `reconciliation-completion.json`. The one fresh reconciler reviews
+and completes every declared unit sequentially in the same context, then records
+its identity and `complete` status in the completion file. It never edits one
+monolithic reconciliation document. Finalisation reconstructs the manifest and
+unit membership, merges every row exactly once, validates the complete semantic
+result, and only then writes and seals the canonical reconciliation files.
 
 ### 5. Synthesize And Prove The Target
 

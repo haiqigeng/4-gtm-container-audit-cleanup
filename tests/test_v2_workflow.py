@@ -525,50 +525,59 @@ def complete_base_reconciliation(
     context_id: str = "fixture-reconciliation-context",
 ) -> None:
     scaffold_reconciliation(package)
-    reconciliation_path = package / "reconciliation.json"
-    neutral_path = package / "neutral-verification.json"
-    reconciliation = json.loads(reconciliation_path.read_text(encoding="utf-8"))
-    neutral = json.loads(neutral_path.read_text(encoding="utf-8"))
-    reconciliation["independent_agent_id"] = agent_id
-    reconciliation["independent_context_id"] = context_id
-    neutral_by_id = {}
-    for row in neutral["verifications"]:
-        comparison = next(
-            item
-            for item in reconciliation["comparisons"]
-            if item["neutral_verification_id"] == row["verification_id"]
-        )
-        decision = copy.deepcopy(comparison["audit_decisions"]["audit-a"])
-        row.update(
-            {
-                "status": "complete",
-                "canonical_decision": decision,
-                "evidence_citations": list(row.get("source_coordinates") or []),
-                "verification_rationale": (
-                    "The locked record directly supports this bounded conclusion."
-                ),
-            }
-        )
-        neutral_by_id[row["verification_id"]] = decision
-    neutral["status"] = "complete" if neutral["verifications"] else "not_required"
-    for row in reconciliation["comparisons"]:
-        canonical = (
-            neutral_by_id[row["neutral_verification_id"]]
+    unit_root = package / "reconciliation-units"
+    manifest = json.loads((unit_root / "manifest.json").read_text(encoding="utf-8"))
+    for record in manifest["units"]:
+        unit_path = unit_root / record["filename"]
+        unit = json.loads(unit_path.read_text(encoding="utf-8"))
+        comparison_by_verification = {
+            row["neutral_verification_id"]: row
+            for row in unit["comparisons"]
             if row["neutral_verification_required"]
-            else copy.deepcopy(row["audit_decisions"]["audit-a"])
-        )
-        row.update(
-            {
-                "status": "complete",
-                "canonical_decision": canonical,
-                "reconciliation_rationale": (
-                    "The locked records directly support this bounded conclusion."
-                ),
-            }
-        )
-    reconciliation["status"] = "complete"
-    neutral_path.write_text(json.dumps(neutral, indent=2) + "\n", encoding="utf-8")
-    reconciliation_path.write_text(json.dumps(reconciliation, indent=2) + "\n", encoding="utf-8")
+        }
+        neutral_by_id = {}
+        for row in unit["verifications"]:
+            comparison = comparison_by_verification[row["verification_id"]]
+            decision = copy.deepcopy(comparison["audit_decisions"]["audit-a"])
+            row.update(
+                {
+                    "status": "complete",
+                    "canonical_decision": decision,
+                    "evidence_citations": list(row.get("source_coordinates") or []),
+                    "verification_rationale": (
+                        "The locked record directly supports this bounded conclusion."
+                    ),
+                }
+            )
+            neutral_by_id[row["verification_id"]] = decision
+        for row in unit["comparisons"]:
+            canonical = (
+                neutral_by_id[row["neutral_verification_id"]]
+                if row["neutral_verification_required"]
+                else copy.deepcopy(row["audit_decisions"]["audit-a"])
+            )
+            row.update(
+                {
+                    "status": "complete",
+                    "canonical_decision": canonical,
+                    "reconciliation_rationale": (
+                        "The locked records directly support this bounded conclusion."
+                    ),
+                }
+            )
+        unit_path.write_text(json.dumps(unit, indent=2) + "\n", encoding="utf-8")
+    completion_path = package / "reconciliation-completion.json"
+    completion = json.loads(completion_path.read_text(encoding="utf-8"))
+    completion.update(
+        {
+            "independent_agent_id": agent_id,
+            "independent_context_id": context_id,
+            "status": "complete",
+        }
+    )
+    completion_path.write_text(
+        json.dumps(completion, indent=2) + "\n", encoding="utf-8"
+    )
     finalize_reconciliation(package)
 
 
@@ -2434,6 +2443,62 @@ class V2WorkflowTests(unittest.TestCase):
         queue_path.write_text(json.dumps(queue, indent=2) + "\n", encoding="utf-8")
         errors = reconciliation_seal_errors(self.package)
         self.assertTrue(any("reconstruction" in error for error in errors))
+
+    def test_reconciliation_scaffolds_bounded_exact_work_units(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "fixture-a-context-001")
+        complete_checkpoint(self.package, "audit-b", "fixture-b-context-001")
+        complete_audit(self.package, "audit-a")
+        complete_audit(self.package, "audit-b")
+
+        with mock.patch(
+            "gtm_reconciliation.MAX_RECONCILIATION_UNIT_COMPARISONS", 1
+        ):
+            result = scaffold_reconciliation(self.package)
+
+        unit_root = self.package / "reconciliation-units"
+        manifest = json.loads(
+            (unit_root / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(result["work_units"], len(manifest["units"]))
+        self.assertTrue(
+            all(len(row["comparison_ids"]) <= 1 for row in manifest["units"])
+        )
+        comparison_ids = [
+            comparison_id
+            for row in manifest["units"]
+            for comparison_id in row["comparison_ids"]
+        ]
+        self.assertEqual(len(comparison_ids), manifest["comparison_count"])
+        self.assertEqual(len(comparison_ids), len(set(comparison_ids)))
+
+    def test_reconciliation_rejects_changed_unit_membership_before_output(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "fixture-a-context-001")
+        complete_checkpoint(self.package, "audit-b", "fixture-b-context-001")
+        complete_audit(self.package, "audit-a")
+        complete_audit(self.package, "audit-b")
+        scaffold_reconciliation(self.package)
+
+        manifest = json.loads(
+            (self.package / "reconciliation-units" / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        first_unit_path = (
+            self.package
+            / "reconciliation-units"
+            / manifest["units"][0]["filename"]
+        )
+        first_unit = json.loads(first_unit_path.read_text(encoding="utf-8"))
+        first_unit["comparisons"].pop()
+        first_unit_path.write_text(
+            json.dumps(first_unit, indent=2) + "\n", encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(ValueError, "comparison membership changed"):
+            finalize_reconciliation(self.package)
+        self.assertFalse((self.package / "reconciliation.json").exists())
 
     def test_rehashed_replay_and_canonical_forgery_are_rejected(self) -> None:
         self.run_actionable_to_editorial()
