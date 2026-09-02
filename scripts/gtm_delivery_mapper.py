@@ -98,6 +98,8 @@ def _display_scope(keys: list[Any], names: dict[str, str]) -> str:
         values.append(
             str(redact_delivery_value(f"{name} ({key})" if name else key))
         )
+    if len(values) > 3:
+        return "; ".join(values[:3]) + f"; +{len(values) - 3} more (see row note)"
     return "; ".join(values) or "Container-wide"
 
 

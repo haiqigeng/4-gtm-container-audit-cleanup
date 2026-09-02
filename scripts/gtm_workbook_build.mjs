@@ -213,8 +213,7 @@ function previewRange(sheetModel) {
 }
 
 function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
-  if (row.primary_sheet !== "02 Recommendations") return;
-  const note = {
+  const operationNote = {
     operation_id: row.locked.operation_id,
     source_decision_ids: row.locked.source_decision_ids,
     subject_keys: row.locked.subject_keys,
@@ -223,7 +222,19 @@ function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
     actions: row.locked.technical_note,
     action_payload_sha256: row.locked.action_payload_sha256,
   };
-  const text = `Technical operation detail\n${JSON.stringify(note, null, 2)}`;
+  const auditNote = {
+    decision_id: row.locked.decision_id,
+    subject_keys: row.locked.subject_keys,
+    area_id: row.locked.area_id,
+    audit_focus: row.locked.audit_focus,
+    decision_class: row.locked.decision_class,
+    operation_id: row.locked.operation_id,
+  };
+  const heading = row.primary_sheet === "02 Recommendations"
+    ? "Technical operation detail"
+    : "Exact row identifiers";
+  const note = row.primary_sheet === "02 Recommendations" ? operationNote : auditNote;
+  const text = `${heading}\n${JSON.stringify(note, null, 2)}`;
   workbook.comments.addThread(
     { cell: sheet.getRange(cellAddress) },
     text,
@@ -286,32 +297,37 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     });
   }
   const summaryStart = 13 + Math.max(decisionRows.length, priorityRows.length);
+  const actionSummary = (overview.highest_value_actions || [])
+    .map((value, index) => `${index + 1}. ${value}`)
+    .join("\n") || "None";
   const summaryBlocks = [
-    ["Highest-value actions", (overview.highest_value_actions || []).join("; ") || "None"],
-    ["Target architecture", overview.target_architecture_summary],
-    ["Important retained setup", overview.important_retained_summary],
-    ["Open decisions and evidence limits", overview.blocking_summary],
-    ["Next step", overview.next_step],
+    ["Highest-value actions", actionSummary, 5],
+    ["Target architecture", overview.target_architecture_summary, 2],
+    ["Important retained setup", overview.important_retained_summary, 2],
+    ["Open decisions and evidence limits", overview.blocking_summary, 2],
+    ["Next step", overview.next_step, 2],
   ];
-  summaryBlocks.forEach(([label, value], index) => {
-    const row = summaryStart + index * 3;
+  let summaryCursor = summaryStart;
+  summaryBlocks.forEach(([label, value, valueRows], index) => {
+    const row = summaryCursor;
     sheet.getRangeByIndexes(row - 1, 0, 1, 2).merge();
     sheet.getRangeByIndexes(row - 1, 0, 1, 2).values = [[safeText(label)]];
     sheet.getRangeByIndexes(row - 1, 0, 1, 2).format = {
       fill: PALETTE.navy,
       font: { bold: true, color: PALETTE.white, size: 10 },
     };
-    sheet.getRangeByIndexes(row - 1, 2, 2, 6).merge();
-    sheet.getRangeByIndexes(row - 1, 2, 2, 6).values = [[safeText(value)]];
-    sheet.getRangeByIndexes(row - 1, 2, 2, 6).format = {
+    sheet.getRangeByIndexes(row - 1, 2, valueRows, 6).merge();
+    sheet.getRangeByIndexes(row - 1, 2, valueRows, 6).values = [[safeText(value)]];
+    sheet.getRangeByIndexes(row - 1, 2, valueRows, 6).format = {
       fill: index === summaryBlocks.length - 1 ? PALETTE.paleAmber : PALETTE.white,
       font: { color: PALETTE.ink, size: 9 },
       wrapText: true,
       verticalAlignment: "top",
       borders: { preset: "outside", style: "thin", color: PALETTE.line },
     };
+    summaryCursor += valueRows + 1;
   });
-  const deltaStart = summaryStart + summaryBlocks.length * 3 + 1;
+  const deltaStart = summaryCursor;
   sheet.getRangeByIndexes(deltaStart - 1, 0, 1, 4).values = [
     ["Material object-count changes", "Source", "Target", "Change"],
   ];

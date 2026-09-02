@@ -68,6 +68,11 @@ personal values; preserve the exact action through its canonical hash and keep
 the unredacted source only in the sealed technical record. The visible row names
 actual GTM objects and the complete change in analyst language.
 
+Keep visible affected-scope summaries compact: name at most three representative
+objects, then state how many additional objects are covered. Put the complete,
+exact object-key inventory in that row's note so readability never weakens
+traceability.
+
 `03 Decisions Needed` uses `Decision ID`, `Question`, `Why this is needed`,
 `Recommendation`, `Affected scope`, and `What the answer unlocks`.
 `04 Full Audit` uses `Audit ID`, `Area`, `Affected scope`, `Decision`,
@@ -93,6 +98,15 @@ benefit, target, preserved behaviour, and next step. Describe an optimisation as
 simplification or drift reduction, not as a disguised defect. For retained work,
 name the exact positive distinction. For decisions and limits, state the one
 missing answer or proof and the responsible next step.
+
+Every row must be understandable on its own. Tie its prose to the named object,
+object group, event, vendor, route, or configuration at issue. Do not repeat
+generic stock paragraphs across unrelated rows. Keep object inventories out of
+visible prose when the affected-scope cell and row note already carry them.
+
+In `01 Overview`, present highest-value actions as a numbered, one-action-per-line
+list. Allocate enough visible rows for every summary block and verify that no
+action or summary is clipped in the rendered preview.
 
 Visible prose must not expose internal workflow vocabulary such as semantic
 obligation, scan candidate, clean-room, seal, reconciliation class, context ID,

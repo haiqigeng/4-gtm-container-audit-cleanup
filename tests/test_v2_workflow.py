@@ -15,6 +15,7 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import gtm_cleanroom_audit as cleanroom_audit  # noqa: E402
+import gtm_delivery_mapper as delivery_mapper  # noqa: E402
 import gtm_delivery_reviews as delivery_reviews  # noqa: E402
 import gtm_projection_review as projection_review  # noqa: E402
 from gtm_audit_contract import (  # noqa: E402
@@ -1390,6 +1391,14 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertIn(decision_class, DECISION_CLASSES)
         self.assertEqual("Optimisation", HUMAN_DECISION_LABELS[decision_class])
         self.assertNotIn("correct_but_non_optimal", DECISION_CLASSES)
+
+    def test_delivery_scope_is_compact_with_exact_ids_kept_for_row_notes(self) -> None:
+        keys = [f"tag:{value}" for value in range(1, 6)]
+        names = {key: f"Tag {index}" for index, key in enumerate(keys, 1)}
+        displayed = delivery_mapper._display_scope(keys, names)
+        self.assertIn("Tag 1 (tag:1)", displayed)
+        self.assertIn("+2 more (see row note)", displayed)
+        self.assertNotIn("tag:4", displayed)
 
     def test_reconciliation_cannot_invent_semantic_delivery_fields(self) -> None:
         source = {}
