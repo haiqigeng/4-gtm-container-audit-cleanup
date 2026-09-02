@@ -969,6 +969,22 @@ class V2WorkflowTests(unittest.TestCase):
             contract["actionable_operation_contract"]["operation_id_example"],
             r"^OP-[A-Z0-9][A-Z0-9_-]{5,80}$",
         )
+        self.assertEqual(
+            {
+                "exact_target_state": 4,
+                "preconditions": 4,
+                "rollback": 4,
+                "static_verification": 4,
+            },
+            contract["actionable_operation_contract"][
+                "text_fields_minimum_words"
+            ],
+        )
+        self.assertTrue(
+            contract["actionable_operation_contract"][
+                "text_fields_require_strings"
+            ]
+        )
         self.assertEqual([], contract["open_discoveries_contract"]["default"])
         self.assertTrue(
             contract["open_discoveries_contract"][

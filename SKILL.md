@@ -182,7 +182,9 @@ nested `decision` object; never flatten decision fields into the group. Use the
 case-sensitive priority and confidence values in `authoring_contract`. An
 actionable decision includes the complete declared `operation_proposal`. This
 includes an uppercase `operation_id` matching the exact pattern and example in
-`authoring_contract`. This exact-ID grouping removes repeated prose without using
+`authoring_contract`. Its target state, preconditions, static verification, and
+rollback are human-readable strings meeting the contract's minimum word counts;
+`preconditions` is never a list. This exact-ID grouping removes repeated prose without using
 broad selectors or replacing evidence-specific judgment. Missing runtime evidence
 limits runtime claims; it does not justify deferring a container-visible static verdict.
 The maintained applicator

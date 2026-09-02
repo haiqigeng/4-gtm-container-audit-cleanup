@@ -170,6 +170,14 @@ class V2OperationSafetyTests(unittest.TestCase):
             errors,
         )
 
+        proposal["operation_family"] = "Remove priority"
+        proposal["preconditions"] = []
+        errors = operation_proposal_errors(proposal, decision, set(), "decision")
+        self.assertIn(
+            "decision: operation preconditions must be a string of at least 4 words",
+            errors,
+        )
+
     def test_recursive_work_unit_schema_type_failures_are_explicit(self) -> None:
         self.assertTrue(workload_estimate_schema_errors(None))
         malformed_workload = {

@@ -41,6 +41,12 @@ from gtm_lib import (
 )
 
 OPERATION_ID_PATTERN = r"OP-[A-Z0-9][A-Z0-9_-]{5,80}"
+OPERATION_TEXT_FIELDS_MINIMUM_WORDS = {
+    "exact_target_state": 4,
+    "preconditions": 4,
+    "static_verification": 4,
+    "rollback": 4,
+}
 
 AUDIT_IDS = ("audit-a", "audit-b")
 BUNDLE_DIRECTORY = "audit-bundles"
@@ -754,14 +760,13 @@ def operation_proposal_errors(
             f"{label}: operation operation_family must be a human-readable phrase "
             "of at least two words, not an underscore token"
         )
-    for field in (
-        "exact_target_state",
-        "preconditions",
-        "static_verification",
-        "rollback",
-    ):
-        if not _specific_text(proposal.get(field), 4):
-            errors.append(f"{label}: operation {field} is incomplete")
+    for field, minimum_words in OPERATION_TEXT_FIELDS_MINIMUM_WORDS.items():
+        value = proposal.get(field)
+        if not isinstance(value, str) or not _specific_text(value, minimum_words):
+            errors.append(
+                f"{label}: operation {field} must be a string of at least "
+                f"{minimum_words} words"
+            )
     dependencies = proposal.get("depends_on")
     if not isinstance(dependencies, list) or any(
         not str(value).startswith("OP-") for value in dependencies
