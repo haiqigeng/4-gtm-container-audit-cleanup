@@ -1218,6 +1218,33 @@ class V2WorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not bound to its audit bundle"):
             checkpoint_audit(self.package, "audit-a")
 
+    def test_source_checkpoint_discoveries_are_concise_string_notes(self) -> None:
+        build_package(self.export, self.package)
+        checkpoint = (
+            self.package
+            / "audit-bundles"
+            / "audit-a"
+            / "source-checkpoint.json"
+        )
+        payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+        payload["open_discoveries"] = [
+            "The source-only inventory exposes one bounded question for later semantic review."
+        ]
+        checkpoint.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+        complete_checkpoint(self.package, "audit-a", "string-discovery-context")
+
+        other = self.root / "object-discovery-package"
+        build_package(self.export, other)
+        invalid = other / "audit-bundles" / "audit-a" / "source-checkpoint.json"
+        invalid_payload = json.loads(invalid.read_text(encoding="utf-8"))
+        invalid_payload["open_discoveries"] = [{"note": "undeclared object shape"}]
+        invalid.write_text(
+            json.dumps(invalid_payload, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(ValueError, "list of non-blank strings"):
+            complete_checkpoint(other, "audit-a", "object-discovery-context")
+
     def test_source_audits_cannot_reuse_scan_assurance_identity(self) -> None:
         for shared_field in ("agent", "context"):
             with self.subTest(shared_field=shared_field):

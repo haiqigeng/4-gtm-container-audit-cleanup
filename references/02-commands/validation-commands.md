@@ -97,6 +97,8 @@ its `source-checkpoint.json`, then seal the checkpoint:
 evidence; it is not a blocked outcome. Review the complete locked inventory,
 copy its supplied `inventory_sha256` into `reviewed_inventory_sha256`, and
 directly complete the provenance, source-only conclusion, and any discoveries.
+Write optional checkpoint `open_discoveries` as concise non-blank strings, not
+semantic decision objects.
 Do not generate or execute an audit-local helper and do not inspect the peer
 audit. Before checkpoint sealing, do not read `work-units`: that directory does
 not yet exist. The checkpoint command creates it. After release, read each

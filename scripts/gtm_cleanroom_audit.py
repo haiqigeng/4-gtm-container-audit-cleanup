@@ -415,9 +415,12 @@ def _checkpoint_errors(
     if checkpoint.get("candidate_blind_discovery") is not (audit_id == "audit-b"):
         errors.append("source checkpoint candidate-blind state is invalid")
     if not isinstance(checkpoint.get("open_discoveries"), list) or any(
-        not isinstance(row, dict) for row in as_list(checkpoint.get("open_discoveries"))
+        not isinstance(row, str) or not row.strip()
+        for row in as_list(checkpoint.get("open_discoveries"))
     ):
-        errors.append("source checkpoint open_discoveries must be a list of objects")
+        errors.append(
+            "source checkpoint open_discoveries must be a list of non-blank strings"
+        )
     if as_list(checkpoint.get("approved_requirement_ids_used")):
         errors.append("approved requirement evidence is prohibited before source checkpoint")
     if not _specific_text(checkpoint.get("source_only_conclusion"), 10):

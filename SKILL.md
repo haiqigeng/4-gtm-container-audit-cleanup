@@ -146,7 +146,9 @@ compact checkpoint by binding `reviewed_inventory_sha256` to the supplied
 `inventory_sha256`, recording provenance, any source-only discoveries, and one
 source-only conclusion. The checkpoint does not duplicate per-object prose,
 families, relationships, or candidates already owned by the assured scan and
-later transversal obligations. Do not create or execute an audit-local helper.
+later transversal obligations. Record each optional source-only discovery as one
+concise non-blank string; these notes are not semantic decisions. Do not create
+or execute an audit-local helper.
 
 Before checkpoint sealing, an audit bundle has no `work-units` directory. The
 checkpoint command creates `work-units/work-unit-manifest.json`; only then may
