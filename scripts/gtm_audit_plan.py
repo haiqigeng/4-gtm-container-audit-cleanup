@@ -13,11 +13,17 @@ from gtm_audit_contract import (
     BASE_REQUIRED_DECISION_FIELDS,
     CANONICAL_DECISION_FIELDS,
     CLASS_REQUIRED_DECISION_FIELDS,
+    CONFIDENCE_LEVELS,
     DECISION_CLASSES,
     OPERATION_ACTION_FIELDS,
+    PRIORITIES,
     semantic_contract_errors,
 )
 from gtm_audit_work_units import (
+    DISCOVERY_DECISION_FIELDS,
+    DISCOVERY_FIELDS,
+    OPERATION_ACTION_ROW_FIELDS,
+    OPERATION_PROPOSAL_FIELDS,
     WORK_UNIT_MANIFEST,
     declared_work_unit_files,
     discovery_schema_errors,
@@ -50,14 +56,37 @@ PLAN_DECISION_FIELDS = {
 def _authoring_contract() -> dict[str, Any]:
     return {
         "authoring_unit": "exact_obligation_id_group",
+        "decision_group_fields": sorted(DECISION_GROUP_FIELDS),
+        "decision_group_shape": {
+            "group_id": "one unique non-blank string",
+            "obligation_ids": ["one or more exact obligation IDs"],
+            "decision": "one nested decision object",
+        },
         "every_obligation_id_exactly_once": True,
         "actionable_groups_require_one_obligation": True,
+        "decision_classes": list(DECISION_CLASSES),
+        "priorities_case_sensitive": list(PRIORITIES),
+        "confidence_levels_case_sensitive": list(CONFIDENCE_LEVELS),
         "required_fields_by_class": {
             decision_class: [
                 *BASE_REQUIRED_DECISION_FIELDS,
                 *CLASS_REQUIRED_DECISION_FIELDS[decision_class],
             ]
             for decision_class in DECISION_CLASSES
+        },
+        "actionable_operation_contract": {
+            "proposal_fields": sorted(OPERATION_PROPOSAL_FIELDS),
+            "action_row_fields": {
+                field: sorted(fields)
+                for field, fields in sorted(OPERATION_ACTION_ROW_FIELDS.items())
+            },
+            "every_action_list_present": True,
+        },
+        "open_discoveries_contract": {
+            "default": [],
+            "item_fields": sorted(DISCOVERY_FIELDS),
+            "decision_fields": sorted(DISCOVERY_DECISION_FIELDS),
+            "checkpoint_string_notes_are_not_plan_discoveries": True,
         },
     }
 

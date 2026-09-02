@@ -150,6 +150,28 @@ next step, and evidence meaning are genuinely identical. Put each actionable
 operation in a one-obligation group because its operation and target are unique.
 Every obligation ID must appear exactly once. Do not group obligations where the
 evidence, target, preserved distinctions, or next action differs.
+Each group has exactly this nesting; decision fields never sit beside
+`obligation_ids`:
+
+```json
+{
+  "group_id": "unique-group-id",
+  "obligation_ids": ["OBL-..."],
+  "decision": {
+    "decision_class": "justified_as_is",
+    "criteria_assessment": "...",
+    "priority": "None",
+    "confidence": "High"
+  }
+}
+```
+
+Use only the case-sensitive priority and confidence values in
+`authoring_contract`. Every actionable decision must include the complete
+declared `operation_proposal`; all action-list fields are present, even when
+empty. Leave plan `open_discoveries` as `[]` unless a genuinely new semantic
+record satisfies the complete structured discovery contract. Do not copy the
+checkpoint's concise string notes into the plan.
 The scaffold's locked `authoring_contract` lists class-required fields. Missing
 runtime evidence limits runtime claims; it does not replace a static verdict for
 container-visible configuration. The plan has a closed schema:

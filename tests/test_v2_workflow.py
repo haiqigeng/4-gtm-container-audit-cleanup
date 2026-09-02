@@ -926,6 +926,47 @@ class V2WorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "authoring_contract differs"):
             apply_plan(self.package / "audit-bundles" / "audit-a", plan_path)
 
+    def test_audit_plan_contract_exposes_nesting_vocabulary_and_discoveries(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "plan-self-describing-context")
+        plan_path = write_fixture_audit_plan(self.package, "audit-a")
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        contract = plan["authoring_contract"]
+        self.assertEqual(
+            ["decision", "group_id", "obligation_ids"],
+            contract["decision_group_fields"],
+        )
+        self.assertEqual(
+            "one nested decision object",
+            contract["decision_group_shape"]["decision"],
+        )
+        self.assertIn("High", contract["priorities_case_sensitive"])
+        self.assertIn("Evidence limited", contract["confidence_levels_case_sensitive"])
+        self.assertEqual([], contract["open_discoveries_contract"]["default"])
+        self.assertTrue(
+            contract["open_discoveries_contract"][
+                "checkpoint_string_notes_are_not_plan_discoveries"
+            ]
+        )
+
+    def test_audit_plan_rejects_flattened_groups_and_checkpoint_string_notes(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "plan-shape-context")
+        plan_path = write_fixture_audit_plan(self.package, "audit-a")
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        group = plan["decision_groups"][0]
+        decision = group.pop("decision")
+        group.update(decision)
+        plan["open_discoveries"] = ["checkpoint-only note"]
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+        audit_bundle = self.package / "audit-bundles" / "audit-a"
+        before = (audit_bundle / "audit.json").read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "fields differ from the closed schema"):
+            apply_plan(audit_bundle, plan_path)
+
+        self.assertEqual(before, (audit_bundle / "audit.json").read_bytes())
+
     def test_delivery_review_file_hash_inventory_is_exact(self) -> None:
         review_root = self.root / "review-files"
         review_root.mkdir()

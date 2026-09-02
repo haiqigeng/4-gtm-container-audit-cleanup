@@ -177,7 +177,11 @@ compact decision groups there. Every group names its exact obligation IDs and
 may share one decision only when the criteria assessment, target, preserved
 distinctions, next step, and evidence meaning are genuinely identical. Put each
 actionable operation in its own one-obligation group because its operation and
-target are unique. This exact-ID grouping removes repeated prose without using
+target are unique. Each group has exactly `group_id`, `obligation_ids`, and a
+nested `decision` object; never flatten decision fields into the group. Use the
+case-sensitive priority and confidence values in `authoring_contract`. An
+actionable decision includes the complete declared `operation_proposal`. This
+exact-ID grouping removes repeated prose without using
 broad selectors or replacing evidence-specific judgment. Missing runtime evidence
 limits runtime claims; it does not justify deferring a container-visible static verdict.
 The maintained applicator
@@ -185,6 +189,9 @@ requires exactly one decision per obligation, validates every decision,
 operation, discovery, manifest, and work unit before writing, and performs the
 deterministic work-unit merge when sharding applies. Never create a substitute
 helper, write into the peer scratch directory, or expose one plan to the peer.
+Keep plan `open_discoveries` empty unless the audit found a genuinely new
+semantic record that can satisfy the complete structured discovery contract.
+Checkpoint string notes are not plan discoveries and must not be copied there.
 
 Before checkpoint sealing, the only audit-bundle filenames are explicit. Both
 audits use `audit-contract.json`, `bundle-manifest.json`, `context.json`,

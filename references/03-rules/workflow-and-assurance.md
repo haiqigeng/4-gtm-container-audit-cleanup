@@ -128,7 +128,10 @@ Before reconciliation:
   that enumerate exact obligation IDs. A group may share one decision only when
   its criteria assessment, target, preserved distinctions, next step, and
   evidence meaning are genuinely identical. Each actionable operation uses a
-  one-obligation group because its operation and target are unique. Runtime
+  one-obligation group because its operation and target are unique. Group fields
+  are exactly `group_id`, `obligation_ids`, and a nested `decision`; case-sensitive
+  vocabulary and complete actionable operation proposals come from the locked
+  authoring contract. Runtime
   uncertainty bounds runtime claims but does not defer a static verdict.
   The maintained applicator validates the whole plan before writing and
   deterministically merges declared work units;
