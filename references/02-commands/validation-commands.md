@@ -172,7 +172,10 @@ declared `operation_proposal`; all action-list fields are present, even when
 empty. Its uppercase `operation_id` must match the exact pattern and example in
 `authoring_contract`. Target state, preconditions, static verification, and
 rollback are strings meeting the contract's minimum word counts; preconditions
-is not a list. Leave plan `open_discoveries` as `[]` unless a genuinely new semantic
+is not a list. Action-row `json_path` values are object-relative (for example
+`$.tagFiringPriority`), never full `$.containerVersion...` source coordinates.
+Plan application runs the established operation simulator against the locked
+source before any audit write. Leave plan `open_discoveries` as `[]` unless a genuinely new semantic
 record satisfies the complete structured discovery contract. Do not copy the
 checkpoint's concise string notes into the plan.
 The scaffold's locked `authoring_contract` lists class-required fields. Missing

@@ -186,7 +186,10 @@ includes an uppercase `operation_id` matching the exact pattern and example in
 rollback are human-readable strings meeting the contract's minimum word counts;
 `preconditions` is never a list. Follow the same contract for exact source
 decision identity, operation-family wording, structured-action presence, and
-dependencies. This exact-ID grouping removes repeated prose without using
+dependencies. Action-row `json_path` values are object-relative paths such as
+`$.tagFiringPriority`, never full `$.containerVersion...` source coordinates.
+The applicator runs the existing operation simulator against the locked source,
+or locked projected source for a projection review, before writing. This exact-ID grouping removes repeated prose without using
 broad selectors or replacing evidence-specific judgment. Missing runtime evidence
 limits runtime claims; it does not justify deferring a container-visible static verdict.
 The maintained applicator

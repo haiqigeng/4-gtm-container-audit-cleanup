@@ -878,6 +878,17 @@ class V2WorkflowTests(unittest.TestCase):
                 | {"operation_proposal": authored["operation_proposal"]},
             }
         )
+        removal = plan["decision_groups"][-1]["decision"]["operation_proposal"][
+            "removals"
+        ][0]
+        removal["json_path"] = "$.containerVersion.tag[0].tagFiringPriority"
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+        before = audit_path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "audit operation safety gate failed"):
+            apply_plan(audit_path.parent, plan_path)
+        self.assertEqual(before, audit_path.read_bytes())
+
+        removal["json_path"] = "$.tagFiringPriority"
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
         apply_plan(audit_path.parent, plan_path)
@@ -998,6 +1009,10 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertEqual(
             "list containing only OP-* operation IDs",
             contract["actionable_operation_contract"]["depends_on_rule"],
+        )
+        self.assertIn(
+            "object-relative JSONPath",
+            contract["actionable_operation_contract"]["action_json_path_rule"],
         )
         self.assertEqual([], contract["open_discoveries_contract"]["default"])
         self.assertTrue(

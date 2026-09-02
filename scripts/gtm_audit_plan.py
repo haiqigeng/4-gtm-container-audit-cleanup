@@ -37,6 +37,7 @@ from gtm_cleanroom_audit import (
     operation_proposal_errors,
 )
 from gtm_lib import as_list, require_safe_package_root, write_json
+from gtm_operation_model import validate_operations
 from gtm_projection_review import REVIEW_IDS, validate_projection_review
 
 PLAN_FIELDS = {
@@ -94,6 +95,10 @@ def _authoring_contract() -> dict[str, Any]:
                 field: sorted(fields)
                 for field, fields in sorted(OPERATION_ACTION_ROW_FIELDS.items())
             },
+            "action_json_path_rule": (
+                "object-relative JSONPath beginning with $, for example "
+                "$.tagFiringPriority; never a $.containerVersion path"
+            ),
             "every_action_list_present": True,
         },
         "open_discoveries_contract": {
@@ -358,6 +363,26 @@ def apply_plan(bundle: Path, plan_path: Path) -> dict[str, Any]:
         locked_by_obligation, plan
     )
     errors.extend(authored_errors)
+    operations = [
+        row["operation_proposal"]
+        for row in authored.values()
+        if row.get("decision_class") in ACTIONABLE_DECISION_CLASSES
+    ]
+    if not authored_errors:
+        source = _read_json(bundle / "locked-source.json")
+        context = _read_json(bundle / "context.json")
+        do_not_touch = {
+            str(value)
+            for value in as_list((context.get("context") or {}).get("do_not_touch"))
+        }
+        errors.extend(
+            f"audit operation safety gate failed: {error}"
+            for error in validate_operations(
+                source,
+                operations,
+                do_not_touch=do_not_touch,
+            )
+        )
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -489,6 +514,26 @@ def apply_projection_plan(
         locked_by_obligation, plan
     )
     errors.extend(authored_errors)
+    operations = [
+        row["operation_proposal"]
+        for row in authored.values()
+        if row.get("decision_class") in ACTIONABLE_DECISION_CLASSES
+    ]
+    if not authored_errors:
+        projected_source = _read_json(review_path.parent / "projected-container.json")
+        context = _read_json(package / "context.json")
+        do_not_touch = {
+            str(value)
+            for value in as_list((context.get("context") or {}).get("do_not_touch"))
+        }
+        errors.extend(
+            f"projection operation safety gate failed: {error}"
+            for error in validate_operations(
+                projected_source,
+                operations,
+                do_not_touch=do_not_touch,
+            )
+        )
     if errors:
         raise ValueError("; ".join(errors))
     review["status"] = "complete"
