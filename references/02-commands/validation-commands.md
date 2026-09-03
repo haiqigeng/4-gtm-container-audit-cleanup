@@ -210,9 +210,13 @@ downstream outputs must be invalidated, use the focused repair procedure below
 and apply these amendment commands in its working copy. Never edit a sealed
 result in place or expose the other audit to the amendment owner.
 
-For an amendment, set `audit.amendment_parent_seal_sha256` to that current seal
-hash. Supply new agent/context labels bound to the unchanged audit bundle, then
-validate and seal with the same parent hash:
+For an amendment, apply the corrected plan first. Then edit only the candidate
+`audit-package/audit-bundles/<audit-id>/audit.json`: set
+`audit.amendment_parent_seal_sha256` to the current seal hash and supply fresh
+agent/context labels bound to the unchanged audit bundle. Do not hand-edit
+`audit-package/audits/<audit-id>.json`, seals, or snapshots: they retain the sealed
+predecessor until the maintained seal command archives it and installs the
+validated candidate. Validate and seal with the same parent hash:
 
 ```powershell
 python -B scripts/gtm_cleanroom_audit.py validate audit-package audit-a --amendment-of <current-seal-hash>
