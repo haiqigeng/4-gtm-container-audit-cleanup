@@ -312,6 +312,14 @@ function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
 function buildOverview(workbook, deliveryMap, editorial, model) {
   const sheet = workbook.worksheets.getItem("01 Overview");
   const overview = { ...deliveryMap.overview, ...editorial.overview_prose };
+  const cellCoordinates = [[0, 0], [1, 0], [3, 0], [5, 0], [7, 0]];
+  const trackCells = (row, column, rowCount, columnCount) => {
+    for (let r = row; r < row + rowCount; r += 1) {
+      for (let c = column; c < column + columnCount; c += 1) {
+        cellCoordinates.push([r, c]);
+      }
+    }
+  };
   styleTitle(sheet, sheet.getRange("A1:H1"), "GTM container audit and optimisation");
   styleSubtitle(sheet.getRange("A2:H2"), overview.container_label);
   const nav = addNavigation(sheet, deliveryMap.visible_sheets, 8);
@@ -337,6 +345,8 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
   const priorityRows = Object.entries(overview.priority_counts || {}).sort(
     (a, b) => (PRIORITY_RANK[a[0]] ?? 99) - (PRIORITY_RANK[b[0]] ?? 99),
   );
+  trackCells(10, 0, decisionRows.length + 1, 3);
+  trackCells(10, 4, priorityRows.length + 1, 3);
   sheet.getRange("A11:C11").values = [["Decision type", "Count", "Interpretation"]];
   styleHeaders(sheet.getRange("A11:C11"));
   if (decisionRows.length) {
@@ -395,6 +405,7 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
   let summaryCursor = summaryStart;
   summaryBlocks.forEach(([label, value, valueRows], index) => {
     const row = summaryCursor;
+    cellCoordinates.push([row - 1, 0], [row - 1, 2]);
     sheet.getRangeByIndexes(row - 1, 0, 1, 2).merge();
     sheet.getRangeByIndexes(row - 1, 0, 1, 2).values = [[safeText(label)]];
     sheet.getRangeByIndexes(row - 1, 0, 1, 2).format = {
@@ -413,17 +424,20 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     summaryCursor += valueRows + 1;
   });
   const deltaStart = summaryCursor;
+  trackCells(deltaStart - 1, 0, 1, 4);
   sheet.getRangeByIndexes(deltaStart - 1, 0, 1, 4).values = [
     ["Material object-count changes", "Source", "Target", "Change"],
   ];
   styleHeaders(sheet.getRangeByIndexes(deltaStart - 1, 0, 1, 4));
   const deltas = overview.material_count_deltas || [];
   if (deltas.length) {
+    trackCells(deltaStart, 0, deltas.length, 4);
     sheet.getRangeByIndexes(deltaStart, 0, deltas.length, 4).values = matrix(
       deltas.map((row) => [row.metric, row.source, row.target, row.delta]),
     );
     styleData(sheet.getRangeByIndexes(deltaStart, 0, deltas.length, 4));
   } else {
+    cellCoordinates.push([deltaStart, 0]);
     sheet.getRangeByIndexes(deltaStart, 0, 1, 4).merge();
     sheet.getRangeByIndexes(deltaStart, 0, 1, 4).values = [[
       "No material object-count change; configuration changes may still be proposed.",
@@ -441,6 +455,11 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     name: sheet.name,
     nav,
     overview,
+    cells: cellCoordinates.map(([row, column]) => ({
+      row,
+      column,
+      value: sheet.getRangeByIndexes(row, column, 1, 1).values[0][0] ?? "",
+    })),
     dimensions: { columns: [24, 12, 28, 12, 20, 12, 18, 18] },
   });
 }

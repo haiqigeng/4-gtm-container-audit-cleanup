@@ -2465,6 +2465,8 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(all(row["status"] == "pass" for row in verification["comment_checks"]))
         self.assertTrue(verification["pane_checks"])
         self.assertTrue(all(row["status"] == "pass" for row in verification["pane_checks"]))
+        self.assertTrue(verification["overview_cell_checks"])
+        self.assertTrue(all(row["status"] == "pass" for row in verification["overview_cell_checks"]))
         scaffold_delivery_reviews(self.package)
         for bundle_name, review_name, expected_error in (
             (

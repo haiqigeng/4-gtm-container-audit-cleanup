@@ -218,6 +218,7 @@ async function main() {
   const privacyFindings = [];
   const rendererArtifacts = [];
   const rowChecks = [];
+  const overviewCellChecks = [];
   const expectedComments = manifest.normalized_model.comments || [];
   for (const comment of expectedComments) {
     const expectedHash = stableHash({
@@ -239,6 +240,22 @@ async function main() {
   }
   for (const sheetModel of manifest.normalized_model.sheets) {
     const sheet = workbook.worksheets.getItem(sheetModel.name);
+    if (sheetModel.name === "01 Overview" && !sheetModel.cells?.length) {
+      errors.push("01 Overview: exact cell model is missing");
+    }
+    for (const cell of sheetModel.cells || []) {
+      const actual = sheet.getRangeByIndexes(cell.row, cell.column, 1, 1).values[0][0] ?? "";
+      const pass = equal(actual, cell.value);
+      overviewCellChecks.push({
+        sheet: sheetModel.name,
+        row: cell.row + 1,
+        column: cell.column + 1,
+        status: pass ? "pass" : "mismatch",
+      });
+      if (!pass) {
+        errors.push(`${sheetModel.name}: overview cell at row ${cell.row + 1}, column ${cell.column + 1} differs`);
+      }
+    }
     const actualNavigation = sheet.getRangeByIndexes(3, 0, 1, 1).values[0][0];
     if (actualNavigation !== sheetModel.nav) {
       errors.push(`${sheetModel.name}: navigation text differs from the build manifest`);
@@ -394,6 +411,7 @@ async function main() {
     workbook_build_manifest_sha256: manifest.workbook_build_manifest_sha256,
     sheet_order: actualSheets,
     row_checks: rowChecks,
+    overview_cell_checks: overviewCellChecks,
     formula_error_matches: formulaErrorMatches,
     renderer_artifacts: rendererArtifacts,
     privacy_findings: privacyFindings,
