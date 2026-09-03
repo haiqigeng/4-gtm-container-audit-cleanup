@@ -119,6 +119,14 @@ function parseNdjson(value) {
     });
 }
 
+function commentInspectionBudget(comments) {
+  const textCharacters = comments.reduce(
+    (total, comment) => total + String(comment?.text || "").length,
+    0,
+  );
+  return Math.max(500_000, textCharacters * 4 + comments.length * 1_024);
+}
+
 function containsExactString(value, expected) {
   if (value === expected) return true;
   if (Array.isArray(value)) return value.some((child) => containsExactString(child, expected));
@@ -268,9 +276,12 @@ async function main() {
   const threadInspection = await workbook.inspect({
     kind: "thread",
     summary: "verify every imported workbook comment",
-    maxChars: 500000,
+    maxChars: commentInspectionBudget(expectedComments),
   });
   const threadRecords = parseNdjson(threadInspection.ndjson);
+  if (threadInspection.truncated) {
+    errors.push("imported workbook comment inspection was truncated");
+  }
   const commentChecks = expectedComments.map((comment) => {
     const matchingRecords = threadRecords.filter((record) =>
       containsExactString(record, comment.text),
