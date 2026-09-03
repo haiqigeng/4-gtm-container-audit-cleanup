@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from gtm_audit_contract import AREA_BY_ID, SEMANTIC_AREA_IDS
-from gtm_lib import as_list, stable_hash, write_json
+from gtm_lib import as_list, locked_evidence_coordinates, stable_hash, write_json
 
 SENSITIVE_RE = re.compile(
     r"email|phone|address|user[_ -]?id|user_data|enhanced conversion|first.party|"
@@ -42,6 +42,8 @@ def _source_paths(value: Any) -> list[str]:
                     "source_reference_path",
                 } and str(child or "").startswith("$"):
                     paths.add(str(child))
+                elif key in {"candidate_source_paths", "available_member_evidence_anchors"}:
+                    paths.update(locked_evidence_coordinates([], child))
                 else:
                     visit(child)
         elif isinstance(item, list):

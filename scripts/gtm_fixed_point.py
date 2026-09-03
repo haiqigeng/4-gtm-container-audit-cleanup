@@ -1292,7 +1292,9 @@ def repair_projection_scan(package_dir: Path, reason: str) -> dict[str, Any]:
             package_dir, number, packet, _load(previous / "obligation-ledger.json"),
             cycle_dir=staged, prior_cycle_dir=cycle,
         )
-        if _load(staged / "canonical-scan.json") == _load(cycle / "canonical-scan.json"):
+        if all(_load(staged / name) == _load(cycle / name) for name in (
+            "canonical-scan.json", "scan-assurance.json", "obligation-ledger.json"
+        )):
             raise ValueError("scan repair produced no corrected scan evidence")
         if created["status"] != "awaiting_projection_reviews":
             raise ValueError("corrected scan requires review before it can claim closure")
