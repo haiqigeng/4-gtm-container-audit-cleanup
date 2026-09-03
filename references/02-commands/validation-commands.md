@@ -254,6 +254,10 @@ hash, preserve unaffected judgments and checkpoint provenance, and keep peer
 findings out of the amendment context. The helper does not author these changes,
 produce a new scan, or validate old judgments against changed scan evidence.
 Do not repeat package creation, source scan/assurance, or checkpoint commands.
+If the failure belongs only to reconciliation (for example, an unjustified
+automatic agreement or incompatible selection), keep both valid source audits
+and seals unchanged in the working copy. Repair that reconciliation work, not
+the source judgments. Amend an audit only when its own record is defective.
 
 Then run the reconciliation and synthesis commands below against
 `audit-package-repair`, followed by target validation, canonical sealing, and

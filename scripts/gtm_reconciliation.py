@@ -223,6 +223,11 @@ def material_verification_reasons(
             reasons.add("active_deletion")
         if as_list(proposal.get("remaps")) and deletions:
             reasons.add("active_consolidation")
+    # Equal verdict labels do not prove agreement between the assessed reasons
+    # or their referenced operations. Existing neutral reviews already inspect
+    # both complete decisions; only previously automatic rows need this reason.
+    if not reasons and canonical_semantic_payload(left) != canonical_semantic_payload(right):
+        reasons.add("different_semantic_content")
     return sorted(reasons)
 
 

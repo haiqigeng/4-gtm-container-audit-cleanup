@@ -88,6 +88,11 @@ The delivery name index combines source and target names without mutating the
 canonical source directory in memory; repeated mapping yields the same result.
 Recommendation scope includes the complete declared operation and explicit
 consumer remaps, not just the narrower object that owns its audit finding.
+Reconciliation no longer treats equal verdict labels with empty optional targets
+as proof of semantic agreement. Differing canonical content is routed through
+the existing neutral review; already-required reviews retain their reasons and
+can be reused when their complete inputs remain identical. Selected assessments
+and operation references must form one coherent target before delivery.
 
 ## Current Phase Boundary
 

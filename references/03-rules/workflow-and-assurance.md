@@ -233,6 +233,14 @@ Do not vote, average, silently prefer an audit, or merge unmatched claims withou
 verification.
 
 A separate fresh reconciliation agent is mandatory after both audits are sealed.
+Only identical complete canonical semantic payloads may bypass neutral review.
+Matching verdict labels, empty optional targets or equal action fields do not
+prove that assessments agree. Differing semantic content enters the existing
+neutral queue unless another reason already requires that review. Before
+finalization, check the selected records together: retained settings ownership
+must not contradict a selected consolidation, and references to proposed
+operations must resolve to the selected operation set. Do not discard a specific
+supported assessment in favor of generic prose merely to hide a conflict.
 It performs neutral review for every disagreement or one-sided finding and for
 all material-risk classes: consent ownership; client/server
 routing; active deletion or consolidation; loader/destination/page-view,
