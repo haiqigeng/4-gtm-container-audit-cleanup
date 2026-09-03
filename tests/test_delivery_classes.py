@@ -48,6 +48,14 @@ class DeliveryClassTests(unittest.TestCase):
             self.assertNotIn("reconciliation_rationale", row["allowed_prose_fields"])
         self.assertEqual(original, source)
 
+    def test_shared_owner_handoff_remains_bound_for_fidelity_review(self) -> None:
+        source = record("owner_decision", owner_question="Which destination is intended?")
+        rationale = "The setup answer is shared with CD-SETUP; purchase meaning is separate."
+        source["audit_decisions"][0]["reconciliation_rationale"] = rationale
+        row = _owner_rows(source, {"tag:1": "Paused tag"})[0]
+        self.assertEqual(rationale, row["locked"]["reconciliation_rationale"])
+        self.assertNotIn("reconciliation_rationale", row["allowed_prose_fields"])
+
     def test_recommendation_scope_includes_declared_actions_not_only_finding_owner(self) -> None:
         source = record("defect", current_behavior="Shared setup needs correction.",
                         consequence_or_benefit="Keep all declared consumers connected.",

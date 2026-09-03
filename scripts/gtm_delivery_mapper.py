@@ -298,6 +298,7 @@ def _owner_rows(
                 sheet="03 Decisions Needed",
                 locked={
                     "decision_id": decision_id,
+                    "reconciliation_rationale": row.get("reconciliation_rationale", ""),
                     "subject_keys": row.get("subject_keys", []),
                     "priority": decision.get("priority"),
                     "confidence": decision.get("confidence"),
