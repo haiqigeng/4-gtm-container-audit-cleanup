@@ -277,6 +277,32 @@ class V2OperationSafetyTests(unittest.TestCase):
         self.assertEqual(
             [], decision_obligation_alignment_errors(decision, obligation, "decision")
         )
+        combined = copy.deepcopy(decision)
+        combined["operation_proposal"]["deletions"] = [{"object_key": "tag:2"}]
+        self.assertEqual(
+            [], decision_obligation_alignment_errors(combined, obligation, "decision")
+        )
+        retired = copy.deepcopy(decision)
+        retired["operation_proposal"]["changes"] = []
+        retired["operation_proposal"]["deletions"] = [{"object_key": "tag:1"}]
+        self.assertEqual(
+            [], decision_obligation_alignment_errors(retired, obligation, "decision")
+        )
+        for substitute in (
+            {"deletions": [{"object_key": "tag:2"}]},
+            {"pauses": [{"object_key": "tag:1", "before": False, "after": True}]},
+            {"deletions": [{"object_key": "tag:1", "unreviewed": True}]},
+        ):
+            with self.subTest(substitute=substitute):
+                incomplete = copy.deepcopy(decision)
+                incomplete["operation_proposal"] = {
+                    **{field: [] for field in OPERATION_ACTION_FIELDS}, **substitute,
+                }
+                self.assertTrue(decision_obligation_alignment_errors(
+                    incomplete, obligation, "decision"
+                ))
+        retired["decision_class"] = "justified_as_is"
+        self.assertTrue(decision_obligation_alignment_errors(retired, obligation, "decision"))
         decision["operation_proposal"]["changes"][0]["after"] = "true"
         self.assertTrue(
             any(

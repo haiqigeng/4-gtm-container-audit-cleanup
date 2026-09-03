@@ -54,6 +54,12 @@ audits. No simulated-target semantic review cycle or convergence gate is part
 of the product. A static validation pass does not establish runtime behaviour or
 guarantee that no further optimisation could be found.
 
+Source-known field repairs constrain retained objects, not redundant intermediate
+states. A proposal may combine the exact repair with other justified actions, or
+explicitly retire that same object instead. Retirement keeps the normal semantic,
+consumer, dependency, and neutral-review checks. Each action has one operation
+owner; do not edit a field and delete its object in the same target.
+
 ## Current Phase Boundary
 
 The v2 workflow accepts one complete GTM **web-container** export or equivalent

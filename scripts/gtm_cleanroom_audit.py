@@ -772,8 +772,16 @@ def decision_obligation_alignment_errors(
             "before": repair.get("before"),
             "after": repair.get("after"),
         }
-        if decision_class in ACTIONABLE_DECISION_CLASSES and (
-            field is None or action_rows != [(field, expected)]
+        # A required field repair is part of the target, not a restriction that
+        # the proposal contain only that edit. An explicitly retired object no
+        # longer owns the field; deletion safety and semantic review still apply.
+        retires_subject = any(
+            action_field == "deletions"
+            and row == {"object_key": repair.get("object_key")}
+            for action_field, row in action_rows
+        )
+        if decision_class in ACTIONABLE_DECISION_CLASSES and not retires_subject and (
+            field is None or (field, expected) not in action_rows
         ):
             errors.append(
                 f"{label}: operation must exactly implement the source-known repair"

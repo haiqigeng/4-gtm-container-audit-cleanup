@@ -119,7 +119,13 @@ firing event, classify the blocker as defective and remove only that blocker.
 When a visible default consent writer does not use Consent Initialization,
 classify its timing as defective and move that writer to Consent Initialization.
 When a configuration obligation carries a complete `source_known_repair`, keep
-it actionable and implement exactly that repair. In particular, enabled Custom
+it actionable and implement exactly that repair for a retained object. Other
+justified actions may accompany the repair. Explicit retirement of that same
+object in the reviewed proposal supersedes its field edit; it is not a reason to
+change a flag on an object that will no longer exist. Retirement remains subject
+to the normal independent justification, consumer-safety, and neutral-review
+requirements. Pausing or deleting a different object does not satisfy the repair.
+In particular, enabled Custom
 HTML `document.write` support with no `document.write` call is a material
 optimisation, not an evidence limit. Do not apply these deterministic outcomes to
 lookalike candidates lacking the same locked proof.

@@ -267,6 +267,12 @@ optimisation using its locked one-field repair. These rules classify only facts
 already proven by the locked container; they do not convert ambiguous candidates
 or runtime gaps into recommendations.
 
+A source-known field repair must appear exactly in the proposal when its object
+is retained; other justified actions may accompany it. If that same proposal
+explicitly retires the object, do not require a redundant intermediate field edit.
+Retirement still needs independent justification, consumer safety, and neutral
+verification; pausing or retiring another object does not satisfy the repair.
+
 ### 4. Reconcile And Verify Neutrally
 
 Use `scripts/gtm_reconciliation.py`. Compare atomic decisions by exact obligation,
