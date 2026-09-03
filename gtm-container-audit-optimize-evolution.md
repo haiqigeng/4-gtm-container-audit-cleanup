@@ -1516,3 +1516,26 @@ coverage gate passes all 37 modules at 75.01% aggregate coverage, with 4,396 of
 dead-code checks pass. The original source auditors continue on their unchanged
 packaged implementation; these engineering results are not final semantic or
 release qualification.
+
+### 2026-09-04 — Original NVR Audit B sealed; Audit A remains in progress
+
+The original candidate-blind source auditor completed and sealed all 1,283
+obligations across 126 work units, reporting 68 proposed operations. The original
+packaged implementation's sealed-audit check independently reports only the
+missing Audit A seal; it reports no Audit B seal, snapshot or history errors.
+Audit A's existing live handle has not returned a final result. No peer findings
+have been supplied to it and reconciliation has not started.
+
+This closes Audit B's authoring step, not semantic qualification of the pair or
+the updated candidate. Earlier coordinator interventions and subsequent general
+skill fixes still require a fresh normal-execution evaluation. Keep the original
+sealed result unchanged for its eventual reconciliation and comparison.
+
+### 2026-09-04 — Latest candidate passes clean-export self-test
+
+Ran the complete maintained self-test from the clean Git archive of 0113810,
+with the bundled workbook runtime enabled. All 210 tests passed in 125.758
+seconds. Workbook-runtime preflight, release layout/reference checks, offline
+vendor-registry validation and Ruff also passed. This replaces the earlier
+207-test clean-export evidence for the current candidate; it does not replace
+the independent container evaluations, comparisons or installed-release test.
