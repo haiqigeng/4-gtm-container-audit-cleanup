@@ -1463,3 +1463,21 @@ covered; package-builder coverage is 73.15%. Ruff, whitespace checks and the
 also passed after the documentation corrections. These technical results do not
 replace unfinished semantic evaluations, four-pair comparisons or the newly
 required installed-release production-use acceptance test.
+
+### 2026-09-04 — Clean-export execution and official-source availability
+
+Executed the maintained release-complete self-test from a clean Git archive of
+bae49e5, outside the working directory and its ignored artifacts. All 207 tests
+passed in 136.699 seconds, along with workbook-runtime preflight, repository
+layout/reference checks, offline registry validation and Ruff. Separately, the
+online registry check attempted all 31 declared official documentation URLs:
+31 succeeded, none failed, and there were no warnings. The initial sandboxed
+network attempt was denied; the authorized network-enabled retry supplied the
+successful evidence. Link availability is not semantic verification of every
+criterion.
+
+Both original source-audit agents remain live and unsealed. Their incomplete
+plans are not reconciliation inputs or final comparison evidence. The updated
+candidate's separately assured package is ready for subsequent evaluation;
+unchanged source data does not justify transferring old judgments onto changed
+scan/ledger identities. No release or installation has occurred.
