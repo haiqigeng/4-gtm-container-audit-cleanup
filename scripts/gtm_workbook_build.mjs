@@ -85,6 +85,7 @@ async function assertSafePackageRoot(packageDir) {
 
 function safeText(value) {
   if (value === null || value === undefined) return "";
+  if (typeof value === "number") return Number.isFinite(value) ? value : "";
   const text = typeof value === "string" ? value : JSON.stringify(value);
   const trimmed = text.replace(/^\s+/, "");
   return /^[=+\-@\t\r\n]/.test(trimmed) ? `'${text}` : text;
@@ -302,8 +303,8 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     .join("\n") || "None";
   const summaryBlocks = [
     ["Highest-value actions", actionSummary, 5],
-    ["Target architecture", overview.target_architecture_summary, 2],
-    ["Important retained setup", overview.important_retained_summary, 2],
+    ["Target architecture", overview.target_architecture_summary, 9],
+    ["Important retained setup", overview.important_retained_summary, 3],
     ["Open decisions and evidence limits", overview.blocking_summary, 2],
     ["Next step", overview.next_step, 2],
   ];
