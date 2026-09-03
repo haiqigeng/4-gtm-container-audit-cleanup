@@ -18,10 +18,15 @@ may point to an owner row but may not create a second decision surface.
 
 The deterministic mapper assigns each record to one owning sheet and one primary
 row. Links may point to that row; copied prose may not form another decision
-surface. Before editorial work, every canonical record must contain current
-configured behaviour, decision class, consequence or benefit, preserved
-distinctions, target direction, confidence, evidence boundary when applicable,
-and next step.
+surface. Before editorial work, every canonical record must contain the evidence
+and fields required by its decision class. Recommendations require current
+behaviour, consequence or benefit, preserved distinctions, exact target and next
+step. Owner decisions require their question and next step; evidence limits
+require their boundary and next step. Retained and not-applicable decisions use
+their criteria assessment and the class's existing no-change meaning. Do not
+require optional recommendation fields from these compact classes or invent
+targets to fill their workbook cells. The mapper must preserve evidence limits
+in visible findings and obtain summaries from the populated class-specific fields.
 
 If one of those fields is missing or wrong, stop delivery. Use the focused repair
 procedure in `workflow-and-assurance.md` with user-authorized exact decision IDs

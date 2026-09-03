@@ -78,6 +78,15 @@ This corrects simulation of already-authored consumer remaps; source decisions
 and intended targets remain unchanged. Combined-target graph validation remains
 the gate for newly broken references.
 
+Delivery now maps the class-specific audit schema directly. Retained decisions
+use their assessed reason and existing no-change meaning; owner decisions use
+their authored next step, not an optional recommendation target. Evidence limits
+remain visible. Overview summaries use populated class-specific assessments.
+Missing required semantics still reopen the owning record; optional blanks do
+not justify invented findings or repeated source audits.
+The delivery name index combines source and target names without mutating the
+canonical source directory in memory; repeated mapping yields the same result.
+
 ## Current Phase Boundary
 
 The v2 workflow accepts one complete GTM **web-container** export or equivalent

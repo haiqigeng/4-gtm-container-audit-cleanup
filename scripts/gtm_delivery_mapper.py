@@ -9,7 +9,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-from gtm_audit_contract import HUMAN_DECISION_LABELS, HUMAN_DECISION_MEANINGS
+from gtm_audit_contract import (
+    ACTIONABLE_DECISION_CLASSES,
+    HUMAN_DECISION_LABELS,
+    HUMAN_DECISION_MEANINGS,
+)
 from gtm_canonical_record import canonical_record_seal_errors
 from gtm_lib import (
     as_list,
@@ -75,8 +79,10 @@ def _unique_text(values: list[Any], separator: str = "\n") -> str:
 
 
 def _name_index(record: dict[str, Any]) -> dict[str, str]:
-    rows = as_list((record.get("source") or {}).get("object_directory"))
-    rows.extend(as_list((record.get("target") or {}).get("object_directory")))
+    rows = [
+        *as_list((record.get("source") or {}).get("object_directory")),
+        *as_list((record.get("target") or {}).get("object_directory")),
+    ]
     result = {}
     for row in rows:
         if not isinstance(row, dict):
@@ -260,6 +266,13 @@ def _recommendation_rows(
     )
 
 
+def _decision_outcome(decision: dict[str, Any]) -> str:
+    decision_class = decision.get("decision_class")
+    if decision_class in {"justified_as_is", "not_applicable"}:
+        return HUMAN_DECISION_MEANINGS[decision_class]
+    return str(decision.get("next_step") or "")
+
+
 def _owner_rows(
     record: dict[str, Any], names: dict[str, str]
 ) -> list[dict[str, Any]]:
@@ -286,7 +299,7 @@ def _owner_rows(
                 prose={
                     "question": str(decision.get("owner_question") or ""),
                     "why_needed": str(decision.get("consequence_or_benefit") or ""),
-                    "recommendation": str(decision.get("target_direction") or ""),
+                    "recommendation": _decision_outcome(decision),
                     "affected_scope": scope,
                     "answer_unlocks": str(decision.get("next_step") or ""),
                 },
@@ -335,12 +348,13 @@ def _full_audit_rows(
                             decision.get("current_behavior"),
                             decision.get("criteria_assessment"),
                             decision.get("consequence_or_benefit"),
+                            decision.get("evidence_boundary"),
                         ]
                     ),
                     "outcome_linked_action": (
                         f"See operation {operation_id}. {decision.get('next_step')}"
                         if operation_id
-                        else str(decision.get("next_step") or "")
+                        else _decision_outcome(decision)
                     ),
                 },
             )
@@ -360,6 +374,7 @@ def _custom_code_rows(
     for decision_id in sorted(selected):
         source = decisions[decision_id]
         decision = source.get("decision") or {}
+        compact = decision.get("decision_class") in {"justified_as_is", "not_applicable"}
         operation_id = str(mapping.get(decision_id) or "")
         result.append(
             _row(
@@ -377,13 +392,25 @@ def _custom_code_rows(
                     "affected_scope": _display_scope(
                         as_list(source.get("subject_keys")), names
                     ),
-                    "current_behavior": str(decision.get("current_behavior") or ""),
-                    "finding": str(decision.get("criteria_assessment") or ""),
-                    "safest_target": str(decision.get("target_direction") or ""),
+                    "current_behavior": str(decision.get(
+                        "criteria_assessment" if compact else "current_behavior"
+                    ) or ""),
+                    "finding": (
+                        HUMAN_DECISION_LABELS[decision["decision_class"]]
+                        if compact else _unique_text([
+                            decision.get("criteria_assessment"),
+                            decision.get("evidence_boundary"),
+                        ])
+                    ),
+                    "safest_target": (
+                        str(decision.get("target_direction") or "")
+                        if decision.get("decision_class") in ACTIONABLE_DECISION_CLASSES
+                        else _decision_outcome(decision)
+                    ),
                     "linked_action": (
                         f"See operation {operation_id}. {decision.get('next_step')}"
                         if operation_id
-                        else str(decision.get("next_step") or "")
+                        else _decision_outcome(decision)
                     ),
                 },
             )
@@ -433,14 +460,18 @@ def _overview(record: dict[str, Any], recommendations: list[dict[str, Any]]) -> 
         ],
         "target_architecture_summary": _unique_text(
             [
-                (row.get("decision") or {}).get("target_direction")
+                (row.get("decision") or {}).get(
+                    "target_direction"
+                    if (row.get("decision") or {}).get("decision_class")
+                    in ACTIONABLE_DECISION_CLASSES else "criteria_assessment"
+                )
                 for row in area_26
             ]
         )
         or "The target preserves the proven container architecture with only reviewed changes.",
         "important_retained_summary": _unique_text(
             [
-                (row.get("decision") or {}).get("preserved_distinctions")
+                (row.get("decision") or {}).get("criteria_assessment")
                 for row in retained[:5]
             ]
         )
