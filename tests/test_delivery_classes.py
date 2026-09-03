@@ -35,6 +35,19 @@ def record(decision_class: str, **fields: str) -> dict:
 
 
 class DeliveryClassTests(unittest.TestCase):
+    def test_reconciled_handoffs_remain_bound_for_fidelity_review(self) -> None:
+        source = record("justified_as_is")
+        rationale = "Keep the event distinct; alias removal is owned by OP-ALIAS."
+        source["audit_decisions"][0]["reconciliation_rationale"] = rationale
+        original = copy.deepcopy(source)
+        for row in (
+            _full_audit_rows(source, {"tag:1": "Event"}, set())[0],
+            _custom_code_rows(source, {"tag:1": "Event"}, {"CD-ONE"})[0],
+        ):
+            self.assertEqual(rationale, row["locked"]["reconciliation_rationale"])
+            self.assertNotIn("reconciliation_rationale", row["allowed_prose_fields"])
+        self.assertEqual(original, source)
+
     def test_recommendation_scope_includes_declared_actions_not_only_finding_owner(self) -> None:
         source = record("defect", current_behavior="Shared setup needs correction.",
                         consequence_or_benefit="Keep all declared consumers connected.",

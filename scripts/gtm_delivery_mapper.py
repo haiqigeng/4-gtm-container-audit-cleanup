@@ -345,6 +345,7 @@ def _full_audit_rows(
                     "priority": decision.get("priority"),
                     "confidence": decision.get("confidence"),
                     "record_owner": row.get("record_owner"),
+                    "reconciliation_rationale": row.get("reconciliation_rationale", ""),
                 },
                 prose={
                     "affected_scope": _display_scope(
@@ -389,6 +390,7 @@ def _custom_code_rows(
                 sheet=CUSTOM_CODE_SHEET,
                 locked={
                     "decision_id": decision_id,
+                    "reconciliation_rationale": source.get("reconciliation_rationale", ""),
                     "subject_keys": source.get("subject_keys", []),
                     "decision_class": decision.get("decision_class"),
                     "operation_id": operation_id,
