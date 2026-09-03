@@ -82,6 +82,10 @@ Keep visible affected-scope summaries compact: name at most three representative
 objects, then state how many additional objects are covered. Put the complete,
 exact object-key inventory in that row's note so readability never weakens
 traceability.
+For Recommendations, derive that scope from the owning decisions and the complete
+declared operation: changed, removed, renamed, paused, deleted and created objects,
+plus remap sources, destinations and explicit consumers. An audit's subject alone
+is not the complete scope of a multi-object recommendation.
 
 `03 Decisions Needed` uses `Decision ID`, `Question`, `Why this is needed`,
 `Recommendation`, `Affected scope`, and `What the answer unlocks`.

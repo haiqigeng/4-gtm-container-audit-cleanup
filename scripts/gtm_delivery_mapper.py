@@ -16,6 +16,7 @@ from gtm_audit_contract import (
 )
 from gtm_canonical_record import canonical_record_seal_errors
 from gtm_lib import (
+    ID_KEYS,
     as_list,
     contained_relative_path,
     file_sha256,
@@ -23,6 +24,7 @@ from gtm_lib import (
     stable_hash,
     write_json,
 )
+from gtm_operation_model import _action_targets
 from gtm_privacy import privacy_findings, redact_delivery_value
 
 DELIVERY_ROOT = "delivery"
@@ -181,6 +183,11 @@ def _recommendation_rows(
                 for row in sources
                 for value in as_list(row.get("subject_keys"))
                 if str(value)
+            }
+            | _action_targets(operation)
+            | {
+                f"{action['layer']}:{action['object'][ID_KEYS[action['layer']]]}"
+                for action in as_list(operation.get("creations"))
             }
         )
         priority = _max_priority(sources)

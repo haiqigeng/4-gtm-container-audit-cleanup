@@ -86,6 +86,8 @@ Missing required semantics still reopen the owning record; optional blanks do
 not justify invented findings or repeated source audits.
 The delivery name index combines source and target names without mutating the
 canonical source directory in memory; repeated mapping yields the same result.
+Recommendation scope includes the complete declared operation and explicit
+consumer remaps, not just the narrower object that owns its audit finding.
 
 ## Current Phase Boundary
 

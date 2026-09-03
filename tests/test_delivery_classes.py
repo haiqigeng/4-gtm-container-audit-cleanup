@@ -14,6 +14,7 @@ from gtm_delivery_mapper import (  # noqa: E402
     _name_index,
     _overview,
     _owner_rows,
+    _recommendation_rows,
 )
 
 
@@ -34,6 +35,32 @@ def record(decision_class: str, **fields: str) -> dict:
 
 
 class DeliveryClassTests(unittest.TestCase):
+    def test_recommendation_scope_includes_declared_actions_not_only_finding_owner(self) -> None:
+        source = record("defect", current_behavior="Shared setup needs correction.",
+                        consequence_or_benefit="Keep all declared consumers connected.",
+                        target_direction="Apply the complete shared setup change.",
+                        next_step="Review the complete operation before implementation.")
+        source["operations"] = [{
+            "operation_id": "OP-SCOPE", "operation_family": "Repair shared setup",
+            "source_reconciled_decision_ids": ["CD-ONE"],
+            "creations": [{"layer": "variable", "object": {
+                "variableId": "9", "name": "New settings", "type": "c",
+            }}],
+            "changes": [{"object_key": "tag:2"}],
+            "removals": [{"object_key": "tag:3"}],
+            "deletions": [{"object_key": "variable:4"}],
+            "remaps": [{"from_object_key": "trigger:5", "to_object_key": "trigger:6",
+                        "consumer_object_keys": ["tag:2", "trigger:7"]}],
+        }]
+        original = copy.deepcopy(source)
+        expected = ["tag:1", "tag:2", "tag:3", "trigger:5", "trigger:6", "trigger:7",
+                    "variable:4", "variable:9"]
+        row = _recommendation_rows(source, {key: f"Object {key}" for key in expected})[0]
+        self.assertEqual(expected, row["locked"]["subject_keys"])
+        self.assertIn("+5 more (see row note)", row["canonical_prose"]["affected_scope"])
+        self.assertEqual(["CD-ONE"], row["locked"]["source_decision_ids"])
+        self.assertEqual(original, source)
+
     def test_name_index_does_not_append_target_objects_to_canonical_source(self) -> None:
         source = {
             "source": {"object_directory": [{"object_key": "tag:1", "object_name": "Original"}]},
