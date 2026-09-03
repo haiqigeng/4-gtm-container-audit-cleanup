@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from gtm_baseline_audit import BaselineBuilder, add_naming_architecture_findings, infer_tag_order
+from gtm_obligation_ledger import _operational_area
 
 
 class NamingPolicyTests(unittest.TestCase):
@@ -39,6 +40,18 @@ class NamingPolicyTests(unittest.TestCase):
             "variable": [{"variableId": "3", "name": "Currency", "type": "v"}],
         })
         self.assertEqual({row["object_type"] for row in rows}, {"trigger", "variable"})
+
+    def test_naming_candidates_keep_their_domain_across_object_layers(self):
+        for layer in ("tag", "trigger", "variable", "folder"):
+            with self.subTest(layer=layer):
+                self.assertEqual(_operational_area({
+                    "finding_type": (
+                        "folder_naming_review" if layer == "folder"
+                        else "naming_architecture_mismatch"
+                    ),
+                    "object_type": layer,
+                    "details": "Preserve consumer references and the blocking trigger role.",
+                }), "AREA-24")
 
     def test_reliable_local_order_is_preserved(self):
         policy, rows = self.findings({"tag": [

@@ -146,6 +146,10 @@ def _obligation(
 
 
 def _operational_area(candidate: dict[str, Any]) -> str:
+    if candidate.get("finding_type") in {
+        "naming_architecture_mismatch", "folder_naming_review"
+    }:
+        return "AREA-24"
     text = " ".join(
         str(candidate.get(field) or "")
         for field in ("finding_type", "object_type", "details", "problem_type")
