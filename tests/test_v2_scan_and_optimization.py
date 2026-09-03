@@ -768,6 +768,15 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         assurance = assure_scan(export_path, scan, vendor_registry_path=self.registry)
         self.assertEqual("pass", assurance["status"])
 
+        ledger = build_obligation_ledger(scan, assurance)
+        indexed = {row["candidate_id"]: row for row in ledger["obligations"]
+                   if row.get("candidate_id")}
+        for candidate in candidates:
+            obligation = indexed[candidate["candidate_id"]]
+            self.assertEqual(sorted(candidate["source_json_paths"]),
+                             obligation["source_coordinates"])
+            self.assertEqual(candidate, obligation["evidence"])
+
     def test_behavior_scope_keeps_cross_level_areas_applicable_and_assured(self) -> None:
         export = rich_export()
         cv = export["containerVersion"]

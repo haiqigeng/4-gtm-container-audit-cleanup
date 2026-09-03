@@ -293,9 +293,7 @@ def complete_checkpoint(
     payload["independent_context_id"] = context_id
     payload["input_manifest_sha256"] = bundle_manifest["bundle_manifest_sha256"]
     payload["reviewed_inventory_sha256"] = payload["inventory_sha256"]
-    payload["source_only_conclusion"] = (
-        "The source-only fixture review allocated every object and found no hidden input dependency."
-    )
+    payload["source_only_conclusion"] = "No hidden input dependency."
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     checkpoint_audit(package, audit_id)
 
@@ -1374,6 +1372,20 @@ class V2WorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "list of non-blank strings"):
             complete_checkpoint(other, "audit-a", "object-discovery-context")
 
+    def test_checkpoint_conclusion_requires_text_not_length(self) -> None:
+        for value in ("No hidden dependency.", "", "   ", None, 42, {"text": "Reviewed"}):
+            with self.subTest(value=value):
+                errors = cleanroom_audit._checkpoint_errors(
+                    {"source_only_conclusion": value}, "audit-a", "source", [], "manifest"
+                )
+                conclusion_errors = [error for error in errors if "source_only_conclusion" in error]
+                self.assertEqual(
+                    [] if value == "No hidden dependency." else [
+                        "source_only_conclusion must be a non-blank string"
+                    ],
+                    conclusion_errors,
+                )
+
     def test_source_audits_cannot_reuse_scan_assurance_identity(self) -> None:
         for shared_field in ("agent", "context"):
             with self.subTest(shared_field=shared_field):
@@ -1962,9 +1974,7 @@ class V2WorkflowTests(unittest.TestCase):
                         "status": "complete",
                         "canonical_decision": fixture_plan_decision("applicable"),
                         "evidence_citations": citations,
-                        "verification_rationale": (
-                            "This fixture retains the sealed conclusion solely to test evidence citation boundaries."
-                        ),
+                        "verification_rationale": "Source supports retention.",
                     }
                 )
                 errors = reconciliation_module._neutral_errors(
@@ -1972,6 +1982,16 @@ class V2WorkflowTests(unittest.TestCase):
                 )
                 if valid:
                     self.assertEqual([], errors)
+                    for invalid_rationale in ("", "   ", None, 42, {"text": "Retain"}):
+                        with self.subTest(rationale=invalid_rationale):
+                            invalid = copy.deepcopy(supplied)
+                            invalid["verifications"][0]["verification_rationale"] = invalid_rationale
+                            invalid_errors = reconciliation_module._neutral_errors(
+                                self.root, invalid, expected
+                            )
+                            self.assertTrue(
+                                any("non-blank string" in error for error in invalid_errors)
+                            )
                 else:
                     self.assertTrue(any("citations" in error for error in errors))
 

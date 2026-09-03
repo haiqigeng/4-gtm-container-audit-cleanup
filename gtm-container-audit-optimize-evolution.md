@@ -1349,3 +1349,53 @@ priority identity errors for the corrected scan. This is diagnostic evidence,
 not a semantic recommendation to remove all priorities. Full current regression:
 203 tests passed in 147.590 seconds with workbook runtime enabled. The in-flight
 source audits still use the prior packaged candidate and have not sealed.
+
+### 2026-09-04 — Post-checkpoint evidence navigation and coordinate projection
+
+Audit B stopped again while authoring, claiming its shared-settings candidate
+linkage was missing. Its existing release-manifest.json explicitly exposes the
+canonical scan and obligation ledger after the checkpoint; the ledger contains
+the candidate ID, parameter name and source paths. Resumed the same agent with
+directions to these already-authorized files, without peer findings, changed
+rules or supplied semantic judgments. Both agents have completed checkpoints;
+neither has sealed its audit. This remains an intervention-required evaluation.
+
+The investigation also exposed a real projection defect: `_source_paths` handled
+singular path fields but omitted plural source_json_paths/source_reference_paths.
+Consequently, 44 shared-event-setting candidates in NVRJ4J had empty top-level
+source_coordinates despite correct paths in their retained evidence. Extended
+the existing path extractor using its existing coordinate helper. All 44 now
+receive coordinates, preserving every candidate source path. The scoped-settings
+regression checks that the ledger's coordinates and evidence match its candidates.
+Clarified in SKILL.md that released work-unit records link to complete ledger
+evidence by obligation_id and scan candidates by candidate_id; post-checkpoint
+Audit B is no longer candidate-blind. No additional artifact or workflow stage.
+Targeted regression, Ruff and diff checks pass; full regression is running.
+
+### 2026-09-04 — Remove prose quotas and unused trace validation
+
+Removed arbitrary minimum-word checks from checkpoint conclusions, global audit
+summaries, neutral verification and reconciliation rationales. These fields still
+require nonblank strings; evidence citation restrictions, source binding, complete
+coverage and agent/context independence checks remain. Generated authoring guidance
+now asks for concise evidence-based explanations instead of a word quota. Removed
+the stale operation-family quota from the authoring contract as well.
+
+Removed the unused legacy reference-trace validation functions and their prose
+keyword/length heuristics from gtm_configuration_facts.py after inspecting the full
+block and repository callers. Active reference_trace_requirements and its source,
+branch, dependency and terminal evidence builders remain. No replacement framework,
+compatibility layer or production stage was added.
+
+Regression coverage now accepts concise checkpoint and neutral-verification text,
+rejects blank and non-string values, and retains citation allowlist tests. The
+first regression run passed 203 tests in 142.535 seconds; a fresh full run was
+started after the final dead-code removal and additional checkpoint test and
+passed all 204 tests in 144.355 seconds with workbook runtime enabled. Ruff,
+diff checks and skill frontmatter validation pass.
+
+Audit B confirmed its prior linkage blocker was incorrect, then stopped with
+30 of 1,283 obligations authored and no external blocker. Resumed the same agent
+to finish its remaining independent work. Audit A remains running. Neither audit
+is sealed, and this intervention-required evaluation does not qualify normal
+unassisted execution or release readiness.

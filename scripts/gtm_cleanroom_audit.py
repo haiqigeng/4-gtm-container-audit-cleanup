@@ -338,11 +338,6 @@ def prepare_audit_bundles(
     return result
 
 
-def _specific_text(value: Any, minimum_words: int = 5) -> bool:
-    text = " ".join(str(value or "").split())
-    return len(re.findall(r"\b[\w{}:./-]+\b", text)) >= minimum_words
-
-
 def _agent_context_errors(
     record: dict[str, Any],
     bundle_manifest_sha256: str,
@@ -413,8 +408,9 @@ def _checkpoint_errors(
         )
     if as_list(checkpoint.get("approved_requirement_ids_used")):
         errors.append("approved requirement evidence is prohibited before source checkpoint")
-    if not _specific_text(checkpoint.get("source_only_conclusion"), 10):
-        errors.append("source_only_conclusion is incomplete")
+    conclusion = checkpoint.get("source_only_conclusion")
+    if not isinstance(conclusion, str) or not conclusion.strip():
+        errors.append("source_only_conclusion must be a non-blank string")
     return errors
 
 
@@ -1379,8 +1375,9 @@ def validate_audit(
         "global_shared_infrastructure_review",
         "global_target_architecture_review",
     ):
-        if not _specific_text(closure.get(field), 10):
-            errors.append(f"coverage closure {field} is incomplete")
+        conclusion = closure.get(field)
+        if not isinstance(conclusion, str) or not conclusion.strip():
+            errors.append(f"coverage closure {field} must be a non-blank string")
     attestation = audit.get("completion_attestation") or {}
     if attestation.get("status") != "complete":
         errors.append("completion attestation must be complete")

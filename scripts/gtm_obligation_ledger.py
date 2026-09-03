@@ -42,7 +42,10 @@ def _source_paths(value: Any) -> list[str]:
                     "source_reference_path",
                 } and str(child or "").startswith("$"):
                     paths.add(str(child))
-                elif key in {"candidate_source_paths", "available_member_evidence_anchors"}:
+                elif key in {
+                    "source_json_paths", "source_reference_paths",
+                    "candidate_source_paths", "available_member_evidence_anchors",
+                }:
                     paths.update(locked_evidence_coordinates([], child))
                 else:
                     visit(child)

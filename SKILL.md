@@ -196,7 +196,12 @@ declarative audit plan, the only executable commands are the documented
 checkpoint, plan scaffold/apply, validate, and seal gates. Reconciliation's
 scaffold command performs the subsequent sealed-audit and history check.
 
-After checkpoint release, use `scripts/gtm_audit_plan.py` to scaffold exactly
+After checkpoint release, read `release-manifest.json` and its declared evidence.
+Resolve a work-unit row's `obligation_id` in the released `obligation-ledger.json`
+for its complete evidence, and its `candidate_id` in the released canonical scan
+for candidate details. Audit B's candidate-blind phase has ended at this point;
+the work-unit rows are authoring records, not substitutes for that evidence.
+Use `scripts/gtm_audit_plan.py` to scaffold exactly
 `audit-scratch/<audit-id>/audit-plan.json`. The assigned fresh agent authors
 compact decision profiles there. The scaffold locks neutral candidate groups
 from locked area, mechanism, fact, applicability, and verification-trigger fields

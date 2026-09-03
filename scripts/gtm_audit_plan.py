@@ -100,9 +100,6 @@ def _authoring_contract() -> dict[str, Any]:
             "operation_id_pattern": OPERATION_ID_PATTERN,
             "operation_id_example": "OP-TAG-943-REMOVE-BLOCKER",
             "source_decision_id_must_match_locked_decision_id": True,
-            "operation_family_rule": (
-                "human-readable phrase of at least two words with no underscore"
-            ),
             "at_least_one_structured_action": True,
             "depends_on_rule": "list containing only OP-* operation IDs",
             "required_nonblank_text_fields": list(OPERATION_TEXT_FIELDS),
