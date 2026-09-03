@@ -31,10 +31,14 @@ Primary sources:
 
 - Google tag settings:
   https://support.google.com/tagmanager/answer/12131703
+- reusable event settings:
+  https://support.google.com/tagmanager/answer/13438771
 - GA4 tags in GTM:
   https://support.google.com/tagmanager/answer/9442095
 - triggers and exceptions:
   https://support.google.com/tagmanager/answer/7679318
+- regex trigger operators:
+  https://support.google.com/tagmanager/answer/7679109
 - firing priority:
   https://support.google.com/tagmanager/answer/2772421
 - tag sequencing:
@@ -47,11 +51,27 @@ event values in Event Settings; keep event-specific parameters local. Repeated
 effective values are candidates, not automatic consolidation. Prove type, timing,
 destination, route, consent, source, and ownership compatibility first.
 
+Event Settings can be applied to selected GA4 Event tags, not only to a Google
+tag's general event settings. Evaluate a scoped shared bundle when an existing
+global owner would spread fields too widely. Preserve each consumer's effective
+inherited and local values, including justified overrides and variable evaluation
+semantics. The reusable-event-settings documentation above confirms this
+capability (consulted 2026-09-03); the choice of a useful group and its maintenance
+benefit remains an evidence-based audit judgment.
+
 A firing trigger defines occurrence; an exception/blocker suppresses eligibility
 when both match the same event. Explicit priority controls start order only among
 co-eligible tags. It does not wait for asynchronous completion. Remove explicit
 zero, priority without a real competitor, and priority already represented by
 sequencing.
+
+For a proposed union of literal trigger alternatives, inspect the actual operator
+semantics and all shared conditions and consumers. Preserve case, exact-string
+boundaries (including line terminators), input types and listener options. The
+availability of a regex operator does not prove that a proposed regex is equivalent
+or that consolidation is appropriate. Source: Google Tag Manager's regex operator
+documentation above, consulted 2026-09-03; the equivalence assessment is analyst
+reasoning, not a claim that Google recommends every consolidation.
 
 ## GA4 And Ecommerce
 

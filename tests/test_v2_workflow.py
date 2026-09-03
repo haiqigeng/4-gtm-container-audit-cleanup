@@ -879,20 +879,10 @@ class V2WorkflowTests(unittest.TestCase):
             r"^OP-[A-Z0-9][A-Z0-9_-]{5,80}$",
         )
         self.assertEqual(
-            {
-                "exact_target_state": 4,
-                "preconditions": 4,
-                "rollback": 4,
-                "static_verification": 4,
-            },
+            ["operation_family", "exact_target_state", "preconditions", "static_verification", "rollback"],
             contract["actionable_operation_contract"][
-                "text_fields_minimum_words"
+                "required_nonblank_text_fields"
             ],
-        )
-        self.assertTrue(
-            contract["actionable_operation_contract"][
-                "text_fields_require_strings"
-            ]
         )
         self.assertTrue(
             contract["actionable_operation_contract"][
@@ -2016,7 +2006,7 @@ class V2WorkflowTests(unittest.TestCase):
         )
         self.assertEqual(HUMAN_DECISION_LABELS, delivery_map["overview"]["decision_labels"])
         area_24_focuses = [
-            row["locked"]["audit_focus"]
+            row["canonical_prose"]["audit_focus"]
             for row in delivery_map["rows"]
             if row["primary_sheet"] == "04 Full Audit" and row["locked"]["area_id"] == "AREA-24"
         ]
@@ -2238,6 +2228,48 @@ class V2WorkflowTests(unittest.TestCase):
             any("deterministic reconstruction" in error for error in canonical_record_seal_errors(self.package))
         )
 
+    def test_canonical_validation_checks_reconciliation_once_and_rejects_drift(self) -> None:
+        self.run_to_editorial()
+        with mock.patch("gtm_target_synthesis.reconciliation_seal_errors",
+                        wraps=reconciliation_seal_errors) as check:
+            self.assertEqual([], canonical_record_seal_errors(self.package))
+            check.assert_called_once_with(self.package)
+        path = self.package / "reconciled-decisions.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["reconciled_record_sha256"] = "altered-record"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        before = (self.package / "canonical-record.json").read_bytes()
+        with mock.patch("gtm_target_synthesis.reconciliation_seal_errors",
+                        wraps=reconciliation_seal_errors) as check:
+            self.assertTrue(canonical_record_seal_errors(self.package))
+            check.assert_called_once_with(self.package)
+        self.assertEqual(before, (self.package / "canonical-record.json").read_bytes())
+
+    def test_reconciliation_verification_reconstructs_once_and_rejects_drift(self) -> None:
+        self.run_to_editorial()
+        scaffold = reconciliation_module._reconciliation_scaffold_payloads
+        paths = [self.package / name for name in (
+            "reconciliation-scaffold.json", "neutral-verification-queue.json",
+            "reconciled-decisions.json", "reconciliation-seal.json",
+        )]
+        with mock.patch.object(reconciliation_module, "_reconciliation_scaffold_payloads",
+                               wraps=scaffold) as reconstruct:
+            self.assertEqual([], reconciliation_seal_errors(self.package))
+            reconstruct.assert_called_once_with(self.package)
+        for path in paths:
+            original = path.read_bytes()
+            changed = json.loads(original)
+            changed["source_sha256"] = "changed-source"
+            path.write_text(json.dumps(changed), encoding="utf-8")
+            before = {item: item.read_bytes() for item in paths}
+            with self.subTest(path=path.name), mock.patch.object(
+                reconciliation_module, "_reconciliation_scaffold_payloads", wraps=scaffold
+            ) as reconstruct:
+                self.assertTrue(reconciliation_seal_errors(self.package))
+                reconstruct.assert_called_once_with(self.package)
+                self.assertEqual(before, {item: item.read_bytes() for item in paths})
+            path.write_bytes(original)
+
     def test_rehashed_delivery_map_cannot_detach_workbook_semantics(self) -> None:
         self.run_actionable_to_editorial()
         map_path = self.package / "delivery" / "delivery-map.json"
@@ -2277,6 +2309,49 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(
             any("canonical reconstruction" in error for error in validate_editorial(self.package))
         )
+
+    def test_editorial_category_is_controlled_without_changing_audit_identity(self) -> None:
+        self.run_to_editorial()
+        path = self.package / "delivery" / "editorial.json"
+        editorial = json.loads(path.read_text(encoding="utf-8"))
+        canonical_path = self.package / "canonical-record.json"
+        canonical_before = canonical_path.read_bytes()
+        for category, accepted in (("CMP & consent", True), ("Invented category", False),
+                                   ([], False), (None, False)):
+            editorial["rows"][0]["prose"]["audit_area"] = category
+            path.write_text(json.dumps(editorial), encoding="utf-8")
+            errors = validate_editorial(self.package)
+            self.assertEqual(accepted, not errors, errors)
+            self.assertEqual(canonical_before, canonical_path.read_bytes())
+
+    def test_delivery_commands_validate_canonical_once_and_reject_drift(self) -> None:
+        self.run_to_editorial()
+        canonical_path = self.package / "canonical-record.json"
+        original = canonical_path.read_bytes()
+        for drift in (False, True):
+            if drift:
+                canonical = json.loads(original)
+                canonical["canonical_record_sha256"] = "altered-record"
+                canonical_path.write_text(json.dumps(canonical), encoding="utf-8")
+            for command in (scaffold_delivery_reviews, seal_delivery):
+                with self.subTest(command=command.__name__, drift=drift):
+                    before = {path.relative_to(self.package): path.read_bytes()
+                              for path in self.package.rglob("*") if path.is_file()}
+                    with mock.patch.object(
+                        delivery_mapper, "canonical_record_seal_errors",
+                        wraps=canonical_record_seal_errors,
+                    ) as canonical_check:
+                        # There is deliberately no workbook build. Both commands
+                        # must still validate their source once and write nothing.
+                        with self.assertRaises(ValueError) as failure:
+                            command(self.package)
+                        canonical_check.assert_called_once_with(self.package)
+                    self.assertIn("current workbook build pointer is missing", str(failure.exception))
+                    if drift:
+                        self.assertIn("canonical", str(failure.exception).lower())
+                    after = {path.relative_to(self.package): path.read_bytes()
+                             for path in self.package.rglob("*") if path.is_file()}
+                    self.assertEqual(before, after)
 
     def test_operation_packet_is_reconstructed_from_sealed_reconciliation(self) -> None:
         self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
@@ -2346,8 +2421,14 @@ class V2WorkflowTests(unittest.TestCase):
             if sheet["name"] == "05 Custom Code"
         )
         self.assertTrue(code_sheet["rows"])
-        self.assertEqual("Decision", code_sheet["headers"][3])
-        self.assertTrue(all(row["values"][3] for row in code_sheet["rows"]))
+        for sheet in manifest["normalized_model"]["sheets"]:
+            if "headers" in sheet:
+                self.assertEqual("Audit area", sheet["headers"][1])
+                self.assertTrue(all(row["values"][1] for row in sheet["rows"]))
+        self.assertEqual("Audit area", code_sheet["headers"][1])
+        self.assertTrue(all(row["values"][1] for row in code_sheet["rows"]))
+        decision_column = code_sheet["headers"].index("Decision")
+        self.assertTrue(all(row["values"][decision_column] for row in code_sheet["rows"]))
 
     @unittest.skipUnless(
         os.environ.get("CODEX_NODE") and os.environ.get("CODEX_ARTIFACT_NODE_MODULES"),

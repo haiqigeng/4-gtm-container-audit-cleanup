@@ -18,6 +18,54 @@ The authoritative implementation sources are:
 If this record and an authoritative source ever differ, the authoritative source
 wins and this record must be corrected before release.
 
+## Active Development Goal — Final Qualification And Release Addendum
+
+Approved by the user on 2026-09-03. This extends the active development goal's
+completion criteria; it does not change the skill's North Star or runtime
+workflow. It supersedes the earlier restriction on Git push and release
+publication only. GTM mutation and local skill installation remain outside this
+authorization.
+
+After completing the existing improvement, four-pair evaluation, correction and
+regression work, perform one final independent release-candidate evaluation:
+
+1. Evaluate product design, practical audit/optimisation utility, and technical
+   health against all seven project `AGENTS.md` rules and the authoritative skill
+   documents referenced above. Assess simplicity, fitness for the agreed scope,
+   coverage, appropriate findings, independence, maintainability, dependencies,
+   reliability and human delivery. Support the verdict with observed evidence;
+   distinguish unresolved defects from evidence limits and optional enhancements.
+2. Review instruction quality using positive guidance first and negative
+   guardrails second. Prefer concise instructions describing the desired action,
+   decision criteria and result. Replace redundant or lengthy prohibition lists
+   when positive guidance preserves their intent more clearly. Retain concise
+   negative guardrails where they materially prevent unsafe actions, unsupported
+   claims, scope expansion or loss of audit independence. Apply this editorial
+   principle without weakening coverage or changing the product contract.
+3. Correct material findings at the owning component and rerun affected checks
+   and dependants. Then check internal coherence across activation, North Star,
+   scope, audit criteria, workflow, scripts, schemas, tests, workbook, examples and
+   documentation. Qualify the final corrected candidate, not an earlier build.
+   Do not claim universal optimality or zero possible future defects.
+4. Once the existing release criteria and this final evaluation pass, publish a
+   new version from the repository's `main` branch. Inspect the remote and existing
+   release history to select the next appropriate version. Update all applicable
+   repository surfaces to accurately describe the released skill, including
+   README, skill/package/version metadata, documentation, examples, release notes,
+   distribution assets and repository About/description/topics/links where used.
+   Preserve accurate historical release records. Keep `main` as the sole branch;
+   do not introduce an auxiliary release branch.
+5. Verify that the remote `main`, release tag, published release and assets match
+   the qualified version, and that repository-facing information is current.
+   Report the version, commit, release link, evaluation evidence and any genuine
+   remaining limitations. Publication is part of completion, not merely a local
+   commit or prepared release draft. Report an actual access blocker rather than
+   claiming publication succeeded.
+
+This is a development/release gate, not additional machinery required during a
+normal container audit. Reuse valid evidence and resume the earliest affected
+step after a fix; keep the existing production single-pass workflow intact.
+
 ## Decided North Star
 
 Make an existing GTM container as clean, correct, simple, and maintainable as if
@@ -802,6 +850,359 @@ Release requires all of the following to pass from a clean final commit:
 
 ## Designed Limits And Future Evolution
 
+### Release-readiness goal started (2026-09-03)
+
+The user approved the final 13-section development goal in this conversation.
+It supersedes the earlier pending simplification decision, not the product
+contract. The North Star remains authoritative in
+`references/03-rules/audit-coverage.md`; all seven `AGENTS.md` rules apply.
+Local corrections, proportionate implementation simplification and workbook
+audit-area filtering are authorized. Product redesign, GTM mutation, pushing,
+publishing a release and installing a copy are not authorized.
+
+All eight explicitly named evaluation files were found unambiguously in
+`C:/Users/guillaume/Downloads`: the default/cleaned JSON pairs for GTM-NVRJ4J,
+GTM-PR4MQ6J, GTM-K2G444H and GTM-MXP9DJG. Their contents have not been opened
+in this new goal. Cleaned exports remain comparison evidence, never ground
+truth or input to initial independent auditors.
+
+Repeat development evaluations after general improvements until each pair meets
+the approved evidence-based comparison condition; normal production execution
+remains single-pass. Preserve valid work and resume the failed or earliest
+invalidated step instead of restarting the entire run. Revisit earlier pairs
+when later changes invalidate their results.
+
+Starting state: the NVRJ4J first-look workbook remains a review copy; final
+independent delivery checks and cleaned comparison are unfinished. Other pairs
+have not yet been evaluated. No release-readiness claim is made.
+
+First implementation target: inspect and consolidate duplicate canonical
+validation in delivery review commands, retaining the existing validation
+boundary and adding a focused regression test. Next: the required upper-level
+Audit area filter, then continued independent evaluation. No analytical
+safeguard has been removed.
+
+#### First correction batch (in progress)
+
+- Removed the duplicate direct canonical checks in delivery-review scaffolding
+  and sealing. The editorial validator still validates the canonical record and
+  exact delivery projection. A focused fixture checks one canonical invocation,
+  rejection of modified canonical content, and no writes on rejected delivery.
+- Added Audit area as the second column on all four detail-sheet types. Default
+  labels derive from the existing 27-area contract; the existing editorial step
+  may choose a controlled upper-level label matching the established issue.
+  This is necessary because a code-owned finding can concern consent or duplicate
+  loaders. Underlying area IDs remain unchanged and available. Existing fidelity
+  review owns category appropriateness; no extra review stage is introduced.
+- Removed the four-word quota on operation target, preconditions, verification
+  and rollback. Non-blank string requirements, semantic specificity review and
+  exact structured-operation validation remain. Removed the obsolete authoring
+  schema field and updated its documentation/tests, rather than retaining an alias.
+- Verification so far: 11 delivery-class tests, 16 operation-safety tests,
+  10 audit-plan tests and the focused duplicate-validation test pass. Bundled
+  workbook build/import and delivery-seal fixture passed before the final category
+  editorial refinement. A broader earlier run passed 192 tests with two workbook
+  tests skipped; it predates the last edits and is not final-candidate proof.
+- Current full-suite verification uses the bundled Python/Node/artifact runtime;
+  exec session 87502 completed: all 193 tests PASS in 185.298 seconds, no skips.
+  Ruff over scripts/tests and Git whitespace checks also PASS.
+  The real NVRJ4J workbook is unchanged. Its updated delivery, visual inspection,
+  independent reviews and default/cleaned comparison remain pending. No other
+  real-container pair has run. No push, release or installation has occurred.
+
+Delivery-only NVRJ4J evaluation preparation: copied the existing validated package
+without its generated `delivery` directory to
+`C:/Users/guillaume/AppData/Local/Temp/gtm-eval41-delivery-53bd505df7024497a0abbc48f498bbf8/audit-package-audit-area-filter`.
+Source package remains `audit-package-delivery-consistency-repair` in that same
+parent. Mapper creation is running in exec session 47622; poll this exact handle.
+No audits or target synthesis were restarted. The development-only
+`transfer_audit_area_editorial.py` in that temp parent is prepared but not yet run:
+after mapping succeeds it preserves prior reviewed prose, checks canonical byte
+equality and existing fields, and leaves category review pending. Category prose
+must be reviewed before editorial sealing; unchanged prior words must not be
+replaced with generated stock wording.
+
+Further simplification candidate found by code inspection, not yet changed:
+`build_canonical_record` calls `reconciliation_seal_errors` and then
+`target_validation_seal_errors`; target reconstruction calls operation synthesis,
+which already validates reconciliation. Check this call chain and retain its
+failure behaviour before consolidating the repeated check. Do not add caches or
+bypass validation. The active delivery mapper run uses the current implementation
+and must finish or fail authoritatively before its step is resumed.
+
+Mapper session 47622 completed successfully (1349 rows, all five sheets;
+map hash `9280b8e0f1dc9ac3ab529d1518a05c43853720b01a879776c026bca2e7777589`).
+The prose-transfer helper then completed: all 1349 reviewed rows preserved,
+canonical record byte-identical, category review still pending. No commands or
+agents remain active from this correction batch. Next delivery work is to review
+the category labels using the established row meanings, seal editorial, rebuild
+and visually inspect, then complete the required fresh independent reviews.
+
+#### Second correction batch and first cleaned comparison
+
+Removed the duplicate direct reconciliation validation in canonical construction.
+Target reconstruction already validates it through operation synthesis. A focused
+test confirms one invocation, rejection of altered reconciliation, and unchanged
+canonical output on failure. Exec session 27188 completed: all six canonical
+workflow tests PASS. Ruff and whitespace checks pass.
+
+Also removed obsolete server-entity names from the discovery-key recognizer by
+deriving its allowed layers from the existing web-only `ID_KEYS` definition.
+This eliminates a duplicate layer list rather than adding a new guard. All 17
+operation-safety tests pass, including rejection of client/transformation keys
+and preservation of supported web object identities.
+
+Fresh editorial agent Feynman `01a068f2-047e-7372-b457-5fe12ee50ead` is reviewing
+all 1349 audit-area labels in the audit-area-filter package. Its write scope is
+only each row's `prose.audit_area`; all prior wording and semantics are preserved.
+It has no cleaned export or comparison results. Main must inspect its result,
+then seal/build and run the existing independent delivery reviews. Last wait
+returned a timeout, not completion; do not restart the agent.
+
+NVRJ4J default/cleaned comparison has now started after completed initial audits
+and the first-look handoff. Raw counts (not superiority claims): default/cleaned/
+skill target tags 192/192/191; triggers 133/88/131; variables 133/126/127;
+folders 37/37/45; templates 35/23/35. Cleaned retires 51 source trigger IDs and
+adds six; its net reduction alone does not prove those changes appropriate.
+Skill target removes a duplicate Taboola tag and the obsolete OAuth loader chain
+that cleaned retains. Lifecycle removals and owner deferrals still need individual
+assessment; no blanket disuse-based deletion policy has been adopted.
+
+Concrete optimisation gap for the next development cycle: source trigger IDs
+1276 and 1278 both feed only tag 1349, sharing LINK_CLICK type, URL condition and
+explicit false wait/check flags; only the exact Click Text literal differs.
+Canonical CD-3B21C109A73E5327 and CD-B21C4172E4C08991 retain separate predicates
+as a justified distinction. Cleaned replaces them with trigger 2192 containing a
+union regex. Its implicit/malformed listener-option fields differ from source,
+so its whole replacement is not accepted as ground truth. The general question
+is whether the finite union can preserve every condition, option and consumer
+more simply than separate triggers. Updated the existing overlap/domain guidance
+to require this assessment, including type/case/line-boundary equivalence and
+reasons to retain separate consumers. No case IDs or expected result were added
+to production guidance. Official regex operator documentation was read at
+https://support.google.com/tagmanager/answer/7679109 on 2026-09-03. Detection and
+appropriate proposal remain unproven until a subsequent independent evaluation;
+this documentation correction is not counted as a completed analytical fix.
+
+### Prior simplification findings (2026-09-03)
+
+Continuation under the replacement Goal Mode objective: the full 195-test suite
+passed in 176.426 seconds. The independent workbook reader rejected audit-area-001
+for internal authoring language in Full Audit and current/proposed-state mixing
+in Custom Code. The overview, recommendations, decisions and Audit area filtering
+were usable; passing technical verification did not establish reader acceptance.
+The fidelity review remains independently in progress and has received none of
+the reader's findings.
+
+Implemented a general presentation correction: Full Audit's display focus is now
+editable prose, while area, fact kind and audit mechanism stay locked. Related
+configuration comparisons receive a human-readable default. Updated workbook
+rendering and tests, and clarified the existing editorial instructions to separate
+source behaviour from proposed repairs. Twelve delivery-class tests passed.
+The focused artifact workbook regression passed in 18.088 seconds. These
+changes have not yet been applied to a successor NVRJ4J workbook; the failed
+reader review and prior workbook remain preserved as evaluation evidence.
+
+Both delivery reviews are now complete and their agents closed. Fidelity reviewed
+all 1,349 rows and rejected three: CD-5565033AA316CB9A and CD-B4399480F241AC85
+lost their single shared OpenAI pixel research-owner handoff; CD-6DA1385687730884
+omitted the bound rationale rejecting a reference-defect claim. Main inspection
+confirmed the latter's primary obligation is still AREA-24 naming, with a naming
+assessment selected from audit B and a rationale rejecting audit A's reference
+claim. Preserve both the primary focus and that rejection context rather than
+blindly replacing the finding/category. Custom Code now carries its existing
+fact kind and audit mechanism in locked fidelity metadata, just like Full Audit.
+
+Additional simplification: reconciliation seal verification now reuses the
+already validated comparison instead of rebuilding it a second time. Fourteen
+focused reconciliation/canonical/repair tests passed in 17.919 seconds, including
+single-reconstruction checks and rejection of changed scaffold, neutral queue,
+record and seal. Public artifacts and semantic decisions are unchanged by this
+implementation simplification.
+
+Focused repair staging completed successfully (session 60824), from audit-package-audit-area-filter
+to audit-package-delivery-context-repair in the existing eval41 temp root. It
+targets the six reader-identified retained code findings listed below, preserving
+the predecessor and source audits. After staging, a fresh reconciler must verify
+the exact related-operation handoffs and separate current/proposed wording before
+dependent target validation and delivery. No agent has been assigned this repair
+yet at that checkpoint. Reconciliation was subsequently scaffolded (1,283
+comparisons/neutral checks in 43 units) and fresh agent Lovelace
+01a06910-603f-7563-8480-3fe90f4e91d1 now owns the focused reconciliation repair.
+It may reuse complete unchanged comparisons/evidence after exact equality checks;
+it must verify the six changed handoffs from source and existing operations.
+The three fidelity findings also remain pending correction at delivery.
+
+The repair CLI had printed its whole inventory receipt (over 31,000 output
+tokens in this evaluation). It now returns status, successor, requested IDs and
+receipt location/hash; the full persisted evidence receipt remains unchanged.
+A focused CLI regression checks that the inventory is not redundantly printed.
+The full suite is running as session 39237 (started before this CLI-only edit).
+Completed fidelity scratch files were moved out of the repository into
+eval41/fidelity-review-working-files; review evidence was not deleted.
+
+Latest regression results: full suite 197 tests passed in 152.109 seconds;
+the subsequent focused repair/CLI suite passed all 13 tests in 14.727 seconds.
+Ruff and whitespace checks passed. Neither session 39237 nor 19247 remains live.
+
+NVRJ4J naming/folder comparison: cleaned changes only existing tag 2148 and trigger
+1031 names and moves only tag 2148 to its new Consent folder. The skill target
+already gives 2148 a source-supported OneTrust consent-initialization name and
+uses existing folder 2045; raw folder counts are not a quality metric. For trigger
+1031, cleaned exposes its exact OneTrustLoaded occurrence, while the skill keeps
+Update Consent. Its canonical rationale treats that as a harmless purpose label
+and notes that audit A coupled the rename to an unselected alias operation.
+This is an operational-clarity opportunity to reassess, not evidence of a firing
+defect. Naming guidance now explicitly assesses navigability and clear event/role
+identity even when behaviour is unchanged, while preserving clear local names
+and rejecting style-only churn. General guidance contains no evaluation IDs;
+appropriate detection/target remains to be proved in the next independent audit.
+
+Additional scoped-settings comparison used the existing effective-settings
+extractor on default and cleaned, not a new comparison framework. For tags
+1962/1966/1969 it found 16/11/11 direct-plus-settings-variable fields respectively,
+with no additions/removals and only the already inspected equivalent funnelName
+variable alias changing. Tags 1669/1725 retain all six effective fields exactly.
+This supports scoped reuse as a real missed optimisation, while limiting the
+claim to these tag/ESV surfaces; it does not certify runtime evaluation or the
+rest of cleaned's configuration/consent changes.
+
+A focused neutral-scan regression now covers two distinct events sharing a
+two-field bundle with an unrelated third event. It verifies exact two-consumer
+membership, both source coordinates, neutral/audit-required compatibility status
+and independent scan assurance. It passed in 0.322 seconds; no detector/schema
+change was needed. This proves the evidence is available for scoped reuse,
+not that the agents' next independent judgments already identify it correctly.
+
+Removed the separate operation-family two-word/underscore gate. A concise label
+such as Cleanup is valid; the existing shared nonblank-string contract now covers
+operation_family along with other operation text, and the plan authoring contract
+derives it from that same constant. Structured action, dependency and evidence
+checks remain unchanged; delivery still requires a useful human label. Seventeen
+operation safety tests passed, including blank/non-string rejection. A subsequent
+combined command referenced a nonexistent test_audit_plan module; this was a test
+selection error, not a skill execution failure. The actual ten audit-plan tests
+in test_v2_workflow.py were run through unittest's name filter. One expectation
+still listed the old four-field contract; it was updated to include operation_family.
+All ten plan tests then passed in 2.968 seconds, with Ruff/whitespace checks clean.
+
+Release preflight (read-only, 2026-09-03): GitHub repository is
+haiqigeng/4-gtm-container-audit-cleanup, with main as its only branch. Latest
+published release remains v2.1.1 (2026-09-01); local pyproject.toml identifies
+development version 2.2.1. These are not claims of release readiness. Initial
+network access was sandbox-blocked; the authorised read succeeded through the
+normal elevated permission mechanism. No remote metadata, commit, tag or release
+was changed. Select and reconcile the final version only after qualification.
+
+Lovelace completed the focused reconciliation repair and was closed. It changed
+the six authorized retained findings' current behavior, assessment, next step and
+rationale; 1,277 other conclusions were reused after full input/evidence equality.
+All 66 operation proposals and 685 retained source/audit files remained unchanged.
+Reconciliation seal: 6fd94aeb3a067639d62b188fb85b2cea8ab91d39f8edf7b4b9947dc546d0a50b.
+Main inspected the authored revisions. Operation synthesis passed and retained
+the exact predecessor packet and projected-container hashes. Target validation
+is now running on audit-package-delivery-context-repair.
+
+This exposed a mapper defect: compact retained-code rows discarded explicit
+current_behavior and next_step fields even when the corrected canonical record
+supplied them. The mapper now uses those supplied fields and keeps the assessment
+in the finding, preserving explicit pending-operation handoffs. Thirteen delivery
+class tests passed, including a new retained-code current/pending separation test.
+
+Target validation completed successfully; canonical sealing passed for the
+repaired 1,283-decision/66-operation record. Canonical hash:
+95d947255b5c70673f412f1b03f9c9fda1e598a8ab8c720db021663f7e362477;
+seal c9d8af5c1022beb86fe67a6f2bc5881648cc5c70b4505fd14bfc82a57fd05772.
+The focused artifact workbook regression passed in 17.071 seconds. Delivery map
+creation is running next. A development-only prose-transfer helper reuses fields
+only when their canonical decision and default prose are unchanged, explicitly
+excluding the six repaired records and four review-failed rows. It leaves the
+editorial pending; it neither seals findings nor supplies approval judgments.
+
+Delivery map creation passed (hash ea307352786d406021b268be2a7eed9265c2745ef577b0a75e903933887aefbc).
+The transfer reused 6,683 prose fields and reset ten repaired/review-failed rows.
+Main then edited the four presentation-only failures, preserving the single
+OpenAI research owner and both the primary naming focus and valid-reference
+rationale. The six reconciled descriptions retain their exact pending handoffs.
+All 27 distinct display-focus labels were inspected; thirteen internal labels
+were replaced with reviewed human wording across 461 rows, and 20 literal wording
+occurrences were simplified. These are editable presentation changes only.
+Editorial is marked complete and sealing is running; workbook construction,
+technical verification and fresh independent delivery reviews remain next.
+
+PR4MQ6J default-only evaluation has now started in parallel with NVRJ4J delivery.
+Both explicitly authorised Downloads filenames were resolved; the cleaned file
+has not been read or supplied to any initial auditor. Workbook preflight passed.
+Evaluation root: C:/Users/guillaume/AppData/Local/Temp/gtm-pr4mq6j-eval-11d4cea3fde24509832c933279861617.
+Canonical scan of GTM-PR4MQ6J_default.json is running; fresh assurance and the two
+independent audits follow. Keep comparison conclusions out of those contexts.
+
+PR4MQ6J canonical scan passed: 0f2d8ffa828f1e7d3571140b83ee83e4da395f242f4acf647d328c506ad2168b.
+Fresh agent Gibbs (01a06927-ec89-71e1-b54b-6126bff4d371) now owns scan assurance
+with only the explicitly selected default export, scan and registry. NVRJ4J
+editorial sealing passed (8f840828cc637523590de7fab01d067be12ec5694d3468e7dfd85f0b6def3fff);
+the repaired workbook is building. No cleaned PR4MQ6J evidence was opened.
+
+Reader-identified Custom Code rows include CD-40EFC123390185FA,
+CD-552F0E216E82A31E, CD-62E8D0F4E892636F, CD-E30BE45696B8432D,
+CD-EE2649E798B720D7 and CD-FB0EFA2EDA10274F. Bound canonical prose mixes retained
+behaviour with pending related operations; exact related operation IDs are often
+absent. Pure tense/column placement can be fixed editorially, but a missing
+required semantic relationship must return to its owning audit/reconciliation
+record. Do not add unsupported handoffs merely to satisfy the reader review.
+
+Latest delivery checkpoint: category-only review completed in fresh agent Feynman
+and changed 339 of 1,349 category labels. Main verification confirmed all previously
+reviewed prose and canonical judgments unchanged. Editorial sealing passed.
+The audit-area-001 workbook built and passed technical verification; all five
+rendered previews were inspected, including the expanded Overview evidence-limits
+block. The focused artifact workbook regression also passed (18.717 seconds).
+Fresh independent delivery reviews are now running: Hooke (reader) and Arendt
+(fidelity), using their separate locked bundles only. Current workbook is under
+the audit-package-audit-area-filter delivery successor in the eval41 temp root;
+the previously delivered first-look review copy remains untouched.
+
+A second comparison gap concerns scoped Event Settings reuse. Source tags
+1966/1969 have the same eleven inline fields; source 1669/1725 have the same six
+inline fields. None has a direct Event Settings variable reference. Cleaned adds
+scoped settings variables 2188/2189, while the current canonical AREA-15 judgments
+use a blanket rationale rejecting both global hoisting and overlapping settings
+variants. That rationale does not assess these useful bounded groups. The booking
+variable's funnelName alias resolves to the same source data-layer definition;
+its entire target still needs effective-inheritance/consumer comparison, not blind
+acceptance. Updated the existing criteria to distinguish scoped reuse from global
+hoisting and require a concrete maintenance/compatibility assessment. Official
+Google reusable-event-settings documentation confirms selected GA4 Event tag use:
+https://support.google.com/tagmanager/answer/13438771 (read 2026-09-03).
+No sealed audit was edited and no analytical fix is claimed proven yet; affected
+judgments require fresh independent evaluation with the general criteria.
+
+The current hashes, seals, reconstructed canonical checks, and independent
+delivery reviews are production requirements, not development-only tooling.
+Repeated evaluations, regression tests, and retained evaluation packages belong
+to the development goal. Do not confuse integrity checks with evidence that an
+analytical judgment is correct.
+
+Observed duplication: `scaffold_delivery_reviews` and `seal_delivery` explicitly
+call `canonical_record_seal_errors`, then call `editorial_seal_errors`, whose
+`validate_editorial` -> `_delivery_map_errors` path performs that canonical check
+again. Consolidating that repeated work within one invocation is a concrete
+optimization candidate; it does not require persistent caches or weaker checks.
+
+Observed delivery friction: the NVRJ4J code-003 workbook passed technical and
+human-reader checks, but fidelity rejected two cross-references absent from
+their bound canonical rows. Distinguish navigation to an existing established
+record from a newly asserted semantic dependency. The latter must still return
+to its owning audit/reconciliation stage. Any policy allowing the former needs
+an explicit, evidence-backed definition before changing the current contract.
+
+Proposed direction, not implemented: retain complete scan coverage, separate
+peer-blind audits, evidence-backed reconciliation, combined-target checks, and
+faithful human delivery; consolidate duplicative integrity work and make repair
+scope proportional to the actual change. Do not weaken gates simply to pass the
+current workbook. The approved goal authorizes implementation simplification;
+a broader product redesign remains outside its scope.
+
 - The AI environment must support separate fresh agent contexts. If it does not,
   the audit blocks with a concise capability message rather than requesting
   computer or operating-system configuration.
@@ -813,3 +1214,32 @@ Release requires all of the following to pass from a clean final commit:
 - Server-container audit, runtime recette, GTM mutation, execution approval,
   change logs, and audit deltas may be designed later only as separate authorised
   capabilities. They are not partial or dormant paths in v2.2.0.
+
+### 2026-09-03 — NVRJ4J comparison remains the next qualification priority
+
+The user clarified sequencing: complete the next fresh NVRJ4J development
+evaluation before advancing PR4MQ6J semantic audits. The NVRJ4J comparison has
+not passed: general criteria for safe trigger unions, scoped Event Settings reuse,
+and meaningful naming improvements still need to produce independently justified
+results. Counts and improved workbook wording are not comparative utility proof.
+
+The retained NVRJ4J delivery-context-repair workbook built successfully and its
+technical-verification.json reports pass with no errors. Delivery review
+scaffolding completed (1,349 fidelity rows, five reader sheets); fresh review
+verdicts remain pending. The original first-look workbook is unchanged.
+
+PR4MQ6J scan assurance completed independently with all 19 checks passing.
+Package creation stopped at runtime identity preflight because the development
+checkout contains uncommitted fixes and an outdated build manifest. No semantic
+audit started. Preserve that assurance evidence; do not bypass identity checks.
+After testing and committing the general fixes, build an identified candidate
+and use it for a fresh NVRJ4J default-only evaluation. Keep prior findings and
+the cleaned comparator out of both independent audit contexts. Development
+repetition does not alter the skill's single-pass production workflow.
+
+Candidate checkpoint validation: all 200 unit/integration tests passed in 153.198
+seconds with the bundled workbook runtime enabled; Ruff and git diff --check
+passed. These checks cover implementation regressions, not comparative audit
+superiority. Fresh NVRJ4J scan passed with source SHA-256
+867657364262f86a52fdea7a064add569e6669d3b834155e73bf8b08c2ab8fb6;
+the independent assurance step is in progress in its own context.

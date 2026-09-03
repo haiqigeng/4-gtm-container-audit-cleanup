@@ -124,6 +124,14 @@ downstream server-container enforcement is outside this audit.”
 - Classify exact duplicate, overlap, conflict, intentional variant, migration pair,
   or insufficient evidence while preserving event, timing, payload, consent,
   route, destination, market, product, and ownership differences.
+- Different literal predicates do not by themselves justify separate triggers.
+  When identical consumers already OR those triggers, assess whether their exact
+  finite union can be represented more simply under shared predicates. Preserve
+  trigger type, listener options, case and match boundaries, value semantics,
+  exceptions and every consumer; do not broaden the accepted event set or merge
+  independently used branches. Retain separate triggers when the union adds
+  complexity or loses a meaningful distinction. This is a judgment within the
+  existing overlap audit, not an automatic regex-conversion rule.
 
 ### 6. Tag And Template Configuration
 
@@ -233,6 +241,14 @@ downstream server-container enforcement is outside this audit.”
 - Put configuration-wide values with one configuration owner, genuinely shared
   event parameters in one Event Settings owner, and event-specific values locally.
   Remove repeated identical inline values and preserve justified overrides.
+- Assess scoped groups of compatible event tags, not only container-wide sharing.
+  A field inappropriate for a global settings owner can still belong in a shared
+  Event Settings variable used only by that group. Compare the complete repeated
+  field bundle and existing inheritance, retaining local differences. Recommend
+  the smallest useful grouping when it reduces maintenance without widening
+  payload scope or changing effective values. Reject a group for a concrete
+  incompatibility or net complexity cost, not a generic claim that sharing creates
+  another owner; do not create one settings variable for every repeated field.
 
 ### 16. Destination, Loader, And Page-View Ownership
 

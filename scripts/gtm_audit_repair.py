@@ -264,7 +264,12 @@ def main() -> int:
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(json.dumps({"status": "blocked", "errors": [str(exc)]}, ensure_ascii=False, indent=2))
         return 2
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    # The complete evidence inventory is persisted in the receipt. Return only
+    # what the caller needs to continue, not thousands of repeated file hashes.
+    print(json.dumps({key: result[key] for key in (
+        "status", "successor_package", "requested_decision_ids",
+        "receipt_path", "repair_receipt_sha256",
+    )}, ensure_ascii=False, indent=2))
     return 0
 
 

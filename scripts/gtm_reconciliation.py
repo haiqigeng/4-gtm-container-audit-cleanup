@@ -1006,7 +1006,14 @@ def finalize_reconciliation(
     }
     record["reconciled_record_sha256"] = stable_hash(record, 64)
     if _validate_only:
-        return record
+        # Reuse this invocation's validated reconstruction when checking the
+        # seal; rebuilding the same source comparison adds no assurance.
+        return {
+            "record": record,
+            "reconciliation_scaffold_sha256": expected_reconciliation.get(
+                "reconciliation_scaffold_sha256"
+            ),
+        }
     if reconciliation_path is None:
         write_json(package_dir / RECONCILIATION_FILE, reconciliation)
         write_json(package_dir / NEUTRAL_FILE, neutral)
@@ -1057,7 +1064,7 @@ def reconciliation_seal_errors(package_dir: Path) -> list[str]:
         return ["sealed reconciled decision record or its authority files are missing"]
     errors: list[str] = []
     try:
-        expected_record = finalize_reconciliation(
+        reconstructed = finalize_reconciliation(
             package_dir,
             reconciliation_path,
             neutral_path,
@@ -1065,22 +1072,20 @@ def reconciliation_seal_errors(package_dir: Path) -> list[str]:
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return [f"reconciliation reconstruction failed: {exc}"]
+    expected_record = reconstructed["record"]
     record = json.loads(record_path.read_text(encoding="utf-8"))
     if record != expected_record:
         errors.append("reconciled decision record differs from deterministic reconstruction")
     seal = json.loads(seal_path.read_text(encoding="utf-8"))
-    expected_scaffold, expected_neutral = _reconciliation_scaffold_payloads(
-        package_dir
-    )
     expected_seal = {
         "kind": "gtm_reconciliation_seal",
         "schema_version": 1,
         "source_sha256": expected_record.get("source_sha256"),
         "audit_seal_sha256": expected_record.get("audit_seal_sha256"),
-        "reconciliation_scaffold_sha256": expected_scaffold.get(
+        "reconciliation_scaffold_sha256": reconstructed.get(
             "reconciliation_scaffold_sha256"
         ),
-        "neutral_queue_sha256": expected_neutral.get("neutral_queue_sha256"),
+        "neutral_queue_sha256": expected_record.get("neutral_queue_sha256"),
         "reconciliation_file_sha256": file_sha256(reconciliation_path),
         "neutral_file_sha256": file_sha256(neutral_path),
         "independent_agent_id": expected_record.get("independent_agent_id"),

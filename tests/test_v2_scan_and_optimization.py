@@ -694,6 +694,43 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         self.assertIn("currency", names)
         self.assertNotIn("content_group", names)
 
+    def test_scoped_event_settings_candidates_keep_exact_consumers(self) -> None:
+        export = rich_export()
+        cv = export["containerVersion"]
+        cv["tag"] = [
+            {
+                "tagId": ident, "name": f"GA4 - {event}", "type": "gaawe",
+                "firingTriggerId": ["201"],
+                "parameter": [
+                    {"type": "TEMPLATE", "key": "eventName", "value": event},
+                    {"type": "TEMPLATE", "key": "measurementIdOverride", "value": "G-TEST"},
+                    table_parameter("eventSettingsTable", fields),
+                ],
+            }
+            for ident, event, fields in (
+                ("601", "form_start", [("form_id", "registration"), ("form_origin", "header")]),
+                ("602", "form_submit", [("form_id", "registration"), ("form_origin", "header")]),
+                ("603", "page_view", [("page_type", "content")]),
+            )
+        ]
+        export_path = self.root / "scoped-settings.json"
+        export_path.write_text(json.dumps(export), encoding="utf-8")
+        scan = build_canonical_scan(export_path)["canonical_scan"]
+        candidates = [row for row in scan["optimization_facts"]["optimization_candidates"]
+                      if row["candidate_type"] == "shared_event_setting"]
+        self.assertEqual({"form_id", "form_origin"},
+                         {row["parameter_name"] for row in candidates})
+        for candidate in candidates:
+            self.assertEqual(["tag:601", "tag:602"], candidate["consumer_object_keys"])
+            self.assertEqual(["form_start", "form_submit"], candidate["configured_event_names"])
+            self.assertEqual("neutral_candidate_not_a_verdict", candidate["candidate_status"])
+            self.assertEqual("audit_required", candidate["compatibility_checks"][
+                "source_type_shape_timing_consent_route_destination_ownership"
+            ])
+            self.assertEqual(2, len(candidate["source_json_paths"]))
+        assurance = assure_scan(export_path, scan, vendor_registry_path=self.registry)
+        self.assertEqual("pass", assurance["status"])
+
     def test_behavior_scope_keeps_cross_level_areas_applicable_and_assured(self) -> None:
         export = rich_export()
         cv = export["containerVersion"]

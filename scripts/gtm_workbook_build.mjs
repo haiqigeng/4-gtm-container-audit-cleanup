@@ -278,6 +278,7 @@ function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
   const operationNote = {
     operation_id: row.locked.operation_id,
     source_decision_ids: row.locked.source_decision_ids,
+    source_audit_areas: row.locked.source_audit_areas,
     subject_keys: row.locked.subject_keys,
     depends_on: row.locked.depends_on,
     exact_target_state: row.locked.exact_target_state,
@@ -288,7 +289,8 @@ function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
     decision_id: row.locked.decision_id,
     subject_keys: row.locked.subject_keys,
     area_id: row.locked.area_id,
-    audit_focus: row.locked.audit_focus,
+    audit_mechanism: row.locked.audit_mechanism,
+    fact_kind: row.locked.fact_kind,
     decision_class: row.locked.decision_class,
     operation_id: row.locked.operation_id,
   };
@@ -399,7 +401,7 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     ["Workbook coverage", coverageSummary, 2],
     ["Target architecture", overview.target_architecture_summary, 9],
     ["Important retained setup", overview.important_retained_summary, 3],
-    ["Open decisions and evidence limits", overview.blocking_summary, 2],
+    ["Open decisions and evidence limits", overview.blocking_summary, 4],
     ["Next step", overview.next_step, 2],
   ];
   let summaryCursor = summaryStart;
@@ -550,6 +552,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
       subtitle: "Every decision-ready operation appears once. A cell note on the action contains its structured technical detail.",
       headers: [
         "Action + operation ID",
+        "Audit area",
         "Finding type + priority",
         "Affected scope",
         "Current setup",
@@ -558,8 +561,9 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         "Analyst decision / implementation handoff",
         "Static verification / rollback",
       ],
-      values: (_row, prose) => [
+      values: (row, prose) => [
         prose.action_operation_id,
+        prose.audit_area,
         prose.finding_type_priority,
         prose.affected_scope,
         prose.current_setup,
@@ -568,7 +572,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         prose.analyst_handoff,
         prose.verification_rollback,
       ],
-      widths: [28, 22, 34, 42, 40, 42, 40, 42],
+      widths: [28, 26, 22, 34, 42, 40, 42, 40, 42],
       emptyMessage: "No decision-ready operation is proposed.",
     },
     model,
@@ -583,6 +587,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
       subtitle: (rows) => `${rows.length.toLocaleString()} owner questions, ordered by priority. Each row explains what the answer unlocks.`,
       headers: [
         "Decision ID",
+        "Audit area",
         "Priority",
         "Question",
         "Why this is needed",
@@ -592,6 +597,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
       ],
       values: (row, prose) => [
         row.locked.decision_id,
+        prose.audit_area,
         row.locked.priority,
         prose.question,
         prose.why_needed,
@@ -599,7 +605,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         prose.affected_scope,
         prose.answer_unlocks,
       ],
-      widths: [22, 14, 40, 38, 38, 34, 38],
+      widths: [22, 26, 14, 40, 38, 38, 34, 38],
       emptyMessage: "No owner decision is currently required.",
     },
     model,
@@ -614,7 +620,8 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
       subtitle: (rows) => `${rows.length.toLocaleString()} general audit findings. Owner questions are in 03 Decisions Needed.${deliveryMap.visible_sheets.includes("05 Custom Code") ? " Custom-code conclusions are in 05 Custom Code." : ""}`,
       headers: [
         "Audit ID",
-        "Area",
+        "Audit area",
+        "Detailed audit focus",
         "Affected scope",
         "Decision",
         "Plain-language finding",
@@ -624,7 +631,8 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
       ],
       values: (row, prose) => [
         row.locked.decision_id,
-        `${row.locked.area_id} — ${row.locked.area_title}\nFocus: ${row.locked.audit_focus}`,
+        prose.audit_area,
+        `${row.locked.area_id} — ${row.locked.area_title}\nFocus: ${prose.audit_focus}`,
         prose.affected_scope,
         row.locked.human_decision_label,
         prose.plain_finding,
@@ -632,7 +640,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         row.locked.priority,
         row.locked.confidence,
       ],
-      widths: [22, 34, 34, 28, 52, 42, 14, 20],
+      widths: [22, 26, 34, 34, 28, 52, 42, 14, 20],
       emptyMessage: "No semantic audit decision was produced; this indicates an invalid delivery map.",
     },
     model,
@@ -648,6 +656,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         subtitle: (rows) => `${rows.length.toLocaleString()} custom-code conclusions. Confidence describes the static conclusion or evidence limit, not vendor runtime validity.`,
         headers: [
           "Audit ID",
+          "Audit area",
           "Affected code scope",
           "Current behavior",
           "Decision",
@@ -659,6 +668,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         ],
         values: (row, prose) => [
           row.locked.decision_id,
+          prose.audit_area,
           prose.affected_scope,
           prose.current_behavior,
           deliveryMap.overview.decision_labels[row.locked.decision_class],
@@ -668,7 +678,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
           row.locked.priority,
           row.locked.confidence,
         ],
-        widths: [22, 34, 46, 26, 42, 44, 38, 14, 24],
+        widths: [22, 26, 34, 46, 26, 42, 44, 38, 14, 24],
         emptyMessage: "No custom-code conclusion applies.",
       },
       model,

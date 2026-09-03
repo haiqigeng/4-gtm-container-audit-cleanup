@@ -101,9 +101,9 @@ The pre-checkpoint manifest is exactly `bundle-manifest.json`, never
 `source-checkpoint.json`, and `vendor-registry.toml`. Audit A also has
 `canonical-scan.json`, `scan-assurance.json`, and `source-obligations.json`.
 Candidate-blind Audit B instead has `blind-inventory.json`.
-For actionable decisions, write `operation_family` as a human-readable phrase of
-at least two words, such as `Remove redundant priority`, never as an underscore
-token such as `remove_priority`.
+For actionable decisions, give `operation_family` a concise descriptive label,
+such as `Consolidation` or `Remove redundant priority`. Its purpose is to help
+the reader identify the action; the structured proposal defines the exact change.
 
 ```powershell
 python -B scripts/gtm_cleanroom_audit.py checkpoint audit-package audit-a
@@ -149,8 +149,9 @@ Use only the case-sensitive priority and confidence values in
 declared `operation_proposal`; all action-list fields are present, even when
 empty. Its uppercase `operation_id` must match the exact pattern and example in
 `authoring_contract`. Target state, preconditions, static verification, and
-rollback are strings meeting the contract's minimum word counts; preconditions
-is not a list. Action-row `json_path` values are object-relative (for example
+rollback are required non-blank strings; preconditions is not a list. Independent
+semantic review checks their specificity; a word count does not prove it.
+Action-row `json_path` values are object-relative (for example
 `$.tagFiringPriority`), never full `$.containerVersion...` source coordinates.
 Plan application runs the established operation simulator against the locked
 source before any audit write, including when no `do_not_touch` objects are

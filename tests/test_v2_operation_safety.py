@@ -29,6 +29,7 @@ from gtm_audit_work_units import (  # noqa: E402
     workload_estimate_schema_errors,
 )
 from gtm_cleanroom_audit import (  # noqa: E402
+    OBJECT_KEY_RE,
     decision_obligation_alignment_errors,
     operation_proposal_errors,
 )
@@ -140,6 +141,13 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_discovery_keys_exclude_server_entities(self) -> None:
+        for key in ("client:1", "transformation:1", "serverTemplate:1", "tag:"):
+            self.assertIsNone(OBJECT_KEY_RE.fullmatch(key))
+        for key in ("tag:1", "trigger:1", "variable:1", "folder:1",
+                    "builtInVariable:Click Text", "customTemplate:1", "gtagConfig:1", "zone:1"):
+            self.assertIsNotNone(OBJECT_KEY_RE.fullmatch(key))
+
     def test_trigger_remap_updates_group_members_without_rewriting_unrelated_values(self) -> None:
         source = operation_fixture()
         source["containerVersion"]["tag"][0]["blockingTriggerId"] = ["10", "11"]
@@ -399,36 +407,48 @@ class V2OperationSafetyTests(unittest.TestCase):
         self.assertIn("decision: current_behavior is missing", errors)
         self.assertIn("decision: rollback is missing", errors)
 
-    def test_operation_family_requires_a_human_readable_phrase(self) -> None:
+    def test_operation_family_requires_text_not_an_arbitrary_word_count(self) -> None:
         decision = {"decision_id": "AUDIT-A-DECISION-1"}
         proposal = {
             "operation_id": "OP-TEST-FAMILY",
             "source_decision_id": decision["decision_id"],
-            "operation_family": "remove_priority",
+            "operation_family": "Cleanup",
             "exact_target_state": "The redundant priority field is absent.",
             "preconditions": "The locked source still contains that field.",
             "static_verification": "Replay confirms the field remains absent.",
             "rollback": "Restore the exact original priority field value.",
             "depends_on": [],
             **{field: [] for field in OPERATION_ACTION_FIELDS},
-            "field_removals": [
-                {"object_key": "tag:1", "field_path": "tagFiringPriority"}
+            "removals": [
+                {"object_key": "tag:1", "json_path": "$.tagFiringPriority", "before": "7"}
             ],
         }
-        errors = operation_proposal_errors(proposal, decision, set(), "decision")
-        self.assertIn(
-            "decision: operation operation_family must be a human-readable phrase "
-            "of at least two words, not an underscore token",
-            errors,
-        )
+        self.assertEqual([], operation_proposal_errors(proposal, decision, set(), "decision"))
+        for invalid in ("", " ", None, [], 123):
+            proposal["operation_family"] = invalid
+            with self.subTest(invalid=invalid):
+                self.assertIn(
+                    "decision: operation operation_family must be a non-blank string",
+                    operation_proposal_errors(proposal, decision, set(), "decision"),
+                )
 
         proposal["operation_family"] = "Remove priority"
         proposal["preconditions"] = []
         errors = operation_proposal_errors(proposal, decision, set(), "decision")
         self.assertIn(
-            "decision: operation preconditions must be a string of at least 4 words",
+            "decision: operation preconditions must be a non-blank string",
             errors,
         )
+
+        proposal["preconditions"] = "tag:1.tagFiringPriority=7."
+        proposal["static_verification"] = "Assert tag:1.tagFiringPriority absent."
+        proposal["rollback"] = "Restore tag:1.tagFiringPriority=7."
+        self.assertEqual([], operation_proposal_errors(proposal, decision, set(), "decision"))
+        for field in ("exact_target_state", "preconditions", "static_verification", "rollback"):
+            for missing in (None, [], "", " \n "):
+                invalid = {**proposal, field: missing}
+                self.assertIn(f"decision: operation {field} must be a non-blank string",
+                              operation_proposal_errors(invalid, decision, set(), "decision"))
 
     def test_recursive_work_unit_schema_type_failures_are_explicit(self) -> None:
         self.assertTrue(workload_estimate_schema_errors(None))

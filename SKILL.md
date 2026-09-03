@@ -210,7 +210,7 @@ case-sensitive priority and confidence values in `authoring_contract`. An
 actionable decision includes the complete declared `operation_proposal`. This
 includes an uppercase `operation_id` matching the exact pattern and example in
 `authoring_contract`. Its target state, preconditions, static verification, and
-rollback are human-readable strings meeting the contract's minimum word counts;
+rollback are specific human-readable non-blank strings, without a word-count quota;
 `preconditions` is never a list. Follow the same contract for exact source
 decision identity, operation-family wording, structured-action presence, and
 dependencies. Action-row `json_path` values are object-relative paths such as

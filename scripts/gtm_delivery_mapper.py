@@ -43,6 +43,37 @@ VISIBLE_SHEETS = (
 CUSTOM_CODE_SHEET = "05 Custom Code"
 
 PRIORITY_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "None": 4}
+# Presentation groups of the existing audit contract, not new audit obligations.
+AUDIT_AREA_CATEGORIES = {
+    "AREA-01": "Source & references",
+    "AREA-02": "Tag & variable configuration",
+    "AREA-03": "Source & references",
+    "AREA-04": "Unused & obsolete elements",
+    "AREA-05": "Duplicates & consolidation",
+    "AREA-06": "Tag & variable configuration",
+    "AREA-07": "Triggers & firing",
+    "AREA-08": "Triggers & firing",
+    "AREA-09": "CMP & consent",
+    "AREA-10": "CMP & consent",
+    "AREA-11": "CMP & consent",
+    "AREA-12": "Client-to-server transport",
+    "AREA-13": "Client-to-server transport",
+    "AREA-14": "Tag & variable configuration",
+    "AREA-15": "Google shared settings",
+    "AREA-16": "Destination & loader ownership",
+    "AREA-17": "GA4 & ecommerce",
+    "AREA-18": "GA4 & ecommerce",
+    "AREA-19": "Tag & variable configuration",
+    "AREA-20": "Tag & variable configuration",
+    "AREA-21": "Identity & sensitive data",
+    "AREA-22": "Custom code & templates",
+    "AREA-23": "Environments & portability",
+    "AREA-24": "Naming",
+    "AREA-25": "Architecture & complexity",
+    "AREA-26": "Architecture & complexity",
+    "AREA-27": "Architecture & complexity",
+}
+AUDIT_AREA_LABELS = frozenset(AUDIT_AREA_CATEGORIES.values()) | {"Folders & organization"}
 PROHIBITED_VISIBLE_JARGON = re.compile(
     r"\b(?:semantic obligation|clean-room|reconciliation class|challenge context|"
     r"parser trace|validator|source hash|seal(?:ed|ing)?)\b",
@@ -113,8 +144,10 @@ def _display_scope(keys: list[Any], names: dict[str, str]) -> str:
 
 def _human_audit_focus(row: dict[str, Any]) -> str:
     if row.get("scope_level") == "coverage":
-        return "Coverage applicability"
+        return "Applicability to this container"
     fact_kind = str(row.get("fact_kind") or "").strip()
+    if fact_kind == "functional_relationship_candidate":
+        return "Comparison of related configurations"
     if fact_kind:
         return fact_kind.replace("_", " ").capitalize()
     mechanism = str(row.get("audit_mechanism") or "").strip()
@@ -127,6 +160,31 @@ def _max_priority(decisions: list[dict[str, Any]]) -> str:
         for row in decisions
     ]
     return min(values or ["None"], key=lambda value: PRIORITY_ORDER.get(value, 99))
+
+
+def _audit_area_category(row: dict[str, Any]) -> str:
+    """Group existing classification metadata without interpreting finding prose."""
+    fact = str(row.get("fact_kind") or "")
+    if fact in {"legacy_name_only_candidate", "naming_architecture_mismatch"}:
+        return "Naming"
+    if row.get("area_id") == "AREA-24" and fact in {
+        "container_organisation", "overloaded_folder", "singleton_folder",
+        "unfiled_objects", "folder_naming_review",
+    }:
+        return "Folders & organization"
+    return AUDIT_AREA_CATEGORIES[str(row["area_id"])]
+
+
+def _operation_audit_area(sources: list[dict[str, Any]]) -> str:
+    # An operation can have several owners. Its highest-priority source is the
+    # primary filter category; stable identity breaks ties independently of order.
+    if not sources:
+        raise ValueError("A recommendation needs a source decision for its audit area")
+    primary = min(sources, key=lambda row: (
+        PRIORITY_ORDER.get(str((row.get("decision") or {}).get("priority") or "None"), 99),
+        str(row.get("canonical_decision_id") or ""),
+    ))
+    return _audit_area_category(primary)
 
 
 def _row(
@@ -199,6 +257,7 @@ def _recommendation_rows(
                 sheet="02 Recommendations",
                 locked={
                     "operation_id": operation_id,
+                    "source_audit_areas": sorted({str(row["area_id"]) for row in sources}),
                     "source_decision_ids": source_ids,
                     "decision_classes": decision_classes,
                     "human_finding_types": human_types,
@@ -224,6 +283,7 @@ def _recommendation_rows(
                     },
                 },
                 prose={
+                    "audit_area": _operation_audit_area(sources),
                     "action_operation_id": f"{operation_family} — {operation_id}",
                     "finding_type_priority": f"{' / '.join(human_types)} — {priority}",
                     "affected_scope": _display_scope(subject_keys, names),
@@ -274,6 +334,8 @@ def _recommendation_rows(
 
 
 def _decision_outcome(decision: dict[str, Any]) -> str:
+    if str(decision.get("next_step") or "").strip():
+        return str(decision["next_step"])
     decision_class = decision.get("decision_class")
     if decision_class in {"justified_as_is", "not_applicable"}:
         return HUMAN_DECISION_MEANINGS[decision_class]
@@ -298,6 +360,7 @@ def _owner_rows(
                 sheet="03 Decisions Needed",
                 locked={
                     "decision_id": decision_id,
+                    "area_id": row.get("area_id"),
                     "reconciliation_rationale": row.get("reconciliation_rationale", ""),
                     "subject_keys": row.get("subject_keys", []),
                     "priority": decision.get("priority"),
@@ -305,6 +368,7 @@ def _owner_rows(
                     "owner_question": decision.get("owner_question"),
                 },
                 prose={
+                    "audit_area": _audit_area_category(row),
                     "question": str(decision.get("owner_question") or ""),
                     "why_needed": str(decision.get("consequence_or_benefit") or ""),
                     "recommendation": _decision_outcome(decision),
@@ -338,7 +402,6 @@ def _full_audit_rows(
                     "scope_level": row.get("scope_level"),
                     "audit_mechanism": row.get("audit_mechanism"),
                     "fact_kind": row.get("fact_kind"),
-                    "audit_focus": _human_audit_focus(row),
                     "subject_keys": row.get("subject_keys", []),
                     "decision_class": decision.get("decision_class"),
                     "human_decision_label": row.get("human_decision_label"),
@@ -349,6 +412,8 @@ def _full_audit_rows(
                     "reconciliation_rationale": row.get("reconciliation_rationale", ""),
                 },
                 prose={
+                    "audit_area": _audit_area_category(row),
+                    "audit_focus": _human_audit_focus(row),
                     "affected_scope": _display_scope(
                         as_list(row.get("subject_keys")), names
                     ),
@@ -391,6 +456,9 @@ def _custom_code_rows(
                 sheet=CUSTOM_CODE_SHEET,
                 locked={
                     "decision_id": decision_id,
+                    "area_id": source.get("area_id"),
+                    "audit_mechanism": source.get("audit_mechanism"),
+                    "fact_kind": source.get("fact_kind"),
                     "reconciliation_rationale": source.get("reconciliation_rationale", ""),
                     "subject_keys": source.get("subject_keys", []),
                     "decision_class": decision.get("decision_class"),
@@ -399,15 +467,18 @@ def _custom_code_rows(
                     "confidence": decision.get("confidence"),
                 },
                 prose={
+                    "audit_area": _audit_area_category(source),
                     "affected_scope": _display_scope(
                         as_list(source.get("subject_keys")), names
                     ),
-                    "current_behavior": str(decision.get(
-                        "criteria_assessment" if compact else "current_behavior"
-                    ) or ""),
+                    "current_behavior": str(
+                        decision.get("current_behavior")
+                        or (decision.get("criteria_assessment") if compact else "")
+                        or ""
+                    ),
                     "finding": (
                         HUMAN_DECISION_LABELS[decision["decision_class"]]
-                        if compact else _unique_text([
+                        if compact and not decision.get("current_behavior") else _unique_text([
                             decision.get("criteria_assessment"),
                             decision.get("evidence_boundary"),
                         ])
@@ -813,6 +884,10 @@ def validate_editorial(package_dir: Path) -> list[str]:
             continue
         for field, value in prose.items():
             text = str(value or "").strip()
+            if field == "audit_area" and (
+                not isinstance(value, str) or value not in AUDIT_AREA_LABELS
+            ):
+                errors.append(f"{label}: audit area must use a declared upper-level category")
             if not text:
                 errors.append(f"{label}: prose field {field} is blank")
             if PROHIBITED_VISIBLE_JARGON.search(text):

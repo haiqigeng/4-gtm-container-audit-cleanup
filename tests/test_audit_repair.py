@@ -227,6 +227,25 @@ class AuditRepairTests(unittest.TestCase):
                              json.loads(stdout.getvalue()))
             self.assertFalse(self.output.exists())
 
+    def test_cli_success_points_to_receipt_without_reprinting_inventory(self) -> None:
+        arguments = ["gtm_audit_repair.py", str(self.package), str(self.output),
+                     "--decision-id", self.canonical_id, "--reason", self.reason]
+        result = {
+            "status": "reopened", "successor_package": str(self.output),
+            "requested_decision_ids": [self.canonical_id],
+            "receipt_path": "repair-receipts/example.json",
+            "repair_receipt_sha256": "verified-receipt",
+            "predecessor_inventory": {"large-evidence-file": "kept-in-receipt"},
+        }
+        stdout = io.StringIO()
+        with (mock.patch.object(sys, "argv", arguments),
+              mock.patch.object(repair, "reopen_audit", return_value=result),
+              contextlib.redirect_stdout(stdout)):
+            self.assertEqual(0, repair.main())
+        self.assertEqual({key: value for key, value in result.items()
+                          if key != "predecessor_inventory"}, json.loads(stdout.getvalue()))
+        self.assertIn("predecessor_inventory", result)
+
     def test_discovery_owner_uses_nested_decision_id_or_discovery_id(self) -> None:
         original_load = repair._load
         for nested_id in ("AUDIT-A-DEC-DISCOVERY", ""):

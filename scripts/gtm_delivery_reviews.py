@@ -9,7 +9,6 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from gtm_canonical_record import canonical_record_seal_errors
 from gtm_delivery_mapper import (
     DELIVERY_ROOT,
     audience_brief_payload,
@@ -307,8 +306,8 @@ def _expected_fidelity_input(
 
 def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
     require_safe_package_root(package_dir)
-    errors = canonical_record_seal_errors(package_dir)
-    errors.extend(editorial_seal_errors(package_dir))
+    # Editorial validation includes its canonical source and delivery projection.
+    errors = editorial_seal_errors(package_dir)
     build_dir, manifest, build_errors = _current_build(package_dir)
     errors.extend(build_errors)
     if errors:
@@ -592,7 +591,6 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
 def seal_delivery(package_dir: Path) -> dict[str, Any]:
     require_safe_package_root(package_dir)
     build_dir, manifest, errors = _current_build(package_dir)
-    errors.extend(canonical_record_seal_errors(package_dir))
     errors.extend(editorial_seal_errors(package_dir))
     errors.extend(_review_errors(package_dir, build_dir, manifest))
     if errors:

@@ -32,6 +32,7 @@ from gtm_audit_work_units import (
 )
 from gtm_lib import (
     CONSENT_INITIALIZATION_TRIGGER_ID,
+    ID_KEYS,
     as_list,
     contained_relative_path,
     file_sha256,
@@ -42,12 +43,13 @@ from gtm_lib import (
 )
 
 OPERATION_ID_PATTERN = r"OP-[A-Z0-9][A-Z0-9_-]{5,80}"
-OPERATION_TEXT_FIELDS_MINIMUM_WORDS = {
-    "exact_target_state": 4,
-    "preconditions": 4,
-    "static_verification": 4,
-    "rollback": 4,
-}
+OPERATION_TEXT_FIELDS = (
+    "operation_family",
+    "exact_target_state",
+    "preconditions",
+    "static_verification",
+    "rollback",
+)
 
 AUDIT_IDS = ("audit-a", "audit-b")
 BUNDLE_DIRECTORY = "audit-bundles"
@@ -61,10 +63,7 @@ RELEASE_MANIFEST_FILE = "release-manifest.json"
 BUNDLE_MANIFEST_FILE = "bundle-manifest.json"
 WORK_UNIT_SNAPSHOT_ROOT = "work-unit-snapshots"
 WORK_UNIT_SNAPSHOT_MANIFEST = "snapshot-manifest.json"
-OBJECT_KEY_RE = re.compile(
-    r"^(?:tag|trigger|variable|folder|builtInVariable|zone|customTemplate|client|"
-    r"gtagConfig|transformation):.+$"
-)
+OBJECT_KEY_RE = re.compile(r"^(?:" + "|".join(ID_KEYS) + r"):.+$")
 
 
 def _hash_without(payload: dict[str, Any], *fields: str) -> str:
@@ -705,19 +704,10 @@ def operation_proposal_errors(
         action_count += len(value)
     if not action_count:
         errors.append(f"{label}: actionable operation contains no structured action")
-    operation_family = str(proposal.get("operation_family") or "")
-    if "_" in operation_family or not _specific_text(operation_family, 2):
-        errors.append(
-            f"{label}: operation operation_family must be a human-readable phrase "
-            "of at least two words, not an underscore token"
-        )
-    for field, minimum_words in OPERATION_TEXT_FIELDS_MINIMUM_WORDS.items():
+    for field in OPERATION_TEXT_FIELDS:
         value = proposal.get(field)
-        if not isinstance(value, str) or not _specific_text(value, minimum_words):
-            errors.append(
-                f"{label}: operation {field} must be a string of at least "
-                f"{minimum_words} words"
-            )
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"{label}: operation {field} must be a non-blank string")
     dependencies = proposal.get("depends_on")
     if not isinstance(dependencies, list) or any(
         not str(value).startswith("OP-") for value in dependencies

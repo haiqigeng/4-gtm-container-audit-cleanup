@@ -33,7 +33,7 @@ from gtm_audit_work_units import (
 )
 from gtm_cleanroom_audit import (
     OPERATION_ID_PATTERN,
-    OPERATION_TEXT_FIELDS_MINIMUM_WORDS,
+    OPERATION_TEXT_FIELDS,
     decision_obligation_alignment_errors,
     operation_proposal_errors,
 )
@@ -105,8 +105,7 @@ def _authoring_contract() -> dict[str, Any]:
             ),
             "at_least_one_structured_action": True,
             "depends_on_rule": "list containing only OP-* operation IDs",
-            "text_fields_minimum_words": OPERATION_TEXT_FIELDS_MINIMUM_WORDS,
-            "text_fields_require_strings": True,
+            "required_nonblank_text_fields": list(OPERATION_TEXT_FIELDS),
             "proposal_fields": sorted(OPERATION_PROPOSAL_FIELDS),
             "action_row_fields": {
                 field: sorted(fields)

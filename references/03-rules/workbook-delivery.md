@@ -63,16 +63,34 @@ equal the canonical audit-decision set and the sets must be pairwise disjoint.
 `02 Recommendations` remains a separate operation surface and links back to the
 owning audit decision through exact IDs.
 
-`02 Recommendations` has exactly eight visible columns:
+All detail sheets have a filterable `Audit area` column immediately after their
+identifier/action column. It groups existing audit classifications into upper-level
+change categories; it does not create new obligations or alter judgments.
+Use the same labels across sheets. The mapper proposes a category from
+`AUDIT_AREA_CATEGORIES`, with fact-specific naming/folder distinctions. An
+operation spanning areas initially uses its highest-priority source decision
+(stable decision ID breaks ties); all source area IDs remain in its note.
+During the existing editorial step, choose one label from `AUDIT_AREA_LABELS`
+according to the issue addressed by the established finding, not merely the
+object's implementation type. For example, consent handling implemented in custom
+code belongs under CMP & consent; removal of duplicated loader code belongs under
+Duplicates & consolidation. A category is a navigation label, not a new verdict.
+The existing fidelity review checks that it faithfully describes the finding.
+Do not duplicate an operation to put it in multiple categories. Full Audit keeps
+the precise original area and focus in a separate `Detailed audit focus` column.
+Naming findings about code objects remain `Naming`, not `Custom code & templates`.
+
+`02 Recommendations` has exactly nine visible columns:
 
 1. `Action + operation ID`
-2. `Finding type + priority`
-3. `Affected scope`
-4. `Current setup`
-5. `Why it matters`
-6. `Recommended target`
-7. `Analyst decision / implementation handoff`
-8. `Static verification / rollback`
+2. `Audit area`
+3. `Finding type + priority`
+4. `Affected scope`
+5. `Current setup`
+6. `Why it matters`
+7. `Recommended target`
+8. `Analyst decision / implementation handoff`
+9. `Static verification / rollback`
 
 Long field paths, hashes, redacted payload detail, and dependencies belong in
 row-bound comments and canonical JSON. Comments must never expose secret or
@@ -89,11 +107,11 @@ declared operation: changed, removed, renamed, paused, deleted and created objec
 plus remap sources, destinations and explicit consumers. An audit's subject alone
 is not the complete scope of a multi-object recommendation.
 
-`03 Decisions Needed` uses `Decision ID`, `Question`, `Why this is needed`,
+`03 Decisions Needed` uses `Decision ID`, `Audit area`, `Priority`, `Question`, `Why this is needed`,
 `Recommendation`, `Affected scope`, and `What the answer unlocks`.
-`04 Full Audit` uses `Audit ID`, `Area`, `Affected scope`, `Decision`,
+`04 Full Audit` uses `Audit ID`, `Audit area`, `Detailed audit focus`, `Affected scope`, `Decision`,
 `Plain-language finding`, `Outcome / linked action`, `Priority`, and
-`Evidence confidence`. The Area cell also names the human-readable audit focus,
+`Evidence confidence`. The Detailed audit focus cell also names the human-readable focus,
 so multiple obligations in one area cannot look contradictory or duplicated.
 
 ## Wording And Layout
@@ -120,7 +138,11 @@ object group, event, vendor, route, or configuration at issue. Do not repeat
 generic stock paragraphs across unrelated rows. Keep object inventories out of
 visible prose when the affected-scope cell and row note already carry them.
 
-Do not copy audit instructions or shared policy paragraphs into Current behavior.
+Keep Current behavior limited to the source configuration. Describe pending
+repairs in the finding or target using explicit proposed-change wording. Convert
+audit-author instructions into the actual finding and its existing linked action.
+The Full Audit display focus is editable prose; its underlying area, fact kind
+and audit mechanism remain locked for traceability.
 When a row assesses naming or another non-behavioural property of a code object,
 label that assessment explicitly instead of inventing executable behaviour.
 Explain shared conventions once in the overview; keep each row object-specific.

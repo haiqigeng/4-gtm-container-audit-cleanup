@@ -36,6 +36,14 @@ are known, so remaining objects receive stable final names.
 7. If the local convention is missing, weak, or harmful, recommend
    `default-standardized` and use the integrated default patterns below.
 
+Assess naming benefit in terms of navigation and operational clarity, not a change
+in firing behaviour. A technically valid name can still obscure the actual event,
+source, positive/blocking role or lifecycle. Prefer an exact source-supported
+label when it resolves that ambiguity while preserving the local convention.
+Retain an already clear label when the alternative only changes style. In
+particular, distinguish a trigger's matched occurrence from what its consumers
+do; a consent-update purpose alone does not identify the event it listens for.
+
 ## Canonical Audit And Delivery
 
 Every naming obligation receives one canonical semantic decision. Record the

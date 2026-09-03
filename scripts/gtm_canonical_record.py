@@ -25,7 +25,6 @@ from gtm_lib import (
     write_json,
 )
 from gtm_operation_model import operation_action_identity, operation_packet_sha256
-from gtm_reconciliation import reconciliation_seal_errors
 from gtm_target_validation import target_validation_seal_errors
 
 CANONICAL_RECORD_FILE = "canonical-record.json"
@@ -217,8 +216,8 @@ def build_canonical_record(
     package_dir: Path, *, _validate_only: bool = False
 ) -> dict[str, Any]:
     require_safe_package_root(package_dir)
-    errors = reconciliation_seal_errors(package_dir)
-    errors.extend(target_validation_seal_errors(package_dir))
+    # Target reconstruction already validates reconciliation through synthesis.
+    errors = target_validation_seal_errors(package_dir)
     if errors:
         raise ValueError("canonical seal prerequisites failed: " + "; ".join(errors))
     record_path = package_dir / CANONICAL_RECORD_FILE

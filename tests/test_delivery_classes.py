@@ -9,9 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from gtm_audit_contract import HUMAN_DECISION_MEANINGS  # noqa: E402
 from gtm_delivery_mapper import (  # noqa: E402
+    AUDIT_AREA_CATEGORIES,
+    _audit_area_category,
     _custom_code_rows,
     _full_audit_rows,
     _name_index,
+    _operation_audit_area,
     _overview,
     _owner_rows,
     _recommendation_rows,
@@ -35,6 +38,80 @@ def record(decision_class: str, **fields: str) -> dict:
 
 
 class DeliveryClassTests(unittest.TestCase):
+    def test_retained_code_keeps_explicit_source_behavior_and_pending_handoff(self) -> None:
+        source = record(
+            "justified_as_is", current_behavior="The source still contains the log.",
+            criteria_assessment="Retain the event; OP-REMOVE-LOG separately removes the log.",
+            next_step="See OP-REMOVE-LOG in 02 Recommendations; preserve the event.",
+        )
+        row = _custom_code_rows(source, {}, {"CD-ONE"})[0]["canonical_prose"]
+        self.assertEqual("The source still contains the log.", row["current_behavior"])
+        self.assertIn("OP-REMOVE-LOG", row["finding"])
+        self.assertEqual(source["audit_decisions"][0]["decision"]["next_step"], row["linked_action"])
+        self.assertIn("OP-REMOVE-LOG", _full_audit_rows(source, {}, set())[0][
+            "canonical_prose"]["outcome_linked_action"])
+
+    def test_display_focus_can_be_edited_without_unlocking_audit_identity(self) -> None:
+        source = record("justified_as_is")
+        source["audit_decisions"][0].update(
+            fact_kind="functional_relationship_candidate",
+            audit_mechanism="optimization_candidate_review",
+        )
+        before = copy.deepcopy(source)
+        row = _full_audit_rows(source, {}, set())[0]
+        self.assertEqual("Comparison of related configurations",
+                         row["canonical_prose"]["audit_focus"])
+        self.assertIn("audit_focus", row["allowed_prose_fields"])
+        self.assertNotIn("audit_focus", row["locked"])
+        self.assertEqual("functional_relationship_candidate", row["locked"]["fact_kind"])
+        self.assertEqual("optimization_candidate_review", row["locked"]["audit_mechanism"])
+        code_row = _custom_code_rows(source, {}, {"CD-ONE"})[0]
+        self.assertEqual("functional_relationship_candidate", code_row["locked"]["fact_kind"])
+        self.assertEqual("optimization_candidate_review", code_row["locked"]["audit_mechanism"])
+        self.assertEqual(before, source)
+
+    def test_audit_area_categories_cover_contract_and_preserve_distinct_focus(self) -> None:
+        self.assertEqual({f"AREA-{number:02d}" for number in range(1, 28)},
+                         set(AUDIT_AREA_CATEGORIES))
+        cases = [
+            ("AREA-04", "unused_object", "Unused & obsolete elements"),
+            ("AREA-05", "duplicate_configuration", "Duplicates & consolidation"),
+            ("AREA-09", "configuration_obligation", "CMP & consent"),
+            ("AREA-15", "shared_event_setting", "Google shared settings"),
+            ("AREA-07", "legacy_name_only_candidate", "Naming"),
+            ("AREA-24", "naming_architecture_mismatch", "Naming"),
+            ("AREA-24", "container_organisation", "Folders & organization"),
+        ]
+        for area, fact, expected in cases:
+            with self.subTest(area=area, fact=fact):
+                source = record("owner_decision", owner_question="Is it required?")
+                source["audit_decisions"][0].update(area_id=area, fact_kind=fact)
+                before = copy.deepcopy(source)
+                rows = [
+                    _owner_rows(source, {})[0],
+                    _full_audit_rows(source, {}, set())[0],
+                    _custom_code_rows(source, {}, {"CD-ONE"})[0],
+                ]
+                for row in rows:
+                    self.assertEqual(expected, row["canonical_prose"]["audit_area"])
+                    self.assertEqual(area, row["locked"]["area_id"])
+                    self.assertIn("audit_area", row["allowed_prose_fields"])
+                self.assertEqual(before, source)
+
+    def test_operation_primary_area_is_stable_and_keeps_source_evidence(self) -> None:
+        sources = [
+            {"canonical_decision_id": "CD-A", "area_id": "AREA-24",
+             "decision": {"priority": "Low"}},
+            {"canonical_decision_id": "CD-B", "area_id": "AREA-09",
+             "decision": {"priority": "High"}},
+        ]
+        self.assertEqual("CMP & consent", _operation_audit_area(sources))
+        self.assertEqual("CMP & consent", _operation_audit_area(list(reversed(sources))))
+        with self.assertRaises(ValueError):
+            _operation_audit_area([])
+        with self.assertRaises(KeyError):
+            _audit_area_category({"area_id": "AREA-UNKNOWN"})
+
     def test_reconciled_handoffs_remain_bound_for_fidelity_review(self) -> None:
         source = record("justified_as_is")
         rationale = "Keep the event distinct; alias removal is owned by OP-ALIAS."
