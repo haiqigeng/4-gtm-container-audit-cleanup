@@ -861,8 +861,8 @@ audit-area filtering are authorized. Product redesign, GTM mutation, pushing,
 publishing a release and installing a copy are not authorized.
 
 All eight explicitly named evaluation files were found unambiguously in
-`C:/Users/guillaume/Downloads`: the default/cleaned JSON pairs for GTM-NVRJ4J,
-GTM-PR4MQ6J, GTM-K2G444H and GTM-MXP9DJG. Their contents have not been opened
+the user-authorized Downloads directory: the default/cleaned JSON pairs labelled NVRJ4J,
+PR4MQ6J, K2G444H and MXP9DJG. Their contents have not been opened
 in this new goal. Cleaned exports remain comparison evidence, never ground
 truth or input to initial independent auditors.
 
@@ -905,14 +905,15 @@ safeguard has been removed.
   tests skipped; it predates the last edits and is not final-candidate proof.
 - Current full-suite verification uses the bundled Python/Node/artifact runtime;
   exec session 87502 completed: all 193 tests PASS in 185.298 seconds, no skips.
-  Ruff over scripts/tests and Git whitespace checks also PASS.
+  Ruff over scripts and tests and Git whitespace checks also PASS.
   The real NVRJ4J workbook is unchanged. Its updated delivery, visual inspection,
   independent reviews and default/cleaned comparison remain pending. No other
   real-container pair has run. No push, release or installation has occurred.
 
 Delivery-only NVRJ4J evaluation preparation: copied the existing validated package
 without its generated `delivery` directory to
-`C:/Users/guillaume/AppData/Local/Temp/gtm-eval41-delivery-53bd505df7024497a0abbc48f498bbf8/audit-package-audit-area-filter`.
+the preserved evaluation-41 delivery directory's audit-area-filter package
+(exact local path retained in the development task).
 Source package remains `audit-package-delivery-consistency-repair` in that same
 parent. Mapper creation is running in exec session 47622; poll this exact handle.
 No audits or target synthesis were restarted. The development-only
@@ -1133,8 +1134,8 @@ technical verification and fresh independent delivery reviews remain next.
 PR4MQ6J default-only evaluation has now started in parallel with NVRJ4J delivery.
 Both explicitly authorised Downloads filenames were resolved; the cleaned file
 has not been read or supplied to any initial auditor. Workbook preflight passed.
-Evaluation root: C:/Users/guillaume/AppData/Local/Temp/gtm-pr4mq6j-eval-11d4cea3fde24509832c933279861617.
-Canonical scan of GTM-PR4MQ6J_default.json is running; fresh assurance and the two
+Evaluation root: the isolated PR4MQ6J directory recorded in the development task.
+Canonical scan of the PR4MQ6J default export is running; fresh assurance and the two
 independent audits follow. Keep comparison conclusions out of those contexts.
 
 PR4MQ6J canonical scan passed: 0f2d8ffa828f1e7d3571140b83ee83e4da395f242f4acf647d328c506ad2168b.
@@ -1251,7 +1252,7 @@ bc23d7b1b0811001d0313e314402776cb78b25bfbf59bbb988c8970092c46d42.
 Its workbook preflight passed. NVRJ4J fresh scan assurance completed with all
 19 checks passing. Package creation then passed, with 558 objects and 1,283
 semantic obligations. Evaluation root:
-`C:/Users/guillaume/AppData/Local/Temp/gtm-nvrj4j-fresh-6fecf16f0150460b91d01ad01fd5f305`.
+the fresh NVRJ4J evaluation directory recorded in the development task.
 
 Two new peer-blind auditors were dispatched from that packaged candidate:
 Audit A / Laplace (01a06930-c521-74b3-b9d9-4421e822a3f1), Audit B / Newton
@@ -1399,3 +1400,20 @@ Audit B confirmed its prior linkage blocker was incorrect, then stopped with
 to finish its remaining independent work. Audit A remains running. Neither audit
 is sealed, and this intervention-required evaluation does not qualify normal
 unassisted execution or release readiness.
+
+### 2026-09-04 — Updated candidate packaging and release-check isolation
+
+Packaged clean commit 77abf77 as an isolated evaluation candidate. Its declared
+runtime identity and workbook preflight pass. A fresh assurance agent checked its
+NVRJ4J scan: all 19 checks passed with no errors. The original two independent
+audits retain their original package and remain unfinished; this new assurance
+does not transfer or qualify their semantic judgments for the updated candidate.
+
+The repository checker traverses local ignored development material when run in
+the working directory. Running it instead against a clean Git archive isolated
+the actual release content without deleting local artifacts or changing checks.
+Seven remaining documentation findings concerned one shorthand mistaken for a
+resource path and local evaluation/source identifiers. Replaced that shorthand
+and kept logical evaluation labels in the public record; exact artifact paths
+remain available in the development task. This is repository hygiene, not proof
+of final semantic qualification or authorization to publish early.
