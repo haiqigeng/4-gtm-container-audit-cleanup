@@ -60,6 +60,8 @@ PLAN_DECISION_FIELDS = {
     "operation_proposal",
     "evidence_citations",
 }
+OPERATION_DECISION_FIELDS = ("static_verification", "rollback")
+AUTHORED_OPERATION_FIELDS = OPERATION_PROPOSAL_FIELDS - {"source_decision_id"}
 
 
 def _authoring_contract() -> dict[str, Any]:
@@ -91,19 +93,22 @@ def _authoring_contract() -> dict[str, Any]:
         "confidence_levels_case_sensitive": list(CONFIDENCE_LEVELS),
         "required_fields_by_class": {
             decision_class: [
-                *BASE_REQUIRED_DECISION_FIELDS,
-                *CLASS_REQUIRED_DECISION_FIELDS[decision_class],
+                field
+                for field in (*BASE_REQUIRED_DECISION_FIELDS, *CLASS_REQUIRED_DECISION_FIELDS[decision_class])
+                if decision_class not in ACTIONABLE_DECISION_CLASSES
+                or field not in OPERATION_DECISION_FIELDS
             ]
             for decision_class in DECISION_CLASSES
         },
         "actionable_operation_contract": {
             "operation_id_pattern": OPERATION_ID_PATTERN,
             "operation_id_example": "OP-TAG-943-REMOVE-BLOCKER",
-            "source_decision_id_must_match_locked_decision_id": True,
+            "derived_source_decision_id": "copied from the locked decision identity",
+            "decision_fields_projected_from_operation": list(OPERATION_DECISION_FIELDS),
             "at_least_one_structured_action": True,
             "depends_on_rule": "list containing only OP-* operation IDs",
             "required_nonblank_text_fields": list(OPERATION_TEXT_FIELDS),
-            "proposal_fields": sorted(OPERATION_PROPOSAL_FIELDS),
+            "proposal_fields": sorted(AUTHORED_OPERATION_FIELDS),
             "action_row_fields": {
                 field: sorted(fields)
                 for field, fields in sorted(OPERATION_ACTION_ROW_FIELDS.items())
@@ -112,7 +117,7 @@ def _authoring_contract() -> dict[str, Any]:
                 "object-relative JSONPath beginning with $, for example "
                 "$.priority; never a $.containerVersion path"
             ),
-            "every_action_list_present": True,
+            "omitted_lists": "unused action lists and depends_on are completed as empty lists",
         },
         "open_discoveries_contract": {
             "default": [],
@@ -235,6 +240,19 @@ def _plan_errors(
             decision = row.get("decision")
             if not isinstance(decision, dict) or set(decision) - PLAN_DECISION_FIELDS:
                 errors.append(f"{label} decision uses unsupported fields")
+                continue
+            if decision.get("decision_class") in ACTIONABLE_DECISION_CLASSES:
+                if set(decision) & set(OPERATION_DECISION_FIELDS):
+                    errors.append(f"{label}: author verification and rollback only inside operation_proposal")
+                proposal = decision.get("operation_proposal")
+                if isinstance(proposal, dict):
+                    if set(proposal) - AUTHORED_OPERATION_FIELDS:
+                        errors.append(f"{label}: operation_proposal contains unsupported or derived fields")
+                    for field in (*OPERATION_ACTION_FIELDS, "depends_on"):
+                        if field in proposal and not isinstance(proposal[field], list):
+                            errors.append(f"{label}: operation_proposal {field} must be a list")
+            elif "operation_proposal" in decision and decision["operation_proposal"] != {}:
+                errors.append(f"{label}: non-actionable decision operation_proposal must be omitted or empty")
     if not isinstance(plan.get("open_discoveries"), list):
         errors.append("audit plan open_discoveries must be a list")
     else:
@@ -244,8 +262,8 @@ def _plan_errors(
         "global_shared_infrastructure_review",
         "global_target_architecture_review",
     ):
-        if len(str(plan.get(field) or "").split()) < 10:
-            errors.append(f"audit plan {field} is incomplete")
+        if not isinstance(plan.get(field), str) or not plan[field].strip():
+            errors.append(f"audit plan {field} must be a non-blank string")
     return errors
 
 
@@ -282,6 +300,9 @@ def _complete_decision(
         if decision_class in ACTIONABLE_DECISION_CLASSES and isinstance(proposal, dict)
         else {}
     )
+    if decision_class in ACTIONABLE_DECISION_CLASSES:
+        for field in OPERATION_DECISION_FIELDS:
+            result[field] = result["operation_proposal"].get(field, "")
     return result
 
 

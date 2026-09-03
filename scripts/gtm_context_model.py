@@ -120,15 +120,16 @@ def normalize_advanced_consent_mode_approvals(value: Any) -> list[dict[str, str]
         transport_scope = str(raw.get("transport_scope") or "").strip()
         route_host_raw = str(raw.get("route_host") or "").strip()
         approval_status = str(raw.get("approval_status") or "").strip()
-        evidence = str(raw.get("evidence") or "").strip()
+        evidence = raw.get("evidence")
         if not DESTINATION_ID_RE.fullmatch(destination_id):
             raise ValueError(f"{label}.destination_id is invalid")
         if transport_scope not in ADVANCED_CONSENT_MODE_TRANSPORT_SCOPES:
             raise ValueError(f"{label}.transport_scope is invalid")
         if approval_status != "approved":
             raise ValueError(f"{label}.approval_status must be approved")
-        if len(evidence.split()) < 3:
+        if not isinstance(evidence, str) or not evidence.strip():
             raise ValueError(f"{label}.evidence must identify a concrete approval basis")
+        evidence = evidence.strip()
         route_host = ""
         if transport_scope == "direct_browser":
             if route_host_raw:

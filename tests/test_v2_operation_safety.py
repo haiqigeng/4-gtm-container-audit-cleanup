@@ -28,6 +28,7 @@ from gtm_audit_work_units import (  # noqa: E402
     work_unit_identity_hash,
     workload_estimate_schema_errors,
 )
+from gtm_canonical_record import _operation_errors  # noqa: E402
 from gtm_cleanroom_audit import (  # noqa: E402
     OBJECT_KEY_RE,
     decision_obligation_alignment_errors,
@@ -43,6 +44,7 @@ from gtm_lib import (  # noqa: E402
 from gtm_operation_model import (  # noqa: E402
     apply_operations,
     dependency_order,
+    operation_action_identity,
     operation_packet_sha256,
     operation_write_conflicts,
     validate_operations,
@@ -406,6 +408,37 @@ class V2OperationSafetyTests(unittest.TestCase):
         errors = semantic_contract_errors(actionable, "decision")
         self.assertIn("decision: current_behavior is missing", errors)
         self.assertIn("decision: rollback is missing", errors)
+
+    def test_canonical_operation_accepts_concise_text_and_rejects_missing_meaning(self) -> None:
+        proposal = operation("OP-REMOVE-PRIORITY", removals=[{
+            "object_key": "tag:1", "json_path": "$.priority",
+            "before": {"type": "INTEGER", "value": "10"},
+        }])
+        prose = {
+            "exact_target_state": "Remove tag:1.priority.",
+            "preconditions": "priority = INTEGER(10).",
+            "static_verification": "Only priority removed.",
+            "rollback": "Restore INTEGER(10) priority.",
+        }
+        proposal.update(prose)
+        proposal["source_reconciled_decision_ids"] = ["CD-1"]
+        proposal["action_payload_sha256"] = operation_action_identity(proposal)
+        decisions = [{"canonical_decision_id": "CD-1", "decision": {"decision_class": "defect"}}]
+
+        def packet(row: dict) -> dict:
+            return {"operations": [row], "operation_packet_sha256": operation_packet_sha256([row]),
+                    "decision_to_operation": {"CD-1": row["operation_id"]}}
+
+        self.assertEqual([], _operation_errors(packet(proposal), decisions))
+        for field in prose:
+            for invalid in ("", " ", None, [], 123):
+                with self.subTest(field=field, invalid=invalid):
+                    changed = copy.deepcopy(proposal)
+                    changed[field] = invalid
+                    self.assertEqual(
+                        [f"OP-REMOVE-PRIORITY: {field} must be a non-blank string"],
+                        _operation_errors(packet(changed), decisions),
+                    )
 
     def test_operation_family_requires_text_not_an_arbitrary_word_count(self) -> None:
         decision = {"decision_id": "AUDIT-A-DECISION-1"}

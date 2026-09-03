@@ -191,7 +191,7 @@ reads and in-memory selection, such as PowerShell `Get-Content -LiteralPath`
 with `Select-Object` or `ConvertFrom-Json`, are allowed when no filesystem tool
 is available. Do not search implementation source with `rg`, `grep`, or
 another discovery command, enumerate unknown paths, or run exploratory shell
-commands. Other than exact-path reads and one structured edit of the isolated
+commands. Other than exact-path reads and structured edits confined to the isolated
 declarative audit plan, the only executable commands are the documented
 checkpoint, plan scaffold/apply, validate, and seal gates. Reconciliation's
 scaffold command performs the subsequent sealed-audit and history check.
@@ -217,13 +217,16 @@ Put each actionable operation in a profile or override that resolves to exactly
 one obligation because its operation and target are unique. Candidate membership
 is locked; profiles and overrides contain the nested decision. Use the
 case-sensitive priority and confidence values in `authoring_contract`. An
-actionable decision includes the complete declared `operation_proposal`. This
+actionable decision includes the declared authored `operation_proposal`. This
 includes an uppercase `operation_id` matching the exact pattern and example in
 `authoring_contract`. Its target state, preconditions, static verification, and
 rollback are specific human-readable non-blank strings, without a word-count quota;
-`preconditions` is never a list. Follow the same contract for exact source
-decision identity, operation-family wording, structured-action presence, and
-dependencies. Action-row `json_path` values are object-relative paths such as
+`preconditions` is never a list. Author verification and rollback once inside
+the operation; the applicator projects them into the canonical decision. It also
+derives the source decision identity and fills omitted unused action lists and
+dependencies with empty lists. Supply every necessary action and dependency;
+follow the declared operation-family and structured-action contract.
+Action-row `json_path` values are object-relative paths such as
 `$.priority`, never full `$.containerVersion...` source coordinates.
 The applicator runs the existing operation simulator against the locked source
 before writing. This exact-ID grouping removes repeated prose without using

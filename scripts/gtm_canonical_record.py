@@ -173,8 +173,8 @@ def _operation_errors(
             "static_verification",
             "rollback",
         ):
-            if len(str(operation.get(field) or "").split()) < 4:
-                errors.append(f"{operation_id}: {field} is incomplete")
+            if not isinstance(operation.get(field), str) or not operation[field].strip():
+                errors.append(f"{operation_id}: {field} must be a non-blank string")
     return errors
 
 

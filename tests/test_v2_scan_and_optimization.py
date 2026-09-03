@@ -21,7 +21,10 @@ from gtm_canonical_scan import (  # noqa: E402
     build_canonical_scan,
     neutral_fact_judgment_leaks,
 )
-from gtm_context_model import build_context_model  # noqa: E402
+from gtm_context_model import (  # noqa: E402
+    build_context_model,
+    normalize_advanced_consent_mode_approvals,
+)
 from gtm_lib import CONSENT_INITIALIZATION_TRIGGER_ID  # noqa: E402
 from gtm_obligation_ledger import build_obligation_ledger  # noqa: E402
 from gtm_optimization_facts import _consent_metadata  # noqa: E402
@@ -1345,6 +1348,18 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
                     ]
                 },
             )
+
+    def test_approval_basis_accepts_concrete_reference_without_word_quota(self) -> None:
+        approval = {
+            "destination_id": "G-TEST", "transport_scope": "direct_browser",
+            "route_host": "", "approval_status": "approved", "evidence": "Owner-approved:CMP-42",
+        }
+        self.assertEqual([approval], normalize_advanced_consent_mode_approvals([approval]))
+        for invalid in ("", " ", None, [], {"ticket": "CMP-42"}):
+            with self.subTest(evidence=invalid):
+                changed = dict(approval, evidence=invalid)
+                with self.assertRaisesRegex(ValueError, "concrete approval basis"):
+                    normalize_advanced_consent_mode_approvals([changed])
 
     def test_consent_area_applicability_and_vendor_topology_are_route_exact(self) -> None:
         payload = rich_export()

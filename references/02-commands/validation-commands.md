@@ -147,12 +147,16 @@ Each profile has exactly this nesting:
 ```
 
 Use only the case-sensitive priority and confidence values in
-`authoring_contract`. Every actionable decision must include the complete
-declared `operation_proposal`; all action-list fields are present, even when
-empty. Its uppercase `operation_id` must match the exact pattern and example in
+`authoring_contract`. Every actionable decision must include the declared authored
+`operation_proposal`, containing all necessary actions and dependencies. The
+applicator derives `source_decision_id` from the locked record and fills omitted
+unused action lists and `depends_on` with empty lists; do not author derived fields.
+Its uppercase `operation_id` must match the exact pattern and example in
 `authoring_contract`. Target state, preconditions, static verification, and
-rollback are required non-blank strings; preconditions is not a list. Independent
-semantic review checks their specificity; a word count does not prove it.
+rollback are required non-blank strings; preconditions is not a list. Verification
+and rollback wording is authored once inside `operation_proposal`
+and projected into the canonical decision, not repeated at decision level.
+Independent semantic review checks their specificity; a word count does not prove it.
 Action-row `json_path` values are object-relative (for example
 `$.priority`), never full `$.containerVersion...` source coordinates.
 Plan application runs the established operation simulator against the locked

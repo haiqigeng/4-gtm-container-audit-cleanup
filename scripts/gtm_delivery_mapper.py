@@ -927,8 +927,9 @@ def validate_editorial(package_dir: Path) -> list[str]:
         errors.append("editorial review changed or did not protect semantic fields")
     if attestation.get("technical_identifiers_preserved") is not True:
         errors.append("editorial review did not attest identifier preservation")
-    if len(str(attestation.get("conclusion") or "").split()) < 8:
-        errors.append("editorial completion conclusion is incomplete")
+    conclusion = attestation.get("conclusion")
+    if not isinstance(conclusion, str) or not conclusion.strip():
+        errors.append("editorial completion conclusion must be a non-blank string")
     return errors
 
 

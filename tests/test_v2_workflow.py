@@ -270,10 +270,10 @@ def write_fixture_audit_plan(package: Path, audit_id: str) -> Path:
         plan, audit["decisions"], "fixture"
     )
     plan["global_shared_infrastructure_review"] = (
-        "The complete fixture has no shared infrastructure object and no unresolved shared ownership."
+        "No shared infrastructure."
     )
     plan["global_target_architecture_review"] = (
-        "The complete fixture target remains empty because no proven implementation need exists."
+        "Retain the empty target."
     )
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     return plan_path
@@ -531,7 +531,7 @@ def complete_editorial(package: Path) -> None:
     payload["completion_attestation"] = {
         "semantic_fields_changed": False,
         "technical_identifiers_preserved": True,
-        "conclusion": "The human wording remains faithful, standalone, bounded, and suitable for analyst review.",
+        "conclusion": "Canonical meaning preserved.",
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     seal_editorial(package)
@@ -568,7 +568,7 @@ def complete_delivery_reviews(package: Path) -> None:
             }
         )
     fidelity["completion_attestation"] = (
-        "Every visible fixture row preserves its bound decision, caveats, identifiers, and action."
+        "Meaning and caveats preserved."
     )
     fidelity_path.write_text(json.dumps(fidelity, indent=2) + "\n", encoding="utf-8")
     reader_path = root / "reader" / "reader-review.json"
@@ -594,7 +594,7 @@ def complete_delivery_reviews(package: Path) -> None:
             }
         )
     reader["completion_attestation"] = (
-        "The fixture workbook is standalone, readable, navigable, and clear about its next action."
+        "Workbook is readable and actionable."
     )
     reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
 
@@ -766,8 +766,12 @@ class V2WorkflowTests(unittest.TestCase):
                 "obligation_ids": [priority["obligation_id"]],
                 "decision": {
                     field: authored[field] for field in CANONICAL_DECISION_FIELDS
+                    if field not in {"static_verification", "rollback"}
                 }
-                | {"operation_proposal": authored["operation_proposal"]},
+                | {"operation_proposal": {
+                    field: value for field, value in authored["operation_proposal"].items()
+                    if field != "source_decision_id" and value != []
+                }},
             }
         )
         removal = plan["obligation_overrides"][-1]["decision"]["operation_proposal"][
@@ -781,6 +785,21 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertEqual(before, audit_path.read_bytes())
 
         removal["json_path"] = "$.priority"
+        for location, field, value, expected in (
+            ("decision", "rollback", "Duplicated prose.", "only inside operation_proposal"),
+            ("proposal", "source_decision_id", "forged", "unsupported or derived fields"),
+            ("proposal", "creations", {}, "creations must be a list"),
+        ):
+            with self.subTest(field=field):
+                invalid = copy.deepcopy(plan)
+                target = invalid["obligation_overrides"][-1]["decision"]
+                if location == "proposal":
+                    target = target["operation_proposal"]
+                target[field] = value
+                plan_path.write_text(json.dumps(invalid), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, expected):
+                    apply_plan(audit_path.parent, plan_path)
+                self.assertEqual(before, audit_path.read_bytes())
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
         apply_plan(audit_path.parent, plan_path)
@@ -795,6 +814,11 @@ class V2WorkflowTests(unittest.TestCase):
             result["operation_proposal"]["source_decision_id"],
         )
         self.assertEqual("correct_but_materially_non_optimal", result["decision_class"])
+        for field in ("static_verification", "rollback"):
+            self.assertEqual(authored["operation_proposal"][field], result[field])
+            self.assertEqual(result[field], result["operation_proposal"][field])
+        self.assertEqual([], result["operation_proposal"]["creations"])
+        self.assertEqual([], result["operation_proposal"]["depends_on"])
         self.assertEqual([], validate_audit(self.package, "audit-a"))
 
     def test_audit_plan_rejects_duplicate_obligation_assignment_before_writing(self) -> None:
@@ -812,6 +836,21 @@ class V2WorkflowTests(unittest.TestCase):
             apply_plan(audit_path.parent, plan_path)
 
         self.assertEqual(before, audit_path.read_bytes())
+
+    def test_audit_plan_rejects_non_actionable_proposals_before_writing(self) -> None:
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "plan-non-actionable-context")
+        plan_path = write_fixture_audit_plan(self.package, "audit-a")
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        audit_path = self.package / "audit-bundles" / "audit-a" / "audit.json"
+        before = audit_path.read_bytes()
+        for proposal in ({"source_decision_id": "forged", "creations": {}}, None, [], "discarded"):
+            with self.subTest(proposal=proposal):
+                plan["decision_profiles"][0]["decision"]["operation_proposal"] = proposal
+                plan_path.write_text(json.dumps(plan), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "non-actionable decision operation_proposal"):
+                    apply_plan(audit_path.parent, plan_path)
+                self.assertEqual(before, audit_path.read_bytes())
 
     def test_audit_plan_requires_exact_complete_groups_and_singleton_actions(self) -> None:
         self.export.write_text(
@@ -882,11 +921,16 @@ class V2WorkflowTests(unittest.TestCase):
                 "required_nonblank_text_fields"
             ],
         )
-        self.assertTrue(
-            contract["actionable_operation_contract"][
-                "source_decision_id_must_match_locked_decision_id"
-            ]
+        self.assertNotIn(
+            "source_decision_id", contract["actionable_operation_contract"]["proposal_fields"]
         )
+        self.assertEqual(
+            ["static_verification", "rollback"],
+            contract["actionable_operation_contract"]["decision_fields_projected_from_operation"],
+        )
+        for decision_class in ("defect", "correct_but_materially_non_optimal"):
+            for field in ("static_verification", "rollback"):
+                self.assertNotIn(field, contract["required_fields_by_class"][decision_class])
         self.assertTrue(
             contract["actionable_operation_contract"][
                 "at_least_one_structured_action"
@@ -2080,6 +2124,16 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertNotIn("independent_agent_id", editorial)
         self.assertNotIn("independent_context_id", editorial)
         self.assertNotIn("host_isolation_receipt", editorial)
+        original = editorial_path.read_bytes()
+        for invalid in ("", " ", None, [], 42):
+            with self.subTest(conclusion=invalid):
+                editorial["completion_attestation"]["conclusion"] = invalid
+                editorial_path.write_text(json.dumps(editorial), encoding="utf-8")
+                self.assertIn(
+                    "editorial completion conclusion must be a non-blank string",
+                    validate_editorial(self.package),
+                )
+        editorial_path.write_bytes(original)
 
 
     def test_complete_static_workflow_reaches_sealed_canonical_record(self) -> None:
@@ -2886,6 +2940,15 @@ class V2WorkflowTests(unittest.TestCase):
             seal_delivery(self.package)
         reader["input_manifest_sha256"] = original_manifest
         reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
+        for review_path, review, role in ((reader_path, reader, "reader"), (fidelity_path, fidelity, "fidelity")):
+            for invalid in ("", []):
+                with self.subTest(role=role, attestation=invalid):
+                    changed = copy.deepcopy(review)
+                    changed["completion_attestation"] = invalid
+                    review_path.write_text(json.dumps(changed), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, f"{role} completion attestation must be a non-blank string"):
+                        seal_delivery(self.package)
+            review_path.write_text(json.dumps(review), encoding="utf-8")
         result = seal_delivery(self.package)
         self.assertEqual(result["status"], "pass")
         self.assertTrue(Path(result["workbook"]).is_file())

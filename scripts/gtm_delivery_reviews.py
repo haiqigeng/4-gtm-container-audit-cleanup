@@ -549,8 +549,9 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
         errors.append("overview fidelity review did not pass")
     if as_list(overview.get("issues")):
         errors.append("overview fidelity issues remain open")
-    if len(str(fidelity.get("completion_attestation") or "").split()) < 8:
-        errors.append("fidelity completion attestation is incomplete")
+    conclusion = fidelity.get("completion_attestation")
+    if not isinstance(conclusion, str) or not conclusion.strip():
+        errors.append("fidelity completion attestation must be a non-blank string")
 
     if reader.get("status") != "complete":
         errors.append("reader review status must be complete")
@@ -579,8 +580,9 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
             errors.append(f"{sheet}: reader issues remain open")
     if as_list(reader.get("cross_workbook_issues")):
         errors.append("cross-workbook reader issues remain open")
-    if len(str(reader.get("completion_attestation") or "").split()) < 8:
-        errors.append("reader completion attestation is incomplete")
+    conclusion = reader.get("completion_attestation")
+    if not isinstance(conclusion, str) or not conclusion.strip():
+        errors.append("reader completion attestation must be a non-blank string")
     if fidelity.get("independent_agent_id") == reader.get("independent_agent_id"):
         errors.append("fidelity and reader reviews must use different agents")
     if fidelity.get("independent_context_id") == reader.get("independent_context_id"):

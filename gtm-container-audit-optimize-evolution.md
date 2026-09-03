@@ -1481,3 +1481,38 @@ plans are not reconciliation inputs or final comparison evidence. The updated
 candidate's separately assured package is ready for subsequent evaluation;
 unchanged source data does not justify transferring old judgments onto changed
 scan/ledger identities. No release or installation has occurred.
+
+### 2026-09-04 — Simplify semantic authoring without reducing coverage
+
+A separate product-engineering reviewer inspected the authoring contract without
+container exports, comparison evidence or either source audit's findings. It
+identified three concrete friction points: a single-edit restriction conflicting
+with incremental work, duplicated operation/decision verification and rollback
+prose, and instructions requiring clerical fields already derived by the
+applicator. These issues plausibly impede execution; they do not establish the
+cause of the agents' early stops.
+
+Incremental structured edits are now explicitly allowed within each isolated
+plan. Actionable verification and rollback are authored once in the operation
+and projected into the existing canonical decision fields. Source decision IDs
+are derived from locked records; omitted unused action and dependency lists are
+completed mechanically. Supplied derived/unknown fields and malformed lists fail
+before writes. The reviewer found and then confirmed correction of a related
+silent-discard defect: non-actionable decisions now accept only omitted or empty
+operation proposals. Canonical output fields, exact-once obligation coverage,
+operation simulation and agent independence remain unchanged.
+
+Removed the remaining prose-length quotas in plan conclusions, canonical
+operations, delivery attestations and approval-evidence text. Nonblank string
+requirements and the substantive source, scope, citation, coverage, identity and
+review conditions remain. Concrete concise approval references are accepted;
+blank or non-string substitutes are rejected. No new runtime stage, dependency,
+compatibility path or generic validation framework was added.
+
+The reviewer reported no residual findings in this scoped batch. All 210 tests
+passed in 155.580 seconds with workbook runtime enabled; the release-complete
+coverage gate passes all 37 modules at 75.01% aggregate coverage, with 4,396 of
+6,430 branches covered. Ruff, whitespace, skill validation and high-confidence
+dead-code checks pass. The original source auditors continue on their unchanged
+packaged implementation; these engineering results are not final semantic or
+release qualification.
