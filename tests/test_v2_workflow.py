@@ -945,6 +945,56 @@ class V2WorkflowTests(unittest.TestCase):
         ), self.assertRaisesRegex(RuntimeError, "separately produced scan-assurance"):
             executable_build_package(self.export, self.root / "missing-assurance")
 
+    def test_package_identity_and_missing_source_fail_before_output_creation(self) -> None:
+        cases = (
+            (self.export, ["changed runtime file"], "runtime identity preflight"),
+            (self.root / "absent-source.json", [], "confirmed GTM source does not exist"),
+        )
+        for index, (source, identity_errors, expected) in enumerate(cases):
+            with self.subTest(expected=expected):
+                output = self.root / f"preflight-{index}"
+                with mock.patch(
+                    "gtm_audit_package_build.declared_identity_errors",
+                    return_value=({}, identity_errors),
+                ), self.assertRaisesRegex(RuntimeError, expected):
+                    executable_build_package(source, output)
+                self.assertFalse(output.exists())
+
+    def test_package_rejects_registry_errors_and_staleness_before_evidence_writes(self) -> None:
+        assurance_path = self.root / "assurance.json"
+        assurance_path.write_text("{}", encoding="utf-8")
+        for index, registry_result in enumerate(((["invalid registry"], []), ([], ["stale registry"]))):
+            with self.subTest(registry_result=registry_result):
+                output = self.root / f"registry-{index}"
+                with mock.patch(
+                    "gtm_audit_package_build.declared_identity_errors", return_value=({}, [])
+                ), mock.patch(
+                    "gtm_audit_package_build.validate_registry", return_value=registry_result
+                ), self.assertRaisesRegex(RuntimeError, "locked vendor registry is invalid or stale"):
+                    executable_build_package(self.export, output, scan_assurance_path=assurance_path)
+                self.assertEqual([], list(output.iterdir()))
+
+    def test_package_requires_both_assurance_provenance_labels(self) -> None:
+        scan = build_canonical_scan(self.export)["canonical_scan"]
+        assurance = assure_scan(
+            self.export, scan,
+            vendor_registry_path=ROOT / "references" / "03-rules" / "vendor-registry.toml",
+            independent_agent_id="fresh-assurance-agent",
+            independent_context_id="fresh-assurance-context",
+        )
+        for field in ("independent_agent_id", "independent_context_id"):
+            with self.subTest(field=field):
+                invalid = copy.deepcopy(assurance)
+                invalid[field] = "   "
+                assurance_path = self.root / f"missing-{field}.json"
+                assurance_path.write_text(json.dumps(invalid), encoding="utf-8")
+                output = self.root / f"missing-{field}"
+                with mock.patch(
+                    "gtm_audit_package_build.declared_identity_errors", return_value=({}, [])
+                ), self.assertRaisesRegex(RuntimeError, "requires fresh agent and context labels"):
+                    executable_build_package(self.export, output, scan_assurance_path=assurance_path)
+                self.assertEqual([], list(output.iterdir()))
+
     def test_package_reconstructs_separate_scan_assurance_before_use(self) -> None:
         scan = build_canonical_scan(self.export)["canonical_scan"]
         assurance = assure_scan(

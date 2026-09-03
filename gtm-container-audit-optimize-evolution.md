@@ -1444,3 +1444,22 @@ resource path and local evaluation/source identifiers. Replaced that shorthand
 and kept logical evaluation labels in the public record; exact artifact paths
 remain available in the development task. This is repository hygiene, not proof
 of final semantic qualification or authorization to publish early.
+
+### 2026-09-04 — Measured coverage and package preflight regressions
+
+The corrected production tree passed all 204 tests under coverage in 167.588
+seconds with the workbook runtime enabled. All 37 Python modules were measured.
+The release-complete coverage gate exposed one shortfall: package-builder
+coverage was 67.79% against its existing 71% minimum. Added three focused tests
+covering runtime-identity failure, missing source, invalid/stale registry and
+missing fresh-agent/context labels. They assert that failure precedes evidence
+writes, not just that an error message appears. All six package-focused tests
+pass. No production code or coverage threshold changed.
+
+Combined full-suite and focused-test evidence now passes the release-complete
+coverage gate: 74.93% aggregate line/branch coverage, with 4,376 of 6,412 branches
+covered; package-builder coverage is 73.15%. Ruff, whitespace checks and the
+100%-confidence dead-code check pass. The clean committed-export repository check
+also passed after the documentation corrections. These technical results do not
+replace unfinished semantic evaluations, four-pair comparisons or the newly
+required installed-release production-use acceptance test.
