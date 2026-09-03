@@ -66,6 +66,12 @@ name/value-table values before they enter visible rows or technical comments,
 while preserving names, ordering, object identities, and canonical action hashes.
 This presentation correction does not change source evidence or audit judgments.
 
+Initial operation validation now always simulates the complete proposed packet;
+it no longer does so only when protected objects are declared. Implicit consumer
+rewrites from renames/remaps must respect source-bound field-change ordering.
+Before-value drift names the exact failed operation. Repair the affected authored
+dependencies and dependent reconciliation records, retaining all unaffected work.
+
 ## Current Phase Boundary
 
 The v2 workflow accepts one complete GTM **web-container** export or equivalent

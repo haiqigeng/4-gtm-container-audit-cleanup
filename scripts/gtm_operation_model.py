@@ -513,11 +513,11 @@ def validate_operations(
             errors.append(
                 f"{operation_id}: writes {key}, which is also deleted by {deleted[key]}"
             )
-    if protected_keys and not errors:
+    if not errors:
         try:
             projected_catalog = object_catalog(apply_operations(data, ordered))
         except (KeyError, TypeError, ValueError) as exc:
-            errors.append(f"operation projection failed before do_not_touch proof: {exc}")
+            errors.append(f"operation simulation failed: {exc}")
         else:
             for key in sorted(protected_keys):
                 projected = projected_catalog.get(key)
@@ -556,14 +556,16 @@ def apply_operations(
             target = catalog[str(action["object_key"])]["object"]
             if get_json_path(target, str(action["json_path"])) != action.get("before"):
                 raise ValueError(
-                    f"change before value drifted for {action['object_key']} {action['json_path']}"
+                    f"{operation['operation_id']}: change before value drifted for "
+                    f"{action['object_key']} {action['json_path']}"
                 )
             set_json_path(target, str(action["json_path"]), action.get("after"))
         for action in as_list(operation.get("removals")):
             target = catalog[str(action["object_key"])]["object"]
             if get_json_path(target, str(action["json_path"])) != action.get("before"):
                 raise ValueError(
-                    f"removal before value drifted for {action['object_key']} {action['json_path']}"
+                    f"{operation['operation_id']}: removal before value drifted for "
+                    f"{action['object_key']} {action['json_path']}"
                 )
             delete_json_path(target, str(action["json_path"]))
         for action in as_list(operation.get("remaps")):
@@ -579,7 +581,7 @@ def apply_operations(
             before = str(action["before"])
             after = str(action["after"])
             if str(target.get("name") or "") != before:
-                raise ValueError(f"rename before value drifted for {key}")
+                raise ValueError(f"{operation['operation_id']}: rename before value drifted for {key}")
             layer = catalog[key]["layer"]
             if layer in {"variable", "tag"}:
                 for other_key, record in catalog.items():

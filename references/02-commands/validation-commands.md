@@ -149,7 +149,14 @@ rollback are strings meeting the contract's minimum word counts; preconditions
 is not a list. Action-row `json_path` values are object-relative (for example
 `$.tagFiringPriority`), never full `$.containerVersion...` source coordinates.
 Plan application runs the established operation simulator against the locked
-source before any audit write. Leave plan `open_discoveries` as `[]` unless a genuinely new semantic
+source before any audit write, including when no `do_not_touch` objects are
+declared. Renames and remaps can implicitly rewrite consumer fields. When another
+operation replaces or removes such a field, declare the necessary dependency so
+its exact source-bound before value still matches at application time. Do not rely
+on operation-ID sorting, alter before values, or discard an otherwise justified
+change to conceal an ordering conflict.
+
+Leave plan `open_discoveries` as `[]` unless a genuinely new semantic
 record satisfies the complete structured discovery contract. Do not copy the
 checkpoint's concise string notes into the plan.
 

@@ -139,6 +139,43 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_simulation_catches_implicit_reference_drift_without_protected_objects(self) -> None:
+        source = operation_fixture()
+        original = copy.deepcopy(source)
+        before = copy.deepcopy(source["containerVersion"]["tag"][0]["parameter"])
+        after = copy.deepcopy(before)
+        after[0]["value"] = "G-NEW"
+        cleanup = operation("Z-CONFIG", changes=[{
+            "object_key": "tag:1", "json_path": "$.parameter",
+            "before": before, "after": after,
+        }])
+        implicit_writes = (
+            operation("A-RENAME", renames=[{
+                "object_key": "variable:20", "before": "Old Variable", "after": "New Variable",
+            }]),
+            operation("A-REMAP", remaps=[{
+                "from_object_key": "variable:20", "to_object_key": "variable:21",
+                "consumer_object_keys": ["tag:1"],
+            }]),
+        )
+        for implicit in implicit_writes:
+            for protected in (None, set()):
+                with self.subTest(operation=implicit["operation_id"], protected=protected):
+                    errors = validate_operations(source, [implicit, cleanup], do_not_touch=protected)
+                    self.assertTrue(any(
+                        "Z-CONFIG: change before value drifted for tag:1 $.parameter" in error
+                        for error in errors
+                    ), errors)
+            ordered_implicit = copy.deepcopy(implicit)
+            ordered_implicit["depends_on"] = ["Z-CONFIG"]
+            operations = [ordered_implicit, cleanup]
+            self.assertEqual([], validate_operations(source, operations))
+            projected = apply_operations(source, operations)
+            parameters = projected["containerVersion"]["tag"][0]["parameter"]
+            self.assertEqual("G-NEW", parameters[0]["value"])
+            self.assertNotEqual("{{Old Variable}}", parameters[1]["value"])
+        self.assertEqual(original, source)
+
     def test_consent_initialization_is_a_known_system_trigger(self) -> None:
         self.assertEqual("2147479572", CONSENT_INITIALIZATION_TRIGGER_ID)
         self.assertTrue(
