@@ -3,6 +3,7 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -23,6 +24,8 @@ const { FileBlob, SpreadsheetFile } = await import(
     ),
   ).href
 );
+const require = createRequire(import.meta.url);
+const JSZip = require(path.join(artifactNodeModules, "jszip"));
 
 function stableObject(value) {
   if (Array.isArray(value)) return value.map(stableObject);
@@ -140,7 +143,7 @@ function previewRange(sheetModel) {
   const columnCount = sheetModel.dimensions.columns.length;
   const endColumn = String.fromCharCode(64 + columnCount);
   const endRow = sheetModel.name === "01 Overview"
-    ? 50
+    ? 62
     : Math.min(30, 5 + Math.max((sheetModel.rows || []).length, 1));
   return `A1:${endColumn}${endRow}`;
 }
@@ -187,6 +190,23 @@ async function main() {
   );
   if ((await fileHash(workbookPath)) !== manifest.workbook_file_sha256) {
     errors.push("workbook file changed after build");
+  }
+  const archive = await JSZip.loadAsync(await fs.readFile(workbookPath));
+  const paneChecks = [];
+  for (let index = 1; index < manifest.visible_sheets.length; index += 1) {
+    const sheetName = manifest.visible_sheets[index];
+    const sheetPath = `xl/worksheets/sheet${index + 1}.xml`;
+    const entry = archive.file(sheetPath);
+    const xml = entry ? await entry.async("string") : "";
+    const pane = xml.match(/<(?:\w+:)?pane\b[^>]*\/>/)?.[0] || "";
+    const pass = [
+      'xSplit="1"',
+      'ySplit="5"',
+      'topLeftCell="B6"',
+      'state="frozen"',
+    ].every((token) => pane.includes(token));
+    paneChecks.push({ sheet: sheetName, status: pass ? "pass" : "missing" });
+    if (!pass) errors.push(`${sheetName}: first column and heading rows are not frozen`);
   }
   const workbook = await SpreadsheetFile.importXlsx(await FileBlob.load(workbookPath));
   const expectedSheets = manifest.visible_sheets;
@@ -378,6 +398,7 @@ async function main() {
     renderer_artifacts: rendererArtifacts,
     privacy_findings: privacyFindings,
     comment_checks: commentChecks,
+    pane_checks: paneChecks,
     thread_inspection_sha256: stableHash(threadRecords),
     render_checks: renderChecks,
     errors,

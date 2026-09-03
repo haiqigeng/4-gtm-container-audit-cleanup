@@ -29,6 +29,10 @@ used at delivery:
 If this fails, stop before semantic work. Do not use another Node.js runtime or
 XLSX library.
 
+The workbook builder uses bundled JSZip only to persist frozen worksheet views
+omitted by the artifact exporter. Cell content and rendering remain artifact-tool
+owned; technical verification checks the panes in the exported workbook.
+
 ## Build The Evidence Package
 
 ```powershell

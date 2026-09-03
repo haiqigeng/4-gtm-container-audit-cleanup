@@ -3,6 +3,7 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -23,6 +24,8 @@ const { SpreadsheetFile, Workbook } = await import(
     ),
   ).href
 );
+const require = createRequire(import.meta.url);
+const JSZip = require(path.join(artifactNodeModules, "jszip"));
 
 const PRIORITY_RANK = { Critical: 0, High: 1, Medium: 2, Low: 3, None: 4 };
 const PALETTE = {
@@ -201,16 +204,74 @@ function rowEditorialIndex(editorial) {
 }
 
 function mappedRows(deliveryMap, sheetName) {
-  return deliveryMap.rows.filter((row) => row.primary_sheet === sheetName);
+  const rows = deliveryMap.rows.filter((row) => row.primary_sheet === sheetName);
+  if (sheetName !== "03 Decisions Needed") return rows;
+  return [...rows].sort((left, right) => {
+    const priority =
+      (PRIORITY_RANK[left.locked.priority] ?? 99) -
+      (PRIORITY_RANK[right.locked.priority] ?? 99);
+    return priority || String(left.locked.decision_id).localeCompare(
+      String(right.locked.decision_id),
+    );
+  });
 }
 
 function previewRange(sheetModel) {
   const columnCount = sheetModel.dimensions.columns.length;
   const endColumn = String.fromCharCode(64 + columnCount);
   const endRow = sheetModel.name === "01 Overview"
-    ? 50
+    ? 62
     : Math.min(30, 5 + Math.max((sheetModel.rows || []).length, 1));
   return `A1:${endColumn}${endRow}`;
+}
+
+function firstSentence(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^.*?[.!?](?:\s|$)/);
+  return match ? match[0].trim() : text;
+}
+
+function recommendationByOperation(editorial) {
+  const index = new Map();
+  editorial.rows.forEach((row) => {
+    if (!String(row.row_id).startsWith("REC-")) return;
+    const operationId = String(row.prose?.action_operation_id || "").match(
+      /OP-[A-Z0-9-]+/,
+    )?.[0];
+    if (operationId) index.set(operationId, row.prose);
+  });
+  return index;
+}
+
+async function addFrozenPanes(outputPath, visibleSheets) {
+  // Artifact-tool exports the cells but omits its freeze-pane state. Add only
+  // worksheet view metadata using the bundled ZIP library; do not reauthor cells.
+  const archive = await JSZip.loadAsync(await fs.readFile(outputPath));
+  for (let index = 1; index < visibleSheets.length; index += 1) {
+    const sheetPath = `xl/worksheets/sheet${index + 1}.xml`;
+    const entry = archive.file(sheetPath);
+    if (!entry) throw new Error(`Exported workbook is missing ${sheetPath}`);
+    let xml = await entry.async("string");
+    if (/<(?:\w+:)?pane\b/.test(xml)) {
+      throw new Error(`Exported workbook already contains unmanaged panes in ${sheetPath}`);
+    }
+    const sheetView = xml.match(/<(\w+:)?sheetView\b([^>]*)\s*\/>/);
+    if (!sheetView) throw new Error(`Exported workbook has no editable sheet view in ${sheetPath}`);
+    const prefix = sheetView[1] || "";
+    const replacement = [
+      `<${prefix}sheetView${sheetView[2]}>`,
+      `<${prefix}pane xSplit="1" ySplit="5" topLeftCell="B6" activePane="bottomRight" state="frozen"/>`,
+      `<${prefix}selection pane="bottomRight" activeCell="B6" sqref="B6"/>`,
+      `</${prefix}sheetView>`,
+    ].join("");
+    xml = xml.replace(sheetView[0], replacement);
+    archive.file(sheetPath, xml);
+  }
+  const output = await archive.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+  });
+  await fs.writeFile(outputPath, output);
 }
 
 function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
@@ -298,11 +359,34 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     });
   }
   const summaryStart = 13 + Math.max(decisionRows.length, priorityRows.length);
+  const recommendations = recommendationByOperation(editorial);
   const actionSummary = (overview.highest_value_actions || [])
-    .map((value, index) => `${index + 1}. ${value}`)
+    .map((value, index) => {
+      const operationId = String(value).match(/OP-[A-Z0-9-]+/)?.[0];
+      const prose = operationId ? recommendations.get(operationId) : undefined;
+      if (!prose) return `${index + 1}. ${value}`;
+      return `${index + 1}. ${prose.action_operation_id}\n${firstSentence(prose.why_it_matters)}`;
+    })
     .join("\n") || "None";
+  const counts = Object.fromEntries(
+    deliveryMap.visible_sheets.map((name) => [name, mappedRows(deliveryMap, name).length]),
+  );
+  const findingCount =
+    counts["04 Full Audit"] + counts["03 Decisions Needed"] + (counts["05 Custom Code"] || 0);
+  const findingSheets = [
+    `04 Full Audit (${counts["04 Full Audit"].toLocaleString()})`,
+    `03 Decisions Needed (${counts["03 Decisions Needed"].toLocaleString()})`,
+  ];
+  if (deliveryMap.visible_sheets.includes("05 Custom Code")) {
+    findingSheets.push(`05 Custom Code (${counts["05 Custom Code"].toLocaleString()})`);
+  }
+  const coverageSummary = [
+    `${findingCount.toLocaleString()} findings are partitioned across ${findingSheets.join("; ")}. `,
+    `02 Recommendations lists ${counts["02 Recommendations"].toLocaleString()} consolidated operations; it does not add findings.`,
+  ].join("");
   const summaryBlocks = [
-    ["Highest-value actions", actionSummary, 5],
+    ["Highest-value actions", actionSummary, 12],
+    ["Workbook coverage", coverageSummary, 2],
     ["Target architecture", overview.target_architecture_summary, 9],
     ["Important retained setup", overview.important_retained_summary, 3],
     ["Open decisions and evidence limits", overview.blocking_summary, 2],
@@ -367,7 +451,7 @@ function buildDataSheet(workbook, deliveryMap, editorialIndex, config, model) {
   styleTitle(sheet, sheet.getRangeByIndexes(0, 0, 1, config.headers.length), config.title);
   styleSubtitle(
     sheet.getRangeByIndexes(1, 0, 1, config.headers.length),
-    config.subtitle,
+    typeof config.subtitle === "function" ? config.subtitle(rows) : config.subtitle,
   );
   const nav = addNavigation(sheet, deliveryMap.visible_sheets, config.headers.length);
   sheet.getRangeByIndexes(4, 0, 1, config.headers.length).values = [config.headers];
@@ -403,7 +487,6 @@ function buildDataSheet(workbook, deliveryMap, editorialIndex, config, model) {
   config.widths.forEach((width, index) => {
     sheet.getRangeByIndexes(0, index, Math.max(6 + values.length, 10), 1).format.columnWidth = width;
   });
-  sheet.freezePanes.freezeRows(5);
   sheet.showGridLines = false;
   model.sheets.push({
     name: sheet.name,
@@ -476,9 +559,10 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
     {
       name: "03 Decisions Needed",
       title: "Decisions needed",
-      subtitle: "Each row asks for one owner answer and explains what that answer unlocks.",
+      subtitle: (rows) => `${rows.length.toLocaleString()} owner questions, ordered by priority. Each row explains what the answer unlocks.`,
       headers: [
         "Decision ID",
+        "Priority",
         "Question",
         "Why this is needed",
         "Recommendation",
@@ -487,13 +571,14 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
       ],
       values: (row, prose) => [
         row.locked.decision_id,
+        row.locked.priority,
         prose.question,
         prose.why_needed,
         prose.recommendation,
         prose.affected_scope,
         prose.answer_unlocks,
       ],
-      widths: [22, 40, 38, 38, 34, 38],
+      widths: [22, 14, 40, 38, 38, 34, 38],
       emptyMessage: "No owner decision is currently required.",
     },
     model,
@@ -505,7 +590,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
     {
       name: "04 Full Audit",
       title: "Full audit",
-      subtitle: "Complete reconciled coverage, including configurations that should remain as they are.",
+      subtitle: (rows) => `${rows.length.toLocaleString()} general audit findings. Owner questions are in 03 Decisions Needed.${deliveryMap.visible_sheets.includes("05 Custom Code") ? " Custom-code conclusions are in 05 Custom Code." : ""}`,
       headers: [
         "Audit ID",
         "Area",
@@ -539,28 +624,30 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
       {
         name: "05 Custom Code",
         title: "Custom code review",
-        subtitle: "Container-visible behavior and the safest source-supported target for each applicable code conclusion.",
+        subtitle: (rows) => `${rows.length.toLocaleString()} custom-code conclusions. Confidence describes the static conclusion or evidence limit, not vendor runtime validity.`,
         headers: [
           "Audit ID",
           "Affected code scope",
           "Current behavior",
+          "Decision",
           "Finding",
           "Safest target",
           "Linked action",
           "Priority",
-          "Evidence confidence",
+          "Confidence in static conclusion",
         ],
         values: (row, prose) => [
           row.locked.decision_id,
           prose.affected_scope,
           prose.current_behavior,
+          row.locked.human_decision_label,
           prose.finding,
           prose.safest_target,
           prose.linked_action,
           row.locked.priority,
           row.locked.confidence,
         ],
-        widths: [22, 34, 46, 42, 44, 38, 14, 20],
+        widths: [22, 34, 46, 26, 42, 44, 38, 14, 24],
         emptyMessage: "No custom-code conclusion applies.",
       },
       model,
@@ -641,6 +728,7 @@ async function main() {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const exported = await SpreadsheetFile.exportXlsx(first.workbook);
   await exported.save(outputPath);
+  await addFrozenPanes(outputPath, deliveryMap.visible_sheets);
   const previewDir = path.join(buildDir, "previews");
   await fs.mkdir(previewDir, { recursive: true });
   const previews = [];
