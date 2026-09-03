@@ -182,9 +182,14 @@ locked evidence or work units.
 
 Semantic-audit execution is closed-command. Read only the exact assigned bundle
 files, the locked shared rules, and the declared work-unit filenames. The audit
-contract and JSON scaffolds are the complete schema. A direct exact-path file
-read such as PowerShell `Get-Content -LiteralPath` is allowed when no filesystem
-tool is available. Do not search implementation source with `rg`, `grep`, or
+contract and JSON scaffolds are the complete schema. Read large evidence files
+in bounded portions using line ranges or selected JSON properties/array slices
+from those exact files. Review each distinct source fact and its relationships;
+repeated serialization need not be reread. If output truncates, reduce the portion
+and resume at the unread content before claiming coverage. Direct exact-path
+reads and in-memory selection, such as PowerShell `Get-Content -LiteralPath`
+with `Select-Object` or `ConvertFrom-Json`, are allowed when no filesystem tool
+is available. Do not search implementation source with `rg`, `grep`, or
 another discovery command, enumerate unknown paths, or run exploratory shell
 commands. Other than exact-path reads and one structured edit of the isolated
 declarative audit plan, the only executable commands are the documented
@@ -214,7 +219,7 @@ rollback are specific human-readable non-blank strings, without a word-count quo
 `preconditions` is never a list. Follow the same contract for exact source
 decision identity, operation-family wording, structured-action presence, and
 dependencies. Action-row `json_path` values are object-relative paths such as
-`$.tagFiringPriority`, never full `$.containerVersion...` source coordinates.
+`$.priority`, never full `$.containerVersion...` source coordinates.
 The applicator runs the existing operation simulator against the locked source
 before writing. This exact-ID grouping removes repeated prose without using
 broad selectors or replacing evidence-specific judgment. Missing runtime evidence
@@ -233,7 +238,10 @@ audits use `audit-contract.json`, `bundle-manifest.json`, `context.json`,
 `locked-source.json`, `source-checkpoint.json`, and `vendor-registry.toml`.
 Audit A additionally has `canonical-scan.json`, `scan-assurance.json`, and
 `source-obligations.json`; Audit B additionally has `blind-inventory.json` and
-must not seek candidate artifacts. Set checkpoint `input_manifest_sha256` from
+must not seek candidate artifacts. Its inventory lists every object's source-leaf
+coordinates and dependencies; read the corresponding full values in
+`locked-source.json`, rather than expecting duplicated value previews in the
+index. Set checkpoint `input_manifest_sha256` from
 the exact `bundle_manifest_sha256` field in `bundle-manifest.json`. There is no
 `input-manifest.json`. After the checkpoint command, use only its declared
 outputs plus `work-units/work-unit-manifest.json` and each exact `filename`.
@@ -241,6 +249,12 @@ outputs plus `work-units/work-unit-manifest.json` and each exact `filename`.
 Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B
 must use distinct agent and context labels.
+
+Each audit assignment ends at its validated seal. Use the existing checkpoint,
+manifest and isolated plan to continue across work units and context boundaries.
+An unfinished unit or large remaining queue means continue from the last valid
+step; report a blocker only when a concrete missing capability, evidence or
+authorization actually prevents that next step. Keep partial work for resumption.
 
 Use deterministic whole-family work units when the bundle requires sharding.
 Partition transversal shared-infrastructure obligations by audit area into

@@ -90,9 +90,11 @@ Do not use `rg`, `grep`, repository search, or exploratory shell commands during
 semantic audit execution. Read the exact assigned bundle files directly. The
 locked `audit-contract.json`, checkpoint scaffold, work-unit manifest, and unit
 scaffolds are the complete authoring schema.
-If no filesystem read tool exists, an exact-path read such as PowerShell
-`Get-Content -LiteralPath` is allowed. Do not enumerate directories or infer a
-path from command output.
+Use bounded reads of the exact assigned files, as described in SKILL.md. When
+no filesystem read tool exists, PowerShell `Get-Content -LiteralPath` with line
+ranges or in-memory JSON property/array selection is allowed. Resume unread
+content after truncation. Do not enumerate directories or infer a path from
+command output.
 
 The pre-checkpoint manifest is exactly `bundle-manifest.json`, never
 `input-manifest.json`; copy its `bundle_manifest_sha256` value into checkpoint
@@ -152,7 +154,7 @@ empty. Its uppercase `operation_id` must match the exact pattern and example in
 rollback are required non-blank strings; preconditions is not a list. Independent
 semantic review checks their specificity; a word count does not prove it.
 Action-row `json_path` values are object-relative (for example
-`$.tagFiringPriority`), never full `$.containerVersion...` source coordinates.
+`$.priority`), never full `$.containerVersion...` source coordinates.
 Plan application runs the established operation simulator against the locked
 source before any audit write, including when no `do_not_touch` objects are
 declared. Renames and remaps can implicitly rewrite consumer fields. When another

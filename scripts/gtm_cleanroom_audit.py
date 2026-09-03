@@ -136,7 +136,11 @@ def _object_inventory(scan: dict[str, Any]) -> list[dict[str, Any]]:
                 "object_type": obj.get("object_type"),
                 "paused": obj.get("paused"),
                 "source_json_path": obj.get("source_json_path"),
-                "source_leaf_facts": obj.get("source_leaf_facts", []),
+                # Values live in locked-source.json; the checkpoint needs their
+                # complete coordinates, not repeated previews/types/hashes.
+                "source_leaf_paths": [
+                    fact["json_path"] for fact in obj.get("source_leaf_facts", [])
+                ],
                 "source_absence_facts": obj.get("source_absence_facts", []),
                 "execution_dependency_traces": obj.get("execution_dependency_traces", []),
                 "reference_trace_requirements": obj.get("reference_trace_requirements", []),

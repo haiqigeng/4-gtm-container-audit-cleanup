@@ -41,6 +41,8 @@ Primary sources:
   https://support.google.com/tagmanager/answer/7679109
 - firing priority:
   https://support.google.com/tagmanager/answer/2772421
+- native Tag fields (including `priority` as a Parameter object):
+  https://developers.google.com/tag-platform/tag-manager/api/reference/rest/v2/accounts.containers.workspaces.tags
 - tag sequencing:
   https://support.google.com/tagmanager/answer/6238868
 
@@ -64,6 +66,12 @@ when both match the same event. Explicit priority controls start order only amon
 co-eligible tags. It does not wait for asynchronous completion. Remove explicit
 zero, priority without a real competitor, and priority already represented by
 sequencing.
+
+Read explicit firing priority from the native `priority` Parameter object, not a
+synthetic scalar field. Preserve its source type and value in exact operations;
+zero is explicit, negative integers are valid, and a dynamic or malformed value
+must not be interpreted as zero. The Tag resource schema above was checked on
+2026-09-03.
 
 For a proposed union of literal trigger alternatives, inspect the actual operator
 semantics and all shared conditions and consumers. Preserve case, exact-string

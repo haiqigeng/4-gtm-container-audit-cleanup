@@ -170,7 +170,7 @@ class TargetValidationTests(unittest.TestCase):
     def test_target_is_exact_and_preserves_every_unmodified_source_field(self):
         source = read_json(self.package / "locked-source.json")
         expected = copy.deepcopy(source)
-        expected["containerVersion"]["tag"][0].pop("tagFiringPriority")
+        expected["containerVersion"]["tag"][0].pop("priority")
         self.validate()
         self.assertEqual(expected, read_json(self.target / "projected-container.json"))
         self.assertEqual(source, read_json(self.package / "locked-source.json"))

@@ -850,13 +850,17 @@ def _consent_infrastructure_summary(
 
 
 def _explicit_priority(tag: dict[str, Any]) -> tuple[bool, int | None, str]:
-    if "tagFiringPriority" not in tag:
+    if "priority" not in tag:
         return False, None, ""
-    raw = tag.get("tagFiringPriority")
-    try:
-        return True, int(str(raw)), str(raw)
-    except (TypeError, ValueError):
+    parameter = tag.get("priority")
+    if not isinstance(parameter, dict):
+        return True, None, str(parameter)
+    raw = parameter.get("value")
+    if str(parameter.get("type") or "").upper() != "INTEGER":
         return True, None, str(raw)
+    if re.fullmatch(r"[+-]?[0-9]+", str(raw).strip()):
+        return True, int(str(raw)), str(raw)
+    return True, None, str(raw)
 
 
 def _consent_metadata(tag: dict[str, Any]) -> dict[str, Any]:
@@ -1245,7 +1249,7 @@ def _control_topology(
             candidate = {
                 "candidate_type": "explicit_firing_priority",
                 "object_key": key,
-                "source_json_path": f"{root_path}.tag[{index}].tagFiringPriority",
+                "source_json_path": f"{root_path}.tag[{index}].priority",
                 "configured_value": priority_raw,
                 "parsed_value": priority,
                 "same_trigger_competitor_keys": coeligible,

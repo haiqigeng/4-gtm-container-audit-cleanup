@@ -97,7 +97,8 @@ class OperationErrorContextTests(unittest.TestCase):
     def test_consumer_match_does_not_prove_ownership_of_deleted_dependency_failure(self):
         rows = [
             operation("OP-PRIORITY", removals=[{
-                "object_key": "tag:1", "json_path": "$.tagFiringPriority", "before": "0",
+                "object_key": "tag:1", "json_path": "$.priority",
+                "before": {"type": "INTEGER", "value": "0"},
             }]),
             operation("OP-DELETE-VARIABLE", deletions=[{"object_key": "variable:20"}]),
         ]

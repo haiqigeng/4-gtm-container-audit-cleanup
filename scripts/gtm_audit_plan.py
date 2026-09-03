@@ -113,7 +113,7 @@ def _authoring_contract() -> dict[str, Any]:
             },
             "action_json_path_rule": (
                 "object-relative JSONPath beginning with $, for example "
-                "$.tagFiringPriority; never a $.containerVersion path"
+                "$.priority; never a $.containerVersion path"
             ),
             "every_action_list_present": True,
         },

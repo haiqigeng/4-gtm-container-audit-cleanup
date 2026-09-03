@@ -163,7 +163,7 @@ def actionable_priority_export() -> dict:
                 {"type": "template", "key": "eventName", "value": "purchase"},
             ],
             "firingTriggerId": ["10"],
-            "tagFiringPriority": "10",
+            "priority": {"type": "INTEGER", "value": "10"},
         }
     ]
     version["trigger"] = [
@@ -322,7 +322,7 @@ def complete_priority_removal_decision(row: dict) -> None:
                 "parameters remain unchanged."
             ),
             "target_direction": (
-                "Remove only tagFiringPriority from tag:1 and retain the complete event chain."
+                "Remove only priority from tag:1 and retain the complete event chain."
             ),
             "evidence_boundary": "",
             "owner_question": "",
@@ -333,32 +333,32 @@ def complete_priority_removal_decision(row: dict) -> None:
             "priority": "Low",
             "confidence": "High",
             "static_verification": (
-                "Confirm tag:1 no longer contains tagFiringPriority and every other tag field "
+                "Confirm tag:1 no longer contains priority and every other tag field "
                 "matches the locked source."
             ),
-            "rollback": ("Restore tagFiringPriority with the original string value 10 on tag:1."),
+            "rollback": ("Restore priority with the original INTEGER parameter value 10 on tag:1."),
             "operation_proposal": {
                 "operation_id": "OP-REMOVE-REDUNDANT-PRIORITY",
                 "source_decision_id": row["decision_id"],
                 "operation_family": "Remove redundant firing priority",
                 "exact_target_state": (
                     "Tag tag:1 retains its complete configuration without the named "
-                    "tagFiringPriority property."
+                    "priority property."
                 ),
                 "preconditions": (
-                    "Tag tag:1 still contains tagFiringPriority with the exact string value 10."
+                    "Tag tag:1 still contains priority with the exact INTEGER parameter value 10."
                 ),
                 "static_verification": (
-                    "Compare tag:1 and confirm only tagFiringPriority was removed."
+                    "Compare tag:1 and confirm only priority was removed."
                 ),
-                "rollback": ("Restore tagFiringPriority with the original string value 10."),
+                "rollback": ("Restore priority with the original INTEGER parameter value 10."),
                 "depends_on": [],
                 **{field: [] for field in OPERATION_ACTION_FIELDS},
                 "removals": [
                     {
                         "object_key": "tag:1",
-                        "json_path": "$.tagFiringPriority",
-                        "before": "10",
+                        "json_path": "$.priority",
+                        "before": {"type": "INTEGER", "value": "10"},
                     }
                 ],
             },
@@ -775,14 +775,14 @@ class V2WorkflowTests(unittest.TestCase):
         removal = plan["obligation_overrides"][-1]["decision"]["operation_proposal"][
             "removals"
         ][0]
-        removal["json_path"] = "$.containerVersion.tag[0].tagFiringPriority"
+        removal["json_path"] = "$.containerVersion.tag[0].priority"
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         before = audit_path.read_bytes()
         with self.assertRaisesRegex(ValueError, "audit operation safety gate failed"):
             apply_plan(audit_path.parent, plan_path)
         self.assertEqual(before, audit_path.read_bytes())
 
-        removal["json_path"] = "$.tagFiringPriority"
+        removal["json_path"] = "$.priority"
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
         apply_plan(audit_path.parent, plan_path)
@@ -1251,8 +1251,8 @@ class V2WorkflowTests(unittest.TestCase):
             [
                 {
                     "object_key": "tag:1",
-                    "json_path": "$.tagFiringPriority",
-                    "before": "10",
+                    "json_path": "$.priority",
+                    "before": {"type": "INTEGER", "value": "10"},
                 }
             ],
         )
@@ -1271,6 +1271,37 @@ class V2WorkflowTests(unittest.TestCase):
         checkpoint = json.loads((audit_b / "source-checkpoint.json").read_text(encoding="utf-8"))
         self.assertTrue(checkpoint["candidate_blind_discovery"])
         self.assertEqual("", checkpoint["reviewed_inventory_sha256"])
+
+    def test_checkpoint_inventory_keeps_all_coordinates_and_dependency_evidence(self) -> None:
+        build_package(self.export, self.package)
+        scan = json.loads((self.package / "canonical-scan.json").read_text(encoding="utf-8"))
+        bundle = self.package / "audit-bundles" / "audit-b"
+        inventory = json.loads((bundle / "blind-inventory.json").read_text(encoding="utf-8"))
+        source_objects = {row["object_key"]: row for row in scan["objects"]}
+        self.assertEqual(set(source_objects), {row["object_key"] for row in inventory["objects"]})
+        for row in inventory["objects"]:
+            original = source_objects[row["object_key"]]
+            self.assertEqual([fact["json_path"] for fact in original["source_leaf_facts"]],
+                             row["source_leaf_paths"])
+            self.assertNotIn("source_leaf_facts", row)
+            for field in ("source_absence_facts", "execution_dependency_traces",
+                          "reference_trace_requirements", "consumers", "firing_trigger_ids",
+                          "blocking_trigger_ids", "trigger_group_member_ids", "setup_tags",
+                          "teardown_tags"):
+                self.assertEqual(original.get(field, []), row[field])
+        self.assertEqual(self.export.read_bytes(), (bundle / "locked-source.json").read_bytes())
+        complete_checkpoint(self.package, "audit-b", "compact-inventory-context")
+        self.assertTrue((bundle / cleanroom_audit.CHECKPOINT_SEAL_FILE).is_file())
+
+    def test_compact_checkpoint_still_rejects_a_changed_locked_source_value(self) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        source_path = self.package / "audit-bundles" / "audit-b" / "locked-source.json"
+        changed_source = json.loads(source_path.read_text(encoding="utf-8"))
+        changed_source["containerVersion"]["tag"][0]["name"] = "Changed after source locking"
+        source_path.write_text(json.dumps(changed_source), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "locked-source"):
+            complete_checkpoint(self.package, "audit-b", "changed-source-context")
 
     def test_source_audit_peers_require_distinct_agents_and_contexts(self) -> None:
         for shared_field in ("agent", "context"):
@@ -2018,13 +2049,13 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertEqual(canonical["summary"]["operation_count"], 1)
         operation = canonical["operations"][0]
         self.assertEqual(operation["operation_id"], "OP-REMOVE-REDUNDANT-PRIORITY")
-        self.assertEqual(operation["removals"][0]["json_path"], "$.tagFiringPriority")
+        self.assertEqual(operation["removals"][0]["json_path"], "$.priority")
         projected = json.loads(
             (self.package / "target-validation" / "projected-container.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertNotIn("tagFiringPriority", projected["containerVersion"]["tag"][0])
+        self.assertNotIn("priority", projected["containerVersion"]["tag"][0])
         delivery_map = json.loads(
             (self.package / "delivery" / "delivery-map.json").read_text(encoding="utf-8")
         )

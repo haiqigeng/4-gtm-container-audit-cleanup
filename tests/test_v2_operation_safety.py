@@ -88,7 +88,7 @@ def operation_fixture() -> dict:
                         },
                     ],
                     "firingTriggerId": ["10"],
-                    "tagFiringPriority": "10",
+                    "priority": {"type": "INTEGER", "value": "10"},
                     "paused": False,
                 }
             ],
@@ -420,7 +420,8 @@ class V2OperationSafetyTests(unittest.TestCase):
             "depends_on": [],
             **{field: [] for field in OPERATION_ACTION_FIELDS},
             "removals": [
-                {"object_key": "tag:1", "json_path": "$.tagFiringPriority", "before": "7"}
+                {"object_key": "tag:1", "json_path": "$.priority",
+                 "before": {"type": "INTEGER", "value": "7"}}
             ],
         }
         self.assertEqual([], operation_proposal_errors(proposal, decision, set(), "decision"))
@@ -440,9 +441,9 @@ class V2OperationSafetyTests(unittest.TestCase):
             errors,
         )
 
-        proposal["preconditions"] = "tag:1.tagFiringPriority=7."
-        proposal["static_verification"] = "Assert tag:1.tagFiringPriority absent."
-        proposal["rollback"] = "Restore tag:1.tagFiringPriority=7."
+        proposal["preconditions"] = "tag:1.priority=7."
+        proposal["static_verification"] = "Assert tag:1.priority absent."
+        proposal["rollback"] = "Restore tag:1.priority=7."
         self.assertEqual([], operation_proposal_errors(proposal, decision, set(), "decision"))
         for field in ("exact_target_state", "preconditions", "static_verification", "rollback"):
             for missing in (None, [], "", " \n "):
@@ -529,8 +530,8 @@ class V2OperationSafetyTests(unittest.TestCase):
             removals=[
                 {
                     "object_key": "tag:1",
-                    "json_path": "$.tagFiringPriority",
-                    "before": "10",
+                    "json_path": "$.priority",
+                    "before": {"type": "INTEGER", "value": "10"},
                 }
             ],
             remaps=[
@@ -565,7 +566,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         self.assertEqual("{{Canonical Variable}}", tag["parameter"][1]["value"])
         self.assertEqual(["11"], tag["firingTriggerId"])
         self.assertEqual("Reviewed", tag["notes"])
-        self.assertNotIn("tagFiringPriority", tag)
+        self.assertNotIn("priority", tag)
         self.assertTrue(tag["paused"])
         self.assertEqual(
             {"20", "22"}, {row["variableId"] for row in cv["variable"]}

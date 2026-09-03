@@ -2514,6 +2514,48 @@ def _check(check_id: str, expected: Any, observed: Any) -> dict[str, Any]:
     }
 
 
+def _priority_identity_errors(
+    cv: dict[str, Any], root_path: str, scan: dict[str, Any]
+) -> list[str]:
+    """Check priority candidate completeness directly against native Tag fields."""
+    expected = []
+    expected_topology = []
+    for index, tag in enumerate(as_list(cv.get("tag"))):
+        key = f"tag:{tag.get('tagId')}"
+        present = "priority" in tag
+        parameter = tag.get("priority")
+        raw = parameter.get("value") if isinstance(parameter, dict) else parameter
+        raw_text = str(raw) if present else ""
+        parsed = None
+        if (
+            isinstance(parameter, dict)
+            and str(parameter.get("type", "")).upper() == "INTEGER"
+            and re.fullmatch(r"[+-]?[0-9]+", raw_text.strip())
+        ):
+            parsed = int(raw_text)
+        expected_topology.append((key, present, parsed, raw_text))
+        if present:
+            expected.append((key, f"{root_path}.tag[{index}].priority", raw_text, parsed))
+    facts = scan.get("optimization_facts") or {}
+    observed = [
+        (row.get("object_key"), row.get("source_json_path"), row.get("configured_value"),
+         row.get("parsed_value"))
+        for row in as_list(facts.get("optimization_candidates"))
+        if row.get("candidate_type") == "explicit_firing_priority"
+    ]
+    observed_topology = [
+        (row.get("object_key"), row.get("explicit_firing_priority"), row.get("firing_priority"),
+         row.get("firing_priority_raw"))
+        for row in as_list(facts.get("tag_control_topology"))
+    ]
+    errors = []
+    if sorted(expected, key=str) != sorted(observed, key=str):
+        errors.append("priority candidates differ from native raw Tag.priority fields")
+    if sorted(expected_topology, key=str) != sorted(observed_topology, key=str):
+        errors.append("priority topology differs from native raw Tag.priority fields")
+    return errors
+
+
 def assure_scan(
     export_path: Path,
     scan: dict[str, Any],
@@ -2651,6 +2693,7 @@ def assure_scan(
     candidates = _candidate_identities(
         scan, {row["object_key"] for row in objects}, valid_paths
     )
+    candidates["errors"].extend(_priority_identity_errors(cv, root_path, scan))
     branches = _branch_identities(scan, raw_leaf_index)
     coverage_rows = [
         row

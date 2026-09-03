@@ -200,7 +200,7 @@ def rich_export() -> dict:
                         ),
                     ],
                     "firingTriggerId": ["201"],
-                    "tagFiringPriority": "0",
+                    "priority": {"type": "INTEGER", "value": "0"},
                 },
                 {
                     "tagId": "302",
@@ -221,7 +221,7 @@ def rich_export() -> dict:
                         table_parameter("eventSettingsTable", [("currency", "EUR")]),
                     ],
                     "firingTriggerId": ["203"],
-                    "tagFiringPriority": "10",
+                    "priority": {"type": "INTEGER", "value": "10"},
                 },
                 {
                     "tagId": "303",
@@ -693,6 +693,43 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
         names = {row["parameter_name"] for row in shared_candidates}
         self.assertIn("currency", names)
         self.assertNotIn("content_group", names)
+
+    def test_native_priority_values_and_missing_candidates_are_independently_assured(self) -> None:
+        for parameter, expected in (
+            ({"type": "INTEGER", "value": "0"}, 0),
+            ({"type": "INTEGER", "value": "-7"}, -7),
+            ({"type": "INTEGER", "value": "+12"}, 12),
+            ({"type": "TEMPLATE", "value": "{{Priority}}"}, None),
+            ({"type": "INTEGER", "value": "1_0"}, None),
+        ):
+            with self.subTest(parameter=parameter):
+                export = rich_export()
+                tag = export["containerVersion"]["tag"][0]
+                tag["priority"] = parameter
+                source = self.root / "native-priority.json"
+                source.write_text(json.dumps(export), encoding="utf-8")
+                scan = build_canonical_scan(source)["canonical_scan"]
+                facts = scan["optimization_facts"]
+                key = f"tag:{tag['tagId']}"
+                candidate = next(row for row in facts["optimization_candidates"]
+                                 if row.get("object_key") == key
+                                 and row["candidate_type"] == "explicit_firing_priority")
+                self.assertEqual("$.containerVersion.tag[0].priority", candidate["source_json_path"])
+                self.assertEqual(parameter["value"], candidate["configured_value"])
+                self.assertEqual(expected, candidate["parsed_value"])
+                self.assertEqual("pass", assure_scan(source, scan,
+                                 vendor_registry_path=self.registry)["status"])
+                facts["optimization_candidates"].remove(candidate)
+                for topology in facts["tag_control_topology"]:
+                    if topology["object_key"] == key:
+                        topology.update(explicit_firing_priority=False,
+                                        firing_priority=None, firing_priority_raw="")
+                failed = assure_scan(source, scan, vendor_registry_path=self.registry)
+                identity = next(check for check in failed["checks"]
+                                if check["check_id"] == "candidate_identity_integrity")
+                self.assertEqual("mismatch", identity["status"])
+                self.assertTrue(any("native raw Tag.priority" in error
+                                    for error in identity["errors"]))
 
     def test_scoped_event_settings_candidates_keep_exact_consumers(self) -> None:
         export = rich_export()
