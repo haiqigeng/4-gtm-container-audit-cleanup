@@ -66,9 +66,11 @@ def _decision_owner(row: dict[str, Any]) -> dict[str, Any]:
         "owner_kind": "source_audit_and_reconciliation",
         "owning_audits": row.get("owning_audits", []),
         "repair_rule": (
-            "Reopen the owning source audit in a fresh amendment context bound to its "
-            "prior seal, repeat exact reconciliation and required neutral verification, "
-            "then rerun deterministic target validation."
+            "Reopen the exact owning stage in a working successor. Amend a defective "
+            "source judgment in a fresh context bound to its prior seal; for a "
+            "reconciliation-only error, preserve both source audits and seals. "
+            "Repair affected reconciliation and required neutral verification, then "
+            "rerun dependent target validation and delivery."
         ),
     }
 
