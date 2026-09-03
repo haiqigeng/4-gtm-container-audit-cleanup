@@ -39,10 +39,6 @@ from gtm_cleanroom_audit import (
 )
 from gtm_lib import as_list, require_safe_package_root, write_json
 from gtm_operation_model import validate_operations
-from gtm_projection_review import (
-    REVIEW_IDS, retained_projection_review, projection_repair_prior_identities,
-    validate_projection_review,
-)
 
 PLAN_FIELDS = {
     "kind",
@@ -69,6 +65,13 @@ PLAN_DECISION_FIELDS = {
 def _authoring_contract() -> dict[str, Any]:
     return {
         "authoring_unit": "candidate_group_profile_with_exact_obligation_overrides",
+        "decision_rule": (
+            "A missing authored exact operation for a source-proven safe technical repair "
+            "is unfinished audit work, not an owner decision or evidence limit. Split "
+            "that repair from unrelated unresolved ownership questions. If safe target "
+            "values or handling genuinely depend on missing evidence or an owner choice, "
+            "retain that specific boundary; do not invent values or force an action."
+        ),
         "candidate_group_rule": (
             "candidate_groups are locked neutral clerical candidates. Assign groups "
             "with decision_profiles; use obligation_overrides for every obligation in "
@@ -137,27 +140,6 @@ def _audit_plan_path(package: Path, audit_id: str, supplied: Path) -> Path:
         raise ValueError(
             "audit plan must use its isolated path: "
             f"audit-scratch/{audit_id}/audit-plan.json"
-        )
-    return expected
-
-
-def _projection_plan_path(
-    package: Path,
-    cycle_number: int,
-    review_id: str,
-    supplied: Path,
-) -> Path:
-    expected = (
-        package
-        / "projection-scratch"
-        / f"cycle-{cycle_number:02d}"
-        / review_id
-        / "review-plan.json"
-    ).resolve()
-    if supplied.resolve() != expected:
-        raise ValueError(
-            "projection plan must use its isolated path: "
-            f"projection-scratch/cycle-{cycle_number:02d}/{review_id}/review-plan.json"
         )
     return expected
 
@@ -535,138 +517,6 @@ def apply_plan(bundle: Path, plan_path: Path) -> dict[str, Any]:
     }
 
 
-def scaffold_projection_plan(
-    package: Path,
-    cycle_number: int,
-    review_id: str,
-    output: Path,
-) -> dict[str, Any]:
-    package = package.resolve()
-    require_safe_package_root(package)
-    if review_id not in REVIEW_IDS:
-        raise ValueError(f"unsupported projection review: {review_id}")
-    review_path = (
-        package
-        / "fixed-point"
-        / f"cycle-{cycle_number:02d}"
-        / "reviews"
-        / review_id
-        / "review.json"
-    )
-    review = _read_json(review_path)
-    if review.get("review_id") != review_id or review.get("cycle_number") != cycle_number:
-        raise ValueError("projection review scaffold identity is invalid")
-    output = _projection_plan_path(package, cycle_number, review_id, output)
-    if output.exists():
-        raise FileExistsError(f"plan output already exists: {output}")
-    retained = retained_projection_review(review_path.parents[2], review_id)
-    retained_ids = {row["obligation_id"] for row in (retained or {}).get("decisions", [])}
-    payload = _empty_plan(review_id, [row for row in as_list(review.get("decisions"))
-                                     if row["obligation_id"] not in retained_ids])
-    payload["global_shared_infrastructure_review"] = (
-        "This projection plan preserves the source audit shared-infrastructure review without reinterpretation."
-    )
-    payload["global_target_architecture_review"] = (
-        "This projection plan reviews changed obligations without replacing the complete target architecture review."
-    )
-    output.parent.mkdir(parents=True, exist_ok=True)
-    write_json(output, payload)
-    return payload
-
-
-def apply_projection_plan(
-    package: Path,
-    cycle_number: int,
-    review_id: str,
-    plan_path: Path,
-    *,
-    agent_id: str,
-    context_id: str,
-) -> dict[str, Any]:
-    package = package.resolve()
-    require_safe_package_root(package)
-    if review_id not in REVIEW_IDS:
-        raise ValueError(f"unsupported projection review: {review_id}")
-    if not agent_id.strip() or not context_id.strip():
-        raise ValueError("projection plan requires non-blank agent and context identities")
-    cycle_dir = package / "fixed-point" / f"cycle-{cycle_number:02d}"
-    review_path = cycle_dir / "reviews" / review_id / "review.json"
-    review = _read_json(review_path)
-    plan_path = _projection_plan_path(package, cycle_number, review_id, plan_path)
-    plan = _read_json(plan_path)
-    retained = retained_projection_review(cycle_dir, review_id)
-    retained_by_id = {row["obligation_id"]: row for row in (retained or {}).get("decisions", [])}
-    rows = [row for row in as_list(review.get("decisions")) if isinstance(row, dict)]
-    pending_rows = [row for row in rows if row["obligation_id"] not in retained_by_id]
-    errors = _plan_errors(
-        plan, review_id, _candidate_decision_groups(pending_rows)
-    )
-    prior_agents, prior_contexts = projection_repair_prior_identities(cycle_dir)
-    if agent_id.strip() in prior_agents or context_id.strip() in prior_contexts:
-        errors.append("projection repair requires a fresh agent and context")
-    if plan.get("open_discoveries"):
-        errors.append("projection plans cannot introduce open discoveries")
-    locked_by_obligation = {
-        str(row.get("obligation_id") or ""): row for row in pending_rows
-    }
-    if len(locked_by_obligation) != len(pending_rows) or "" in locked_by_obligation:
-        errors.append("projection review decision identities are blank or duplicated")
-    authored, group_count, authored_errors = _author_decisions(
-        locked_by_obligation, plan
-    )
-    errors.extend(authored_errors)
-    authored.update(retained_by_id)
-    operations = [
-        row["operation_proposal"]
-        for row in authored.values()
-        if row.get("decision_class") in ACTIONABLE_DECISION_CLASSES
-    ]
-    if not authored_errors:
-        projected_source = _read_json(review_path.parent / "projected-container.json")
-        context = _read_json(package / "context.json")
-        do_not_touch = {
-            str(value)
-            for value in as_list((context.get("context") or {}).get("do_not_touch"))
-        }
-        errors.extend(
-            f"projection operation safety gate failed: {error}"
-            for error in validate_operations(
-                projected_source,
-                operations,
-                do_not_touch=do_not_touch,
-            )
-        )
-    if errors:
-        raise ValueError("; ".join(errors))
-    review["status"] = "complete"
-    review["independent_agent_id"] = agent_id.strip()
-    review["independent_context_id"] = context_id.strip()
-    review["decisions"] = [
-        authored[str(row["obligation_id"])] for row in rows
-    ]
-    review["completion_attestation"] = {
-        "status": "complete",
-        "foreign_projection_review_used": False,
-        "fresh_context": True,
-        "peer_findings_received_before_completion": False,
-        "conclusion": (
-            "Changed obligations were independently reviewed against locked projected evidence; "
-            "any retained decisions are exact unchanged work from the same peer's sealed predecessor."
-        ),
-    }
-    write_json(review_path, review)
-    validation_errors = validate_projection_review(cycle_dir, review_id)
-    if validation_errors:
-        raise ValueError("projection plan result failed validation: " + "; ".join(validation_errors))
-    return {
-        "status": "pass",
-        "review_id": review_id,
-        "cycle_number": cycle_number,
-        "decision_groups": group_count,
-        "decisions": len(authored),
-    }
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -676,36 +526,11 @@ def main() -> int:
     apply = subparsers.add_parser("apply")
     apply.add_argument("bundle", type=Path)
     apply.add_argument("plan", type=Path)
-    scaffold_projection = subparsers.add_parser("scaffold-projection")
-    scaffold_projection.add_argument("package", type=Path)
-    scaffold_projection.add_argument("cycle", type=int)
-    scaffold_projection.add_argument("review_id", choices=REVIEW_IDS)
-    scaffold_projection.add_argument("output", type=Path)
-    apply_projection = subparsers.add_parser("apply-projection")
-    apply_projection.add_argument("package", type=Path)
-    apply_projection.add_argument("cycle", type=int)
-    apply_projection.add_argument("review_id", choices=REVIEW_IDS)
-    apply_projection.add_argument("plan", type=Path)
-    apply_projection.add_argument("--agent-id", required=True)
-    apply_projection.add_argument("--context-id", required=True)
     args = parser.parse_args()
     if args.command == "scaffold":
         result = scaffold_plan(args.bundle, args.output)
-    elif args.command == "apply":
-        result = apply_plan(args.bundle, args.plan)
-    elif args.command == "scaffold-projection":
-        result = scaffold_projection_plan(
-            args.package, args.cycle, args.review_id, args.output
-        )
     else:
-        result = apply_projection_plan(
-            args.package,
-            args.cycle,
-            args.review_id,
-            args.plan,
-            agent_id=args.agent_id,
-            context_id=args.context_id,
-        )
+        result = apply_plan(args.bundle, args.plan)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

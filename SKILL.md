@@ -1,6 +1,6 @@
 ---
 name: gtm-container-audit-optimize
-description: Audit and optimize one complete Google Tag Manager web container from user-supplied locked JSON or equivalent read-only evidence, using a deterministic canonical scan, fresh-agent scan assurance, two complete independent semantic audits, fresh-agent reconciliation, deterministic fixed-point target validation, and one human analyst workbook. Use for web-container defects, duplicates, configuration, consent/routing, web-side client-to-server transport, Google settings inheritance, trigger/blocker architecture, firing priority, custom code, naming, consolidation, and greenfield-quality target design. Do not use for server-container exports or objects, GTM Preview or browser/runtime QA, tracking-plan design, legal decisions, GTM mutation/import/version/publication, execution approval, change logs, or audit deltas.
+description: Audit and optimize one user-selected Google Tag Manager web-container export in one comprehensive pass, with two independent audits, reconciliation, static validation of proposed changes, and one analyst workbook. Use for defects, duplicates, configuration, consent and triggers, Google settings inheritance, web-side client-to-server transport, custom code, naming, and consolidation. Excludes server-container audits, runtime QA, tracking-plan design, legal decisions, and GTM mutation or publication.
 ---
 
 # GTM Container Audit And Optimize
@@ -71,6 +71,11 @@ after that sentence is left to the agent.
 Follow one workflow only. There is no three-run, one-audit, reduced-depth,
 same-context, legacy-workbook, or alternate-XLSX fallback.
 
+One normal execution has one comprehensive source-audit pass. The two independent
+audits are complementary safeguards within that pass, not successive optimisation
+cycles. Do not re-audit simulated targets for further opportunities. Repeated runs
+to improve the skill belong only to separately authorized development evaluation.
+
 ### 1. Lock Evidence
 
 Validate the one complete unambiguous ContainerVersion export or equivalent
@@ -120,7 +125,7 @@ or optimisation candidate, source family, relationship candidate, tag-control
 topology, custom-code object, applicable configured branch group, container
 closure, and source-counted zero. Area 1 closes through evidence and assurance
 status, areas 2–26 through those two semantic audits, and area 27 through
-synthesis and fixed-point proof.
+synthesis and static target validation.
 
 ### 3. Run Two Complete Independent Audits
 
@@ -138,6 +143,20 @@ shared-infrastructure, and container coverage. Literal object and branch
 completeness comes from the assured scan plus compact source checkpoint; it is
 not repeated as thousands of generic semantic decisions. Different traversal
 does not mean different scope.
+
+Find the complete improvement in this pass. For each proposed consolidation or
+removal, inspect all consumers and remaining dependencies; include evidenced
+consequential cleanup in the same proposal. Close shared settings, trigger/blocker
+ownership, loader/destination families, naming, and custom-code behaviour across
+the whole container before sealing. Do not defer source-visible opportunities to
+a later target audit. Preserve justified variants and genuine owner decisions.
+
+An unwritten operation is unfinished audit work, not a reason to ask the owner.
+When one object has a source-proven safe repair and a separate unresolved policy
+or ownership issue, keep the repair actionable and the question separate using
+the existing atomic decision/discovery contract. Do not hide both in one broad
+owner-decision profile. Conversely, never invent null defaults, equivalence, or
+retirement authority just to increase the recommendation count.
 
 Each audit seals its source-only checkpoint before approved requirement evidence
 is released. Audit B is also generated-candidate-blind before its checkpoint.
@@ -195,8 +214,8 @@ rollback are human-readable strings meeting the contract's minimum word counts;
 decision identity, operation-family wording, structured-action presence, and
 dependencies. Action-row `json_path` values are object-relative paths such as
 `$.tagFiringPriority`, never full `$.containerVersion...` source coordinates.
-The applicator runs the existing operation simulator against the locked source,
-or locked projected source for a projection review, before writing. This exact-ID grouping removes repeated prose without using
+The applicator runs the existing operation simulator against the locked source
+before writing. This exact-ID grouping removes repeated prose without using
 broad selectors or replacing evidence-specific judgment. Missing runtime evidence
 limits runtime claims; it does not justify deferring a container-visible static verdict.
 The maintained applicator
@@ -281,7 +300,7 @@ from its completed verification. Finalisation reconstructs the manifest and unit
 membership, merges every row exactly once, validates the complete semantic
 result, and only then writes and seals the canonical reconciliation files.
 
-### 5. Synthesize And Prove The Target
+### 5. Synthesize And Validate The Target
 
 Use `scripts/gtm_target_synthesis.py` to compile only reconciled, required-
 verified decisions into exact creates, additions, changes, named-field removals,
@@ -289,43 +308,34 @@ remaps, renames, pauses, deletions, dependencies, static verification, and
 rollback. Synthesis may
 not introduce a new semantic choice.
 
-Use `scripts/gtm_fixed_point.py` and `scripts/gtm_projection_review.py`. Every
-cycle starts from the locked original, applies the complete packet, reruns global
-scan and independent assurance, and sends every materially changed semantic
-obligation to two fresh review agents. The two review agents receive the same
-locked projected evidence but not each other's findings; reconcile their sealed
-results in a fresh context. Each reviewer uses the same maintained declarative
-plan command as the source audits, with one isolated
-`projection-scratch/cycle-<nn>/<review-id>/review-plan.json`; never create a
-projection-local resolver or infer a configured object from normalized display
-text. Permit at most three cycles.
-Block as `non_convergent_target_state` on cycle-three actionability, recurring
-actionable hashes, oscillation, conflicts, or no exact safe operation.
-During explicitly authorized skill evolution, a corrected derived scan may reopen
-the current unfinished cycle with the `repair-scan` command described in the
-validation reference. Preserve its predecessor snapshot and exact unchanged
-decisions; use fresh peer contexts only for changed obligations. This does not
-restart ingestion, replace a sealed closure, or reset the three-cycle limit.
-Construct each next cycle in staging and commit its decision record, operation
-packet, and cycle directory together. Any candidate-cycle safety or assurance
-failure preserves the last committed packet and decisions and returns the blocked
-outcome; it may not leave a partial cycle.
+Use `scripts/gtm_target_validation.py` to validate the combined packet against the
+locked original. Reconstruct the packet from sealed reconciliation, simulate it,
+and verify references, dependencies, conflicting writes, protected objects, and
+the implemented consent/routing safeguards. Recompute projected facts and scan
+assurance to verify the simulation; this does not open semantic review queues or
+create new recommendations. Reconstruct the saved result to reject self-rehashed
+substitutes. A pass proves only the implemented static checks, not runtime
+behaviour or that no further optimisation could ever be found.
 
-Replay a stable packet from the locked original and require the complete hash
-tuple to match. Reconstruct the operation packet, projected evidence, fixed-point
-proof, and canonical record from their sealed predecessors; reject any artifact
-that only makes its own hashes internally consistent. Then create the
-authoritative record with
-`scripts/gtm_canonical_record.py`.
+A concrete failure must be traced to the affected operation and owning decision.
+An object match is a repair candidate, not proof of causality. If the diagnostic
+cannot resolve ownership, inspect only the failed reference and relevant actions
+before selecting records; never treat the whole packet as the owner. Repair
+that work and its dependants, then rerun the affected validation; do not restart
+the complete audits or launch a target-discovery round. Preserve valid evidence
+and completed judgments. Never drop a finding merely to obtain a pass. Seal the
+canonical record with `scripts/gtm_canonical_record.py` only after validation.
 
 ### 6. Build One Human Workbook
 
 Use `scripts/gtm_delivery_mapper.py` only after canonical sealing. If a mandatory
-delivery field is absent or semantically wrong, stop delivery. Build a new
-semantic-successor package from the same locked source, bind it to the prior
-canonical record and one approved repair brief, and rerun the complete workflow.
-The repair becomes an obligation in both fresh audits and neutral reconciliation.
-Delivery may never patch a canonical field or overwrite the sealed predecessor.
+delivery field is absent or semantically wrong, stop delivery and reopen its
+owning records with `scripts/gtm_audit_repair.py`. The working successor preserves
+source evidence, checkpoints, both source audits and their seals; the predecessor
+remains unchanged. Amend only the affected decisions in their owning audit
+contexts, reconcile the affected work, and rebuild dependent validation and
+delivery. Do not rerun ingestion or the complete audits. Delivery may never patch
+a canonical field or overwrite a sealed predecessor.
 The delivery map must be an exact deterministic projection of the independently
 reconstructed canonical record; workbook fidelity is checked against that same
 authority, not against a mutable delivery artifact.
@@ -398,7 +408,7 @@ Sealed semantic artifacts are immutable. An amendment uses a fresh agent context
 bound to the prior seal in the audit artifact, preserves
 the immutable source checkpoint, seals an exact immutable snapshot of every
 work-unit input used by that audit version, and writes append-only history before
-canonical sealing. Every current or historical audit is revalidated against its
+canonical sealing in that working package. Every current or historical audit is revalidated against its
 own self-contained regular-file snapshot, never against later live shard edits.
 Recompute each unit's explicit immutable audit, source, ledger, family, and
 membership identity, and deterministically reconstruct the audit decisions and
@@ -412,10 +422,12 @@ command reads or writes package data, enumerate the complete package tree withou
 traversing redirects and reject every symlink, junction, or reparse point at the
 root or any descendant. Apply the same fail-closed rule to generated workbook
 outputs. After
-canonical sealing, a semantic or fidelity defect starts one
-immutable successor package bound to the predecessor record and same locked
-source, then reruns the whole workflow. Presentation-only defects create a new
-editorial artifact and rebuild.
+canonical sealing, a semantic or fidelity defect reopens exact owning records in
+a working successor using the repair command above. Preserve completed decisions;
+retain prior reconciliation conclusions only when their full comparison inputs
+and neutral evidence still match and validate. A fresh reconciler owns changed
+rows. No broad discovery pass is repeated. Presentation-only defects create a
+new editorial artifact and rebuild.
 
 Use `references/02-commands/validation-commands.md` for exact commands and
 `references/02-commands/forward-test-prompts.md` for release proof. Deliver only

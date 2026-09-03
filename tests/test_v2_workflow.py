@@ -17,7 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 import gtm_cleanroom_audit as cleanroom_audit  # noqa: E402
 import gtm_delivery_mapper as delivery_mapper  # noqa: E402
 import gtm_delivery_reviews as delivery_reviews  # noqa: E402
-import gtm_projection_review as projection_review  # noqa: E402
+import gtm_reconciliation as reconciliation_module  # noqa: E402
 from gtm_audit_contract import (  # noqa: E402
     CANONICAL_DECISION_FIELDS,
     DECISION_CLASSES,
@@ -27,9 +27,7 @@ from gtm_audit_contract import (  # noqa: E402
 from gtm_audit_package_build import build_package as executable_build_package  # noqa: E402
 from gtm_audit_plan import (  # noqa: E402
     apply_plan,
-    apply_projection_plan,
     scaffold_plan,
-    scaffold_projection_plan,
 )
 from gtm_audit_work_units import merge_work_units  # noqa: E402
 from gtm_canonical_record import (  # noqa: E402
@@ -49,17 +47,8 @@ from gtm_delivery_mapper import (  # noqa: E402
     validate_editorial,
 )
 from gtm_delivery_reviews import scaffold_delivery_reviews, seal_delivery  # noqa: E402
-from gtm_fixed_point import (  # noqa: E402
-    advance_fixed_point,
-    fixed_point_seal_errors,
-    start_fixed_point,
-)
+from gtm_target_validation import validate_target  # noqa: E402
 from gtm_lib import file_sha256, locked_evidence_coordinates, stable_hash  # noqa: E402
-from gtm_projection_review import (  # noqa: E402
-    finalize_projection_reconciliation,
-    scaffold_projection_reconciliation,
-    seal_projection_review,
-)
 from gtm_reconciliation import (  # noqa: E402
     canonical_matches_allowed,
     finalize_reconciliation,
@@ -285,34 +274,6 @@ def write_fixture_audit_plan(package: Path, audit_id: str) -> Path:
     )
     plan["global_target_architecture_review"] = (
         "The complete fixture target remains empty because no proven implementation need exists."
-    )
-    plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-    return plan_path
-
-
-def write_fixture_projection_plan(
-    package: Path, cycle_number: int, review_id: str
-) -> Path:
-    plan_path = (
-        package
-        / "projection-scratch"
-        / f"cycle-{cycle_number:02d}"
-        / review_id
-        / "review-plan.json"
-    )
-    scaffold_projection_plan(package, cycle_number, review_id, plan_path)
-    plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    review_path = (
-        package
-        / "fixed-point"
-        / f"cycle-{cycle_number:02d}"
-        / "reviews"
-        / review_id
-        / "review.json"
-    )
-    review = json.loads(review_path.read_text(encoding="utf-8"))
-    plan["decision_profiles"] = fixture_decision_profiles(
-        plan, review["decisions"], "projection-fixture"
     )
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     return plan_path
@@ -563,111 +524,6 @@ def complete_base_reconciliation(
         json.dumps(completion, indent=2) + "\n", encoding="utf-8"
     )
     finalize_reconciliation(package)
-
-
-def complete_projection_cycle(
-    package: Path,
-    cycle: int,
-    *,
-    force_neutral: bool = False,
-    review_agent_override: str | None = None,
-    review_context_override: str | None = None,
-    review_input_manifest_override: str | None = None,
-    reconciliation_agent_override: str | None = None,
-    reconciliation_context_override: str | None = None,
-) -> None:
-    cycle_dir = package / "fixed-point" / f"cycle-{cycle:02d}"
-    for review_id, context_id in (
-        ("review-a", f"projection-a-context-{cycle:02d}"),
-        ("review-b", f"projection-b-context-{cycle:02d}"),
-    ):
-        path = cycle_dir / "reviews" / review_id / "review.json"
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        manifest = json.loads((path.parent / "bundle-manifest.json").read_text(encoding="utf-8"))
-        payload["status"] = "complete"
-        payload["independent_agent_id"] = (
-            review_agent_override
-            if review_id == "review-a" and review_agent_override
-            else f"fixture-projection-{review_id}-agent-{cycle:02d}"
-        )
-        payload["independent_context_id"] = (
-            review_context_override
-            if review_id == "review-a" and review_context_override
-            else context_id
-        )
-        payload["input_manifest_sha256"] = (
-            review_input_manifest_override
-            if review_id == "review-a" and review_input_manifest_override
-            else manifest["bundle_manifest_sha256"]
-        )
-        neutral_forced = False
-        for row in payload["decisions"]:
-            complete_semantic_decision(row)
-            if (
-                force_neutral
-                and not neutral_forced
-                and row.get("decision_class") != "not_applicable"
-            ):
-                row["priority"] = "High"
-                neutral_forced = True
-        payload["completion_attestation"] = {
-            "status": "complete",
-            "foreign_projection_review_used": False,
-            "fresh_context": True,
-            "peer_findings_received_before_completion": False,
-            "conclusion": "The focused projection fixture review completed every changed obligation independently.",
-        }
-        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        seal_projection_review(package, cycle, review_id)
-    scaffold_projection_reconciliation(cycle_dir)
-    rec_path = cycle_dir / "projection-reconciliation.json"
-    neutral_path = cycle_dir / "projection-neutral-verification.json"
-    reconciliation = json.loads(rec_path.read_text(encoding="utf-8"))
-    neutral = json.loads(neutral_path.read_text(encoding="utf-8"))
-    reconciliation["independent_agent_id"] = (
-        reconciliation_agent_override
-        or f"fixture-projection-reconciliation-agent-{cycle:02d}"
-    )
-    reconciliation["independent_context_id"] = (
-        reconciliation_context_override
-        or f"fixture-projection-reconciliation-context-{cycle:02d}"
-    )
-    neutral_by_id = {}
-    for row in neutral["verifications"]:
-        comparison = next(
-            item
-            for item in reconciliation["comparisons"]
-            if item["neutral_verification_id"] == row["verification_id"]
-        )
-        decision = copy.deepcopy(comparison["review_decisions"]["review-a"])
-        row.update(
-            {
-                "status": "complete",
-                "canonical_decision": decision,
-                "evidence_citations": list(row.get("source_coordinates") or []),
-                "verification_rationale": (
-                    "Projected source evidence supports the same bounded fixture conclusion without a new target."
-                ),
-            }
-        )
-        neutral_by_id[row["verification_id"]] = decision
-    neutral["status"] = "complete" if neutral["verifications"] else "not_required"
-    for row in reconciliation["comparisons"]:
-        row.update(
-            {
-                "status": "complete",
-                "canonical_decision": copy.deepcopy(
-                    neutral_by_id.get(row["neutral_verification_id"])
-                    or row["review_decisions"]["review-a"]
-                ),
-                "reconciliation_rationale": (
-                    "Both projected reviews support the same source-bound fixture decision and target."
-                ),
-            }
-        )
-    rec_path.write_text(json.dumps(reconciliation, indent=2) + "\n", encoding="utf-8")
-    neutral_path.write_text(json.dumps(neutral, indent=2) + "\n", encoding="utf-8")
-    finalize_projection_reconciliation(cycle_dir)
 
 
 def complete_editorial(package: Path) -> None:
@@ -1218,25 +1074,6 @@ class V2WorkflowTests(unittest.TestCase):
         _manifest, errors = cleanroom_audit._bundle_manifest_errors(audit_bundle)
         self.assertTrue(any("remain inside" in error for error in errors), errors)
 
-        projection_bundle = self.root / "projection-bundle"
-        projection_bundle.mkdir()
-        projection_manifest = {
-            "locked_files": [
-                {
-                    "path": "../outside-locked-input.json",
-                    "sha256": file_sha256(outside),
-                }
-            ]
-        }
-        projection_manifest["bundle_manifest_sha256"] = stable_hash(
-            projection_manifest, 64
-        )
-        (projection_bundle / projection_review.REVIEW_MANIFEST_FILE).write_text(
-            json.dumps(projection_manifest, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        errors = projection_review._manifest_errors(projection_bundle)
-        self.assertTrue(any("remain inside" in error for error in errors), errors)
         self.assertEqual(outside_before, outside.read_bytes())
 
     def test_rehashed_coverage_release_paths_cannot_escape_audit_bundle(self) -> None:
@@ -1313,7 +1150,7 @@ class V2WorkflowTests(unittest.TestCase):
             for guarded_call in (
                 lambda: scaffold_reconciliation(guarded_package),
                 lambda: compile_operation_packet(guarded_package),
-                lambda: start_fixed_point(guarded_package),
+                lambda: validate_target(guarded_package),
                 lambda: build_canonical_record(guarded_package),
                 lambda: create_delivery_map(guarded_package),
                 lambda: scaffold_delivery_reviews(guarded_package),
@@ -1392,16 +1229,6 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(canonical_matches_allowed(copy.deepcopy(source), [source]))
         self.assertFalse(canonical_matches_allowed(invented, [source]))
 
-    def test_projection_decision_identity_is_cycle_addressed(self) -> None:
-        cycle_one = projection_review.projection_canonical_decision_id(
-            1, "PREC-SAME-COMPARISON"
-        )
-        cycle_two = projection_review.projection_canonical_decision_id(
-            2, "PREC-SAME-COMPARISON"
-        )
-        self.assertEqual("PCD-C01-SAME-COMPARISON", cycle_one)
-        self.assertEqual("PCD-C02-SAME-COMPARISON", cycle_two)
-        self.assertNotEqual(cycle_one, cycle_two)
 
     def run_to_editorial(self) -> None:
         build_package(self.export, self.package)
@@ -1411,11 +1238,7 @@ class V2WorkflowTests(unittest.TestCase):
         complete_audit(self.package, "audit-b")
         complete_base_reconciliation(self.package)
         compile_operation_packet(self.package)
-        result = start_fixed_point(self.package)
-        while result["status"] == "awaiting_projection_reviews":
-            cycle = int(result["cycle"])
-            complete_projection_cycle(self.package, cycle)
-            result = advance_fixed_point(self.package)
+        result = validate_target(self.package)
         self.assertEqual(result["status"], "pass")
         build_canonical_record(self.package)
         create_delivery_map(self.package)
@@ -1443,11 +1266,7 @@ class V2WorkflowTests(unittest.TestCase):
                 }
             ],
         )
-        result = start_fixed_point(self.package)
-        while result["status"] == "awaiting_projection_reviews":
-            cycle = int(result["cycle"])
-            complete_projection_cycle(self.package, cycle)
-            result = advance_fixed_point(self.package)
+        result = validate_target(self.package)
         self.assertEqual(result["status"], "pass")
         build_canonical_record(self.package)
         create_delivery_map(self.package)
@@ -2082,7 +1901,8 @@ class V2WorkflowTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, expected):
                     complete_base_reconciliation(package, **kwargs)
 
-    def test_projection_neutral_citations_respect_empty_and_nonempty_allowlists(self) -> None:
+
+    def test_source_neutral_citations_respect_empty_and_nonempty_allowlists(self) -> None:
         coordinate = "$.containerVersion.tag[0]"
         invented = "invented:$.not_evidence"
         cases = (
@@ -2094,10 +1914,10 @@ class V2WorkflowTests(unittest.TestCase):
         )
         for allowed, citations, valid in cases:
             with self.subTest(allowed=allowed, citations=citations):
-                row = dict.fromkeys(projection_review.LOCKED_DECISION_FIELDS)
+                row = {}
                 row.update(
                     {
-                        "verification_id": "PNV-CITATION-FIXTURE",
+                        "verification_id": "NV-CITATION-FIXTURE",
                         "source_coordinates": allowed,
                         "verification_reasons": ["conflicting_verdict"],
                         "neutral_question": "What does the locked source support?",
@@ -2111,7 +1931,7 @@ class V2WorkflowTests(unittest.TestCase):
                     }
                 )
                 row["neutral_bundle_manifest_sha256"] = (
-                    projection_review.neutral_bundle_manifest_sha256(row)
+                    reconciliation_module.neutral_bundle_manifest_sha256(row)
                 )
                 expected = {"status": "pending", "verifications": [row]}
                 supplied = copy.deepcopy(expected)
@@ -2126,7 +1946,7 @@ class V2WorkflowTests(unittest.TestCase):
                         ),
                     }
                 )
-                errors = projection_review._neutral_errors(
+                errors = reconciliation_module._neutral_errors(
                     self.root, supplied, expected
                 )
                 if valid:
@@ -2161,176 +1981,6 @@ class V2WorkflowTests(unittest.TestCase):
                 row["allowed_evidence_citations"],
             )
 
-    def test_projection_reviews_require_distinct_agents_and_contexts(self) -> None:
-        for shared_field in ("agent", "context"):
-            with self.subTest(shared_field=shared_field):
-                package = self.root / f"projection-shared-{shared_field}"
-                self.export.write_text(
-                    json.dumps(actionable_priority_export()), encoding="utf-8"
-                )
-                build_package(self.export, package)
-                complete_checkpoint(package, "audit-a", "projection-a-source")
-                complete_checkpoint(package, "audit-b", "projection-b-source")
-                complete_audit(package, "audit-a", actionable_priority=True)
-                complete_audit(package, "audit-b", actionable_priority=True)
-                complete_base_reconciliation(package)
-                compile_operation_packet(package)
-                result = start_fixed_point(package)
-                cycle = int(result["cycle"])
-                kwargs = {
-                    "review_agent_override": (
-                        f"fixture-projection-review-b-agent-{cycle:02d}"
-                        if shared_field == "agent"
-                        else None
-                    ),
-                    "review_context_override": (
-                        f"projection-b-context-{cycle:02d}"
-                        if shared_field == "context"
-                        else None
-                    ),
-                }
-                expected = (
-                    "projection reviews reuse one agent"
-                    if shared_field == "agent"
-                    else "projection reviews reuse one reasoning context"
-                )
-                with self.assertRaisesRegex(ValueError, expected):
-                    complete_projection_cycle(package, cycle, **kwargs)
-
-    def test_projection_review_rejects_wrong_input_manifest(self) -> None:
-        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
-        build_package(self.export, self.package)
-        complete_checkpoint(self.package, "audit-a", "projection-manifest-a")
-        complete_checkpoint(self.package, "audit-b", "projection-manifest-b")
-        complete_audit(self.package, "audit-a", actionable_priority=True)
-        complete_audit(self.package, "audit-b", actionable_priority=True)
-        complete_base_reconciliation(self.package)
-        compile_operation_packet(self.package)
-        result = start_fixed_point(self.package)
-        with self.assertRaisesRegex(ValueError, "not bound to this review bundle"):
-            complete_projection_cycle(
-                self.package,
-                int(result["cycle"]),
-                review_input_manifest_override="f" * 64,
-            )
-
-    def test_projection_plan_completes_review_without_ad_hoc_resolver(self) -> None:
-        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
-        build_package(self.export, self.package)
-        complete_checkpoint(self.package, "audit-a", "projection-plan-a")
-        complete_checkpoint(self.package, "audit-b", "projection-plan-b")
-        complete_audit(self.package, "audit-a", actionable_priority=True)
-        complete_audit(self.package, "audit-b", actionable_priority=True)
-        complete_base_reconciliation(self.package)
-        compile_operation_packet(self.package)
-        result = start_fixed_point(self.package)
-        cycle = int(result["cycle"])
-        plan_path = write_fixture_projection_plan(
-            self.package, cycle, "review-a"
-        )
-
-        applied = apply_projection_plan(
-            self.package,
-            cycle,
-            "review-a",
-            plan_path,
-            agent_id="projection-plan-agent",
-            context_id="projection-plan-context",
-        )
-        seal = seal_projection_review(self.package, cycle, "review-a")
-
-        self.assertEqual("pass", applied["status"])
-        self.assertGreater(applied["decisions"], 0)
-        self.assertEqual("pass", seal["validator_status"])
-
-    def test_projection_plan_rejects_wrong_owner_path_and_provenance(self) -> None:
-        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
-        build_package(self.export, self.package)
-        complete_checkpoint(self.package, "audit-a", "projection-guard-a")
-        complete_checkpoint(self.package, "audit-b", "projection-guard-b")
-        complete_audit(self.package, "audit-a", actionable_priority=True)
-        complete_audit(self.package, "audit-b", actionable_priority=True)
-        complete_base_reconciliation(self.package)
-        compile_operation_packet(self.package)
-        cycle = int(start_fixed_point(self.package)["cycle"])
-        with self.assertRaisesRegex(ValueError, "unsupported projection review"):
-            scaffold_projection_plan(
-                self.package,
-                cycle,
-                "review-x",
-                self.root / "invalid-review-plan.json",
-            )
-        with self.assertRaisesRegex(ValueError, "isolated path"):
-            scaffold_projection_plan(
-                self.package,
-                cycle,
-                "review-a",
-                self.root / "misplaced-review-plan.json",
-            )
-        plan_path = write_fixture_projection_plan(
-            self.package, cycle, "review-a"
-        )
-        with self.assertRaisesRegex(FileExistsError, "already exists"):
-            scaffold_projection_plan(
-                self.package, cycle, "review-a", plan_path
-            )
-        with self.assertRaisesRegex(ValueError, "non-blank agent"):
-            apply_projection_plan(
-                self.package,
-                cycle,
-                "review-a",
-                plan_path,
-                agent_id="",
-                context_id="projection-guard-context",
-            )
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        plan["owner_id"] = "review-b"
-        plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "another owner"):
-            apply_projection_plan(
-                self.package,
-                cycle,
-                "review-a",
-                plan_path,
-                agent_id="projection-guard-agent",
-                context_id="projection-guard-context",
-            )
-
-    def test_projection_reconciliation_is_distinct_from_both_reviews(self) -> None:
-        for shared_field in ("agent", "context"):
-            with self.subTest(shared_field=shared_field):
-                package = self.root / f"projection-reconciliation-{shared_field}"
-                self.export.write_text(
-                    json.dumps(actionable_priority_export()), encoding="utf-8"
-                )
-                build_package(self.export, package)
-                complete_checkpoint(package, "audit-a", "projection-rec-a")
-                complete_checkpoint(package, "audit-b", "projection-rec-b")
-                complete_audit(package, "audit-a", actionable_priority=True)
-                complete_audit(package, "audit-b", actionable_priority=True)
-                complete_base_reconciliation(package)
-                compile_operation_packet(package)
-                result = start_fixed_point(package)
-                cycle = int(result["cycle"])
-                kwargs = {
-                    "reconciliation_agent_override": (
-                        f"fixture-projection-review-a-agent-{cycle:02d}"
-                        if shared_field == "agent"
-                        else None
-                    ),
-                    "reconciliation_context_override": (
-                        f"projection-a-context-{cycle:02d}"
-                        if shared_field == "context"
-                        else None
-                    ),
-                }
-                expected = (
-                    "projection reconciliation must use a distinct agent"
-                    if shared_field == "agent"
-                    else "projection reconciliation must use a distinct context"
-                )
-                with self.assertRaisesRegex(ValueError, expected):
-                    complete_projection_cycle(package, cycle, **kwargs)
 
     def test_editorial_artifact_has_no_agent_context_identity(self) -> None:
         self.run_actionable_to_editorial()
@@ -2340,58 +1990,11 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertNotIn("independent_context_id", editorial)
         self.assertNotIn("host_isolation_receipt", editorial)
 
-    def test_next_cycle_failure_preserves_packet_and_projection_decisions(self) -> None:
-        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
-        build_package(self.export, self.package)
-        complete_checkpoint(self.package, "audit-a", "atomic-source-a-checkpoint")
-        complete_checkpoint(self.package, "audit-b", "atomic-source-b-checkpoint")
-        complete_audit(self.package, "audit-a", actionable_priority=True)
-        complete_audit(self.package, "audit-b", actionable_priority=True)
-        complete_base_reconciliation(self.package)
-        compile_operation_packet(self.package)
-        result = start_fixed_point(self.package)
-        self.assertEqual("awaiting_projection_reviews", result["status"])
-        packet_path = self.package / "operation-packet.json"
-        decisions_path = self.package / "fixed-point" / "projection-decisions.json"
-        original_packet = packet_path.read_bytes()
-        original_decisions = decisions_path.read_bytes()
-        decision = {
-            "canonical_decision_id": "PCD-ATOMIC-FAILURE",
-            "decision": {"decision_class": "defect"},
-        }
-        candidate_payload = json.loads(original_decisions.decode("utf-8"))
-        candidate_payload["canonical_decisions"] = [decision]
-        with (
-            mock.patch(
-                "gtm_fixed_point._closure_errors", return_value=({}, [])
-            ),
-            mock.patch(
-                "gtm_fixed_point._projection_decision_candidate",
-                return_value=(candidate_payload, [decision]),
-            ),
-            mock.patch(
-                "gtm_fixed_point._packet_with_projection_operations",
-                return_value=json.loads(original_packet.decode("utf-8")),
-            ),
-            mock.patch(
-                "gtm_fixed_point._create_cycle",
-                side_effect=ValueError("forced next-cycle assurance failure"),
-            ),
-        ):
-            blocked = advance_fixed_point(self.package)
-        self.assertEqual("non_convergent_target_state", blocked["status"])
-        self.assertEqual(original_packet, packet_path.read_bytes())
-        self.assertEqual(original_decisions, decisions_path.read_bytes())
-        self.assertFalse((self.package / "fixed-point" / "cycle-02").exists())
-        self.assertEqual(
-            [],
-            list((self.package / "fixed-point").glob(".cycle-02-*")),
-        )
 
     def test_complete_static_workflow_reaches_sealed_canonical_record(self) -> None:
         self.run_to_editorial()
         canonical = json.loads((self.package / "canonical-record.json").read_text(encoding="utf-8"))
-        self.assertEqual(canonical["fixed_point"]["status"], "pass")
+        self.assertEqual(canonical["target_validation"]["status"], "pass")
         self.assertEqual(canonical["summary"]["operation_count"], 0)
         self.assertTrue(canonical["audit_decisions"])
         self.assertFalse(
@@ -2404,10 +2007,7 @@ class V2WorkflowTests(unittest.TestCase):
             all(
                 row["record_owner"]["repair_rule"].startswith("Reopen ")
                 and row["record_owner"]["owner_kind"]
-                in {
-                    "source_audit_and_reconciliation",
-                    "projection_review_and_reconciliation",
-                }
+                == "source_audit_and_reconciliation"
                 for row in canonical["audit_decisions"]
             )
         )
@@ -2430,7 +2030,7 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertEqual(operation["operation_id"], "OP-REMOVE-REDUNDANT-PRIORITY")
         self.assertEqual(operation["removals"][0]["json_path"], "$.tagFiringPriority")
         projected = json.loads(
-            (self.package / "fixed-point" / "replay" / "projected-container.json").read_text(
+            (self.package / "target-validation" / "projected-container.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -2618,36 +2218,8 @@ class V2WorkflowTests(unittest.TestCase):
         ):
             finalize_reconciliation(self.package)
 
-    def test_rehashed_replay_and_canonical_forgery_are_rejected(self) -> None:
+    def test_rehashed_canonical_forgery_is_rejected(self) -> None:
         self.run_actionable_to_editorial()
-        replay_path = (
-            self.package / "fixed-point" / "replay" / "projected-container.json"
-        )
-        replay_before = replay_path.read_bytes()
-        replay = json.loads(replay_path.read_text(encoding="utf-8"))
-        replay["containerVersion"]["tag"][0]["name"] = "Forged replay tag"
-        replay_path.write_text(json.dumps(replay, indent=2) + "\n", encoding="utf-8")
-        fixed_seal_path = self.package / "fixed-point" / "fixed-point-seal.json"
-        fixed_seal_before = fixed_seal_path.read_bytes()
-        fixed_seal = json.loads(fixed_seal_path.read_text(encoding="utf-8"))
-        fixed_seal["stable_projected_container_sha256"] = file_sha256(replay_path)
-        fixed_seal["fixed_point_seal_sha256"] = stable_hash(
-            {
-                key: value
-                for key, value in fixed_seal.items()
-                if key != "fixed_point_seal_sha256"
-            },
-            64,
-        )
-        fixed_seal_path.write_text(
-            json.dumps(fixed_seal, indent=2) + "\n", encoding="utf-8"
-        )
-        self.assertTrue(
-            any("differs from reconstruction" in error for error in fixed_point_seal_errors(self.package))
-        )
-        replay_path.write_bytes(replay_before)
-        fixed_seal_path.write_bytes(fixed_seal_before)
-
         record_path = self.package / "canonical-record.json"
         record = json.loads(record_path.read_text(encoding="utf-8"))
         record["audit_decisions"][0]["decision"][
@@ -2730,103 +2302,10 @@ class V2WorkflowTests(unittest.TestCase):
         )
         packet_path.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(
-            ValueError, "differs from sealed semantic reconstruction"
+            ValueError, "differs from sealed source semantic reconstruction"
         ):
-            start_fixed_point(self.package)
+            validate_target(self.package)
 
-    def test_sealed_semantic_repair_starts_a_bound_successor_package(self) -> None:
-        self.run_to_editorial()
-        predecessor_path = self.package / "canonical-record.json"
-        predecessor = json.loads(predecessor_path.read_text(encoding="utf-8"))
-        decision = predecessor["audit_decisions"][0]
-        repair_brief = self.root / "semantic-repair-brief.json"
-        repair_brief.write_text(
-            json.dumps(
-                {
-                    "kind": "gtm_semantic_repair_brief",
-                    "schema_version": 1,
-                    "status": "approved",
-                    "canonical_record_sha256": predecessor[
-                        "canonical_record_sha256"
-                    ],
-                    "repair_records": [
-                        {
-                            "repair_id": "REPAIR-MISSING-NEXT-STEP",
-                            "canonical_decision_id": decision[
-                                "canonical_decision_id"
-                            ],
-                            "fields": ["next_step"],
-                            "reason": (
-                                "The sealed decision lacks the required canonical next "
-                                "step needed for faithful human delivery."
-                            ),
-                        }
-                    ],
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        successor = self.root / "successor-package"
-        manifest = build_package(
-            self.export,
-            successor,
-            predecessor_record_path=predecessor_path,
-            repair_brief_path=repair_brief,
-        )
-        self.assertEqual(
-            predecessor["canonical_record_sha256"],
-            manifest["semantic_successor_of"]["canonical_record_sha256"],
-        )
-        self.assertTrue((successor / "superseded-canonical-record.json").is_file())
-        ledger = json.loads(
-            (successor / "obligation-ledger.json").read_text(encoding="utf-8")
-        )
-        repairs = [
-            row
-            for row in ledger["obligations"]
-            if row.get("semantic_repair_records")
-        ]
-        self.assertEqual(1, len(repairs))
-        self.assertEqual(decision["obligation_id"], repairs[0]["obligation_id"])
-        self.assertIn(
-            "semantic_repair", repairs[0]["material_verification_triggers"]
-        )
-        checkpoint_ledger = json.loads(
-            (
-                successor
-                / "audit-bundles"
-                / "audit-a"
-                / "source-obligations.json"
-            ).read_text(encoding="utf-8")
-        )
-        self.assertFalse(
-            any(row.get("semantic_repair_records") for row in checkpoint_ledger["obligations"])
-        )
-        complete_checkpoint(successor, "audit-a", "successor-source-a-checkpoint")
-        released_ledger = json.loads(
-            (
-                successor / "audit-bundles" / "audit-a" / "obligation-ledger.json"
-            ).read_text(encoding="utf-8")
-        )
-        self.assertTrue(
-            any(row.get("semantic_repair_records") for row in released_ledger["obligations"])
-        )
-        self.assertTrue(
-            (successor / "audit-bundles" / "audit-a" / "semantic-repair-brief.json").is_file()
-        )
-        mismatched_export = self.root / "mismatched-container.json"
-        changed_source = minimal_export()
-        changed_source["containerVersion"]["container"]["publicId"] = "GTM-OTHER"
-        mismatched_export.write_text(json.dumps(changed_source), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "same locked source"):
-            build_package(
-                mismatched_export,
-                self.root / "mismatched-successor",
-                predecessor_record_path=predecessor_path,
-                repair_brief_path=repair_brief,
-            )
 
     @unittest.skipUnless(
         os.environ.get("CODEX_NODE") and os.environ.get("CODEX_ARTIFACT_NODE_MODULES"),

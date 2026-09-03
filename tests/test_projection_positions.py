@@ -1,67 +1,95 @@
-"""Serialization positions must not create new semantic review work."""
+"""Object positions may change; exact operation values must remain source-bound."""
+
+from __future__ import annotations
 
 import copy
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from gtm_fixed_point import _projection_delta
-from gtm_lib import stable_hash
+from test_v2_operation_safety import operation, operation_fixture
+from gtm_operation_model import apply_operations, validate_operations
 
 
 class ProjectionPositionTests(unittest.TestCase):
-    def row(self, identity, position, value="original code"):
-        path = f"$.containerVersion.tag[{position}]"
-        evidence = {"object_key": "tag:42", "source_json_path": path, "code": value}
-        return {
-            "obligation_id": identity, "subject_keys": ["tag:42"],
-            "source_coordinates": [path], "evidence": evidence,
-            "evidence_sha256": stable_hash(evidence, 64),
-            "obligation_sha256": identity,
-        }
-
-    def delta(self, before, after):
-        def scan(rows):
-            return {"objects": [{"object_key": "tag:42", "source_json_path": rows[0]["source_coordinates"][0]}]}
-        return _projection_delta(
-            2, {"obligations": before}, {"obligations": after},
-            scan(after), {}, scan(before),
+    def setUp(self):
+        self.source = operation_fixture()
+        self.source["containerVersion"]["tag"].insert(
+            0, {"tagId": "99", "name": "Unused preceding tag", "type": "html"}
+        )
+        self.delete = operation(
+            "OP-DELETE-PRECEDING", deletions=[{"object_key": "tag:99"}]
         )
 
-    def test_position_only_move_is_not_new_or_retired(self):
-        before, after = self.row("old", 9), self.row("new", 8)
-        original = copy.deepcopy([before, after])
-        self.assertEqual(self.delta([before], [after])["counts"], {"new": 0, "changed": 0, "retired": 0})
-        self.assertEqual([before, after], original)
+    def test_deleting_preceding_object_preserves_remaining_objects_and_input(self):
+        before = copy.deepcopy(self.source)
+        self.assertEqual([], validate_operations(self.source, [self.delete]))
+        projected = apply_operations(self.source, [self.delete])
+        expected = copy.deepcopy(before)
+        expected["containerVersion"]["tag"].pop(0)
+        self.assertEqual(expected, projected)
+        self.assertEqual(before, self.source)
 
-    def test_move_with_real_code_change_still_requires_review(self):
-        result = self.delta([self.row("old", 9)], [self.row("new", 8, "changed code")])
-        self.assertEqual(len(result["obligations"]), 1)
+    def test_dependent_change_resolves_object_identity_after_position_shift(self):
+        change = operation(
+            "OP-CHANGE",
+            changes=[{
+                "object_key": "tag:1", "json_path": "$.parameter[0].value",
+                "before": "G-OLD", "after": "G-NEW",
+            }],
+        )
+        change["depends_on"] = [self.delete["operation_id"]]
+        before = copy.deepcopy([self.source, self.delete, change])
+        self.assertEqual([], validate_operations(self.source, [change, self.delete]))
+        first = apply_operations(self.source, [change, self.delete])
+        second = apply_operations(self.source, [self.delete, change])
+        self.assertEqual(first, second)
+        self.assertEqual("1", first["containerVersion"]["tag"][0]["tagId"])
+        self.assertEqual("G-NEW", first["containerVersion"]["tag"][0]["parameter"][0]["value"])
+        self.assertEqual(before, [self.source, self.delete, change])
 
-    def test_literal_path_value_is_not_normalized(self):
-        result = self.delta([self.row("old", 9, "$.containerVersion.tag[9]")], [self.row("new", 8, "$.containerVersion.tag[8]")])
-        self.assertEqual(len(result["obligations"]), 1)
+    def test_literal_source_path_is_preserved_when_object_moves(self):
+        tag = self.source["containerVersion"]["tag"][1]
+        tag["notes"] = "$.containerVersion.tag[1]"
+        projected = apply_operations(self.source, [self.delete])
+        self.assertEqual(tag, projected["containerVersion"]["tag"][0])
+        self.assertEqual("$.containerVersion.tag[1]", projected["containerVersion"]["tag"][0]["notes"])
 
-    def test_ordered_values_still_require_review(self):
-        result = self.delta([self.row("old", 9, ["a", "b"])], [self.row("new", 8, ["b", "a"])])
-        self.assertEqual(len(result["obligations"]), 1)
+    def test_ordered_values_are_preserved_without_an_exact_change(self):
+        tag = self.source["containerVersion"]["tag"][1]
+        tag["notes"] = ["a", "b"]
+        projected = apply_operations(self.source, [self.delete])
+        self.assertEqual(["a", "b"], projected["containerVersion"]["tag"][0]["notes"])
+        change = operation(
+            "OP-REORDER",
+            changes=[{
+                "object_key": "tag:1", "json_path": "$.notes",
+                "before": ["a", "b"], "after": ["b", "a"],
+            }],
+        )
+        self.assertEqual([], validate_operations(self.source, [change]))
+        self.assertEqual(
+            ["b", "a"],
+            apply_operations(self.source, [change])["containerVersion"]["tag"][1]["notes"],
+        )
 
-    def test_ambiguous_semantic_matches_are_not_skipped(self):
-        result = self.delta([self.row("old1", 9), self.row("old2", 9)], [self.row("new", 8)])
-        self.assertEqual(len(result["obligations"]), 1)
-
-    def test_topology_digest_is_recomputed_only_if_valid(self):
-        before, after = self.row("old", 9), self.row("new", 8)
-        for row in [before, after]:
-            row["evidence"]["control_topology_sha256"] = stable_hash(row["evidence"], 32)
-            row["evidence"]["review_area_ids"] = ["AREA-07", "AREA-08"]
-        self.assertFalse(self.delta([before], [after])["obligations"])
-        after["evidence"]["review_area_ids"].append("AREA-09")
-        self.assertEqual(len(self.delta([before], [after])["obligations"]), 1)
-        after["evidence"]["review_area_ids"].pop()
-        after["evidence"]["control_topology_sha256"] = "opaque changed digest"
-        self.assertEqual(len(self.delta([before], [after])["obligations"]), 1)
+    def test_literal_path_and_order_drift_cannot_satisfy_before_value(self):
+        for current, stale in (
+            ("$.containerVersion.tag[1]", "$.containerVersion.tag[0]"),
+            (["a", "b"], ["b", "a"]),
+        ):
+            with self.subTest(current=current):
+                self.source["containerVersion"]["tag"][1]["notes"] = current
+                change = operation(
+                    "OP-STALE",
+                    changes=[{
+                        "object_key": "tag:1", "json_path": "$.notes",
+                        "before": stale, "after": "replacement",
+                    }],
+                )
+                before = copy.deepcopy(self.source)
+                self.assertTrue(validate_operations(self.source, [change]))
+                with self.assertRaisesRegex(ValueError, "before value drifted"):
+                    apply_operations(self.source, [change])
+                self.assertEqual(before, self.source)
 
 
 if __name__ == "__main__":

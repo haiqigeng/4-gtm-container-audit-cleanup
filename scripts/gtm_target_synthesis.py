@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from typing import Any
 from gtm_audit_contract import ACTIONABLE_DECISION_CLASSES
 from gtm_consent_model import normalized_context_hosts
 from gtm_lib import (
+    ID_KEYS,
     as_list,
     container_version,
     require_safe_package_root,
@@ -19,6 +21,7 @@ from gtm_lib import (
     write_json,
 )
 from gtm_operation_model import (
+    _action_targets,
     apply_operations,
     dependency_order,
     merge_exact_operation_ids,
@@ -35,7 +38,55 @@ from gtm_reconciliation import reconciliation_seal_errors
 from gtm_shared_facts import effective_server_route_hosts_by_tag
 
 OPERATION_PACKET_FILE = "operation-packet.json"
-INITIAL_PROJECTION_FILE = "projected-container.json"
+
+
+def operation_error_context(
+    operations: list[dict[str, Any]], errors: list[str]
+) -> list[str]:
+    """Distinguish explicit owners, related action targets, and unresolved errors."""
+    def mentions(error: str, identity: str) -> bool:
+        return bool(identity and re.search(
+            rf"(?<![\w-]){re.escape(identity)}(?![\w-])", error
+        ))
+
+    result = []
+    for error in errors:
+        owners = [
+            row for row in operations
+            if mentions(error, str(row.get("operation_id") or ""))
+        ]
+        explicit = bool(owners)
+        if not explicit:
+            for row in operations:
+                targets = _action_targets(row)
+                for creation in as_list(row.get("creations")):
+                    if not isinstance(creation, dict):
+                        continue
+                    layer = str(creation.get("layer") or "")
+                    obj = creation.get("object")
+                    id_key = ID_KEYS.get(layer)
+                    if id_key and isinstance(obj, dict) and obj.get(id_key):
+                        targets.add(f"{layer}:{obj[id_key]}")
+                if any(mentions(error, target) for target in targets):
+                    owners.append(row)
+        if not owners:
+            result.append(
+                f"{error} [packet-wide validation; operation ownership unresolved]"
+            )
+            continue
+        operation_ids = sorted({str(row["operation_id"]) for row in owners})
+        decision_ids = sorted({
+            str(value) for row in owners
+            for value in as_list(row.get("source_reconciled_decision_ids"))
+        })
+        operation_label = "packet operations" if explicit else "candidate operations (object match)"
+        decision_label = "owning source decisions" if explicit else "candidate source decisions"
+        uncertainty = "" if explicit else "; operation ownership unresolved"
+        result.append(
+            f"{error} [{operation_label}: {', '.join(operation_ids) or 'none'}; "
+            f"{decision_label}: {', '.join(decision_ids) or 'none'}{uncertainty}]"
+        )
+    return result
 
 
 def _trigger_facts_by_id(cv: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -158,7 +209,10 @@ def build_operation_packet_payloads(
                     "next_step": decision.get("next_step"),
                 }
             )
-    operations = merge_exact_operation_ids(operations)
+    try:
+        operations = merge_exact_operation_ids(operations)
+    except ValueError as exc:
+        raise ValueError("; ".join(operation_error_context(operations, [str(exc)]))) from exc
     errors = operation_write_conflicts(operations)
     do_not_touch = {
         str(value)
@@ -167,12 +221,21 @@ def build_operation_packet_payloads(
     }
     errors.extend(validate_operations(source, operations, do_not_touch=do_not_touch))
     if errors:
-        raise ValueError("operation safety gate failed: " + "; ".join(errors))
+        raise ValueError("operation safety gate failed: " + "; ".join(
+            operation_error_context(operations, errors)
+        ))
     ordered = dependency_order(operations)
-    projected = apply_operations(source, ordered)
+    try:
+        projected = apply_operations(source, ordered)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("operation simulation failed: " + "; ".join(
+            operation_error_context(ordered, [str(exc)])
+        )) from exc
     gate_errors = server_consent_gate_regression_errors(source, projected, context)
     if gate_errors:
-        raise ValueError("operation safety gate failed: " + "; ".join(gate_errors))
+        raise ValueError("operation safety gate failed: " + "; ".join(
+            operation_error_context(ordered, gate_errors)
+        ))
     operation_ids = {str(row.get("operation_id") or "") for row in ordered}
     reverse_dependencies: dict[str, list[str]] = defaultdict(list)
     for operation in ordered:
@@ -189,7 +252,7 @@ def build_operation_packet_payloads(
     packet = {
         "kind": "gtm_reconciled_operation_packet",
         "schema_version": 1,
-        "status": "ready_for_fixed_point_projection",
+        "status": "ready_for_target_validation",
         "source_sha256": record.get("source_sha256"),
         "reconciled_record_sha256": record.get("reconciled_record_sha256"),
         "operations": ordered,
@@ -210,12 +273,10 @@ def build_operation_packet_payloads(
 def compile_operation_packet(package_dir: Path) -> dict[str, Any]:
     require_safe_package_root(package_dir)
     packet_path = package_dir / OPERATION_PACKET_FILE
-    projection_path = package_dir / INITIAL_PROJECTION_FILE
-    if packet_path.exists() or projection_path.exists():
+    if packet_path.exists():
         raise ValueError("operation packet outputs already exist and are never overwritten")
     packet, projected = build_operation_packet_payloads(package_dir)
     write_json(packet_path, packet)
-    write_json(projection_path, projected)
     return {
         "status": "pass",
         "operations": len(as_list(packet.get("operations"))),

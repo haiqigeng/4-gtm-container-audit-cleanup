@@ -142,4 +142,4 @@ ContainerVersion instead of switching audit modes.
 The audit operates on one full source graph, never an import patch or changed-only
 fragment. A standard GTM export envelope may omit empty web layers; equivalent
 read-only evidence must enumerate them. Apply the same identity and shape gates
-to every fixed-point projection.
+to the simulated container used for deterministic target validation.

@@ -23,10 +23,15 @@ configured behaviour, decision class, consequence or benefit, preserved
 distinctions, target direction, confidence, evidence boundary when applicable,
 and next step.
 
-If one of those fields is missing or wrong, stop. Start a semantic-successor
-package from the same locked source, bound to the predecessor canonical seal and
-an approved field-level repair brief, then rerun the complete audit workflow. The
-mapper, editor, and builder may not infer, patch, or overwrite it.
+If one of those fields is missing or wrong, stop delivery. Use the focused repair
+procedure in `workflow-and-assurance.md` with user-authorized exact decision IDs
+and a concrete reason. The helper creates a new working successor retaining
+validated source evidence, checkpoints, both audits, seals, and histories, while
+excluding generated downstream outputs. The predecessor remains unchanged.
+Amend the exact owning source records through the existing protocol, then
+reconstruct reconciliation, target validation, canonical authority, and the
+dependent workbook checks. Do not restart the full source audits. The mapper,
+editor, builder, and repair helper may not invent or patch sealed semantics.
 
 The editorial transformation may edit only declared prose fields. It must preserve
 IDs, object keys and names, event/parameter/destination identifiers, decision
@@ -147,8 +152,10 @@ and receive only their declared inputs; neither receives the other's findings.
 Record each locked input and output hash.
 
 Apply presentation-only corrections through a new editorial artifact and rebuild.
-Start a semantic successor only for a canonical completeness or fidelity defect. Render and
-inspect every visible sheet, then pass formula-injection and privacy checks before
+Use a focused working successor for a canonical completeness or semantic fidelity
+defect. Copying retained evidence does not author judgments or establish their
+validity against a new scan. Render and inspect every visible sheet, then pass
+formula-injection and privacy checks before
 sealing delivery. Workbook completion is not GTM mutation approval.
 
 The automated privacy check is deliberately bounded. It covers configured

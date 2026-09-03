@@ -106,7 +106,6 @@ SEMANTIC_AUDIT_DECISION_FIELDS = {
     "source_coordinates",
     "applicability",
     "material_verification_triggers",
-    "semantic_repair_records",
     "status",
     *CANONICAL_DECISION_FIELDS,
     "operation_proposal",
@@ -212,11 +211,6 @@ def semantic_audit_decision_schema_errors(
             not isinstance(value, str) for value in as_list(decision.get(field))
         ):
             errors.append(f"{label}: {field} must be a string list")
-    repairs = decision.get("semantic_repair_records")
-    if not isinstance(repairs, list) or any(
-        not isinstance(row, dict) for row in as_list(repairs)
-    ):
-        errors.append(f"{label}: semantic_repair_records must be an object list")
     errors.extend(
         operation_proposal_schema_errors(decision.get("operation_proposal"), label)
     )

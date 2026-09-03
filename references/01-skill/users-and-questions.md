@@ -14,5 +14,5 @@ container.
 - Which conclusion needs one owner decision or evidence outside the container?
 - What is the simplest coherent target for the same proven needs?
 - Which exact ordered operations would reach that target safely?
-- Did projected optimisation reach a deterministic static fixed point?
+- Do the combined recommendations pass the implemented static target checks?
 - What should a human analyst review next in one clear workbook?

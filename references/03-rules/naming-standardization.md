@@ -113,8 +113,9 @@ Variable type acronyms:
 - Use `CE` for Custom Event triggers, `PV` for pageview or URL/hostname
   triggers, `LC` for link-click triggers, `FORM` for form-submit triggers,
   `Block` for blocking triggers, and `TG` for trigger groups.
-- Flatten single-member trigger groups before final naming only when the sealed
-  target architecture independently proves that deletion is safe.
+- Include flattening of single-member trigger groups before final naming in the
+  initial audit proposal only when source evidence proves equivalence and safe
+  deletion with all consumers remapped. Retain groups with justified distinctions.
 - Treat vendor/CMP names as vocabulary, not role names. If `Didomi - ...`,
   `Consent - ...`, and `Block - ...` triggers all block a vendor because consent
   is denied, standardize them under the blocking-trigger pattern. Keep `Didomi`

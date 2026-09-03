@@ -32,7 +32,6 @@ from gtm_cleanroom_audit import (  # noqa: E402
     decision_obligation_alignment_errors,
     operation_proposal_errors,
 )
-from gtm_fixed_point import MAX_CYCLES, _block_non_convergent  # noqa: E402
 from gtm_lib import (  # noqa: E402
     CONSENT_INITIALIZATION_TRIGGER_ID,
     container_version,
@@ -132,7 +131,6 @@ def work_unit_decision(index: int) -> dict:
         "source_coordinates": [],
         "applicability": "applicable",
         "material_verification_triggers": [],
-        "semantic_repair_records": [],
         "status": "pending",
         **{field: "" for field in CANONICAL_DECISION_FIELDS},
         "operation_proposal": {},
@@ -361,7 +359,7 @@ class V2OperationSafetyTests(unittest.TestCase):
             decision, "malformed decision"
         )
         self.assertTrue(any("string list" in error for error in decision_errors))
-        self.assertTrue(any("object list" in error for error in decision_errors))
+        self.assertIn("malformed decision: decision fields differ from its closed schema", decision_errors)
         self.assertTrue(any("operation_proposal" in error for error in decision_errors))
 
         self.assertTrue(discovery_schema_errors(None, "malformed discovery"))
@@ -765,37 +763,6 @@ class V2OperationSafetyTests(unittest.TestCase):
         )
         cv = container_version(projected)
         self.assertNotIn("zone", cv)
-
-    def test_non_convergence_has_a_fixed_blocking_outcome(self) -> None:
-        self.assertEqual(3, MAX_CYCLES)
-        with tempfile.TemporaryDirectory() as temporary:
-            package = Path(temporary)
-            (package / "fixed-point").mkdir()
-            state = {
-                "kind": "gtm_fixed_point_state",
-                "schema_version": 1,
-                "status": "awaiting_projection_reviews",
-                "max_cycles": MAX_CYCLES,
-                "current_cycle": MAX_CYCLES,
-                "cycle_history": [
-                    {"cycle_number": number, "status": "actionable"}
-                    for number in range(1, MAX_CYCLES + 1)
-                ],
-            }
-            result = _block_non_convergent(
-                package,
-                copy.deepcopy(state),
-                "the third projection cycle produced a new actionable obligation",
-            )
-            self.assertEqual("non_convergent_target_state", result["status"])
-            proof = json.loads(
-                (package / "fixed-point" / "fixed-point-proof.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertEqual("non_convergent_target_state", proof["status"])
-            self.assertEqual(MAX_CYCLES, proof["max_cycles"])
-            self.assertIn("reseal", proof["required_next_step"])
 
     def test_required_shards_must_be_closed_merged_and_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

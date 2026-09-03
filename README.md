@@ -3,8 +3,8 @@
 A reusable Codex skill for static Google Tag Manager web-container audit and
 optimization. Version 2.2.1 is the current release. It uses one deterministic
 canonical scan, fresh-agent scan assurance, two complete independent semantic
-audits, fresh-agent reconciliation, deterministic target closure, and one
-analyst workbook.
+audits in parallel, one fresh-agent reconciliation, deterministic target
+validation, and one analyst workbook.
 
 ## North Star
 
@@ -12,7 +12,8 @@ Make an existing GTM container as clean, correct, simple, and maintainable as if
 a senior web analyst configured it today from an empty container for the same
 proven needs. Identify defects, materially non-optimal configuration, justified
 design, owner decisions, and evidence limits from container-visible evidence;
-then produce an exact safe target and one trustworthy human workbook.
+then propose a coherent exact target, validate its static checks, and produce one
+trustworthy human workbook.
 
 ## What It Audits
 
@@ -23,7 +24,7 @@ client-to-server transport, variables, effective Google Configuration/Event
 Settings, destination/page-view ownership, GA4/ecommerce/vendor semantics,
 source-to-destination value semantics, identity and sensitive fields, custom
 code/templates, Zones and portability, naming, static complexity, business
-architecture, exact operations, and fixed-point optimization.
+architecture, exact operations, and combined target validation.
 
 Important architectural positions include:
 
@@ -54,10 +55,10 @@ source lock
   -> deterministic canonical scan
   -> raw-source assurance in a separate fresh agent context
   -> typed obligation ledger
-  -> Audit A and Audit B in separate fresh agent contexts
+  -> Audit A and Audit B in parallel, in separate fresh agent contexts
   -> reconciliation and neutral review in a separate fresh agent context
   -> exact operations
-  -> projected fixed point (maximum three cycles) + deterministic replay
+  -> deterministic validation of the combined target
   -> sealed canonical record
   -> evidence-locked editorial mapping
   -> one verified analyst workbook
@@ -68,15 +69,23 @@ orders reduce correlated misses. Both may read the same locked source facts and
 version-locked skill rules, but neither receives the peer's findings until both
 are complete. A fresh reconciliation agent then compares the sealed audits and
 performs the required neutral review of disagreements, one-sided findings, and
-material-risk conclusions.
+material-risk conclusions. Each audit must identify consequential cleanup and a
+coherent complete target from the source before sealing. A generated candidate
+is not a verdict, and lack of an authored operation is unfinished audit work,
+not an external owner decision.
 
 The portable provenance contract records agent/context labels and locked
 input/output hashes. Labels are distinct where reviewers must be independent.
-Materially changed projected obligations receive two fresh blind review agents.
 Workbook fidelity and workbook-only reader checks also use separate fresh agents.
 
+One product execution has one comprehensive source pass. Target simulation
+recomputes facts and assurance for static validation; it does not open another
+semantic audit, create recommendations, or require convergence. Passing validates
+the implemented static checks, not runtime behaviour or the absence of any
+further possible optimisation.
+
 Every authority transition is independently reconstructed from sealed
-predecessors: reconciliation scaffolds, operation packet, projected replay,
+predecessors: reconciliation scaffolds, operation packet, target validation,
 canonical record, and delivery map cannot be replaced by a merely self-consistent
 rehash. Every public workflow and workbook command also rejects redirects
 anywhere in the complete package tree before package I/O. Manifest-carried paths
@@ -117,6 +126,10 @@ plus one `.xlsx` workbook with:
 - `.skill-build-manifest.json` — deterministic runtime identity
 
 ## Development Validation
+
+Separately authorized development evaluations may repeat on unseen fixtures to
+improve the skill. Those repeats are outside a product execution and must not
+become simulated-target audit rounds or a product convergence gate.
 
 ```powershell
 python -B scripts/gtm_skill_identity.py write --root .

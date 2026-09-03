@@ -9,6 +9,13 @@
 
 ## No-Cheat Rule
 
+This protocol governs separately authorized skill-development evaluation.
+Development may repeat evaluations and corrections on representative exports;
+each evaluated product execution still has one comprehensive source scan and
+assurance, two complete independent audits in parallel, one reconciliation, and
+deterministic target/workbook validation. Do not add simulated-target semantic
+review rounds or a convergence gate to product execution.
+
 Use unseen representative exports. Auditors may not read expected findings,
 legacy outputs, the other audit, reconciliation results, or seeded-answer metadata.
 Evaluate quality before speed. Compare retained behaviour and outcomes, never old
@@ -53,11 +60,14 @@ Measure:
 - complete assured literal-inventory recall plus transversal
   candidate/family/relationship/topology/custom-code/container obligation recall;
 - seeded material finding and optimisation recall;
+- first-pass consequential cleanup and coherent target design, including exact
+  proposals for source-known repairs; separate independently actionable defects
+  from unrelated owner questions without guessed defaults or runtime claims;
 - false-positive rate against intentional variants and evidence limits;
 - independent discovery overlap and unique valid findings from Audit A/B;
 - correct neutral handling of conflicts, one-sided findings, and material risk by
   a fresh reconciliation agent over the two sealed audits;
-- rejection when Audit A/B or a projection-review pair shares one agent context,
+- rejection when Audit A/B shares one agent context,
   receives peer findings before sealing, or lacks locked input/output hashes;
 - separate fresh-agent fidelity and workbook-only reader review with distinct
   labels and declared locked inputs;
@@ -76,19 +86,24 @@ Measure:
 - rejection of any package-root or descendant symlink, junction, or reparse point
   before every public Python or workbook command uses package evidence or writes;
 - rejection of self-rehashed reconciliation scaffolds, neutral queues, operation
-  packets, fixed-point state/proof, canonical records/manifests, and delivery maps
+  packets, target-validation artifacts, canonical records/manifests, and delivery maps
   by independently reconstructing each from its sealed predecessors;
-- exact operation validity, dependency safety, target coherence, and fixed-point
-  convergence/non-convergence blocking, with byte-identical rollback after a
-  failed candidate cycle;
-- canonical-field completeness and repair ownership, including same-source
-  predecessor binding and complete successor-package reruns;
+- exact operation validity, dependency safety, combined target consistency, and
+  rejection of conflicting writes, protected-object changes, invalid references,
+  and consent/routing violations covered by the implemented static checks;
+- no semantic target-review queue, new recommendation, or convergence gate
+  created by deterministic validation;
+- canonical-field completeness and focused repair ownership: exact user-authorized
+  IDs and reason, validated retained source/checkpoint/audit/seal/history evidence,
+  unchanged predecessor, and only generated downstream exclusions in the working
+  successor; amend exact owning records and revalidate dependent artifacts without
+  a complete source-audit restart or automatic transfer of new-scan judgments;
 - workbook row coverage, locked-field equality, claim fidelity, standalone reader
   comprehension, formula/privacy safety, and rendered layout; and
 - complete branch-aware measurement of every Python trust-boundary module plus a
   strict fail-closed online check of every required official registry source; and
 - only after quality passes: wall-clock time, work-unit cost, amendment rate,
-  conflict rate, projection cycles, and workbook build time.
+  conflict rate, target-validation time, and workbook build time.
 
 ## Release Decision
 
@@ -96,6 +111,6 @@ Release only when the current v2.2.1 implementation is equal or better for every
 retained capability, detects the new optimisation and consent/routing classes,
 preserves all seeded intentional distinctions, has no unsupported optimisation
 advice increase, blocks missing required fresh-agent separation, premature peer-
-finding exposure, invalid provenance, or non-convergence adversaries, and
+finding exposure, invalid provenance, or forged target-validation artifacts, and
 produces one trustworthy workbook. A deferred
 utility passes only by being absent.

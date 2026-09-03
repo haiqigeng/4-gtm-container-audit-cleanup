@@ -238,33 +238,11 @@ def prepare_audit_bundles(
                 if row.get("obligation_id") not in source_ids:
                     continue
                 source_row = copy.deepcopy(row)
-                if as_list(source_row.pop("semantic_repair_records", [])):
-                    source_row["source_coordinates"] = [
-                        value
-                        for value in as_list(source_row.get("source_coordinates"))
-                        if not str(value).startswith(
-                            ("$.repair_records[", "$.audit_decisions[")
-                        )
-                    ]
-                    source_row["material_verification_triggers"] = [
-                        value
-                        for value in as_list(
-                            source_row.get("material_verification_triggers")
-                        )
-                        if value != "semantic_repair"
-                    ]
-                    source_row["obligation_sha256"] = _hash_without(
-                        source_row, "obligation_sha256"
-                    )
                 source_obligations.append(source_row)
             source_ledger = {
                 **ledger,
                 "obligations": source_obligations,
                 "release_sets": {"source_only": sorted(source_ids)},
-                "counts": {
-                    **(ledger.get("counts") or {}),
-                    "semantic_repairs": 0,
-                },
             }
             source_ledger["obligation_ledger_sha256"] = _hash_without(
                 source_ledger, "obligation_ledger_sha256"
@@ -524,9 +502,6 @@ def _audit_scaffold(
                 "source_coordinates": obligation["source_coordinates"],
                 "applicability": obligation["applicability"],
                 "material_verification_triggers": obligation["material_verification_triggers"],
-                "semantic_repair_records": obligation.get(
-                    "semantic_repair_records", []
-                ),
                 "status": "pending",
                 **{field: "" for field in CANONICAL_DECISION_FIELDS},
                 "operation_proposal": {},
@@ -670,31 +645,6 @@ def checkpoint_audit(
                 "role": "approved_requirement_evidence",
                 "path": target.name,
                 "sha256": file_sha256(target),
-            }
-        )
-    repair_path = package_dir / "semantic-repair-brief.json"
-    if repair_path.is_file():
-        target = bundle / repair_path.name
-        shutil.copy2(repair_path, target)
-        release_records.append(
-            {
-                "role": "approved_semantic_successor_repair",
-                "path": target.name,
-                "sha256": file_sha256(target),
-            }
-        )
-        predecessor_path = package_dir / "superseded-canonical-record.json"
-        if not predecessor_path.is_file():
-            raise ValueError(
-                "semantic repair brief exists without its sealed predecessor record"
-            )
-        predecessor_target = bundle / predecessor_path.name
-        shutil.copy2(predecessor_path, predecessor_target)
-        release_records.append(
-            {
-                "role": "semantic_predecessor_canonical_record",
-                "path": predecessor_target.name,
-                "sha256": file_sha256(predecessor_target),
             }
         )
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
@@ -895,7 +845,6 @@ def _locked_decision_fields(obligation: dict[str, Any]) -> dict[str, Any]:
         "source_coordinates": obligation["source_coordinates"],
         "applicability": obligation["applicability"],
         "material_verification_triggers": obligation["material_verification_triggers"],
-        "semantic_repair_records": obligation.get("semantic_repair_records", []),
     }
 
 
@@ -1766,7 +1715,8 @@ def seal_audit(
         raise ValueError("amendment_of was supplied but no prior audit seal exists")
     if amendment_of and (package_dir / "canonical-record-seal.json").is_file():
         raise ValueError(
-            "source-audit amendment is closed after canonical sealing; start a successor package"
+            "source-audit amendment is closed after canonical sealing; "
+            "use gtm_audit_repair.py to reopen owning records in a working successor"
         )
     if amendment_of:
         preflight_errors = _sealed_audit_record_errors(package_dir, audit_id)

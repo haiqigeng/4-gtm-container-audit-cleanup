@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seal the authoritative machine record after deterministic target closure."""
+"""Seal the authoritative machine record after deterministic target validation."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from gtm_audit_contract import (
     required_decision_fields,
     semantic_contract_errors,
 )
-from gtm_fixed_point import fixed_point_seal_errors
 from gtm_lib import (
     as_list,
     contained_relative_path,
@@ -27,6 +26,7 @@ from gtm_lib import (
 )
 from gtm_operation_model import operation_action_identity, operation_packet_sha256
 from gtm_reconciliation import reconciliation_seal_errors
+from gtm_target_validation import target_validation_seal_errors
 
 CANONICAL_RECORD_FILE = "canonical-record.json"
 CANONICAL_MANIFEST_FILE = "canonical-record-manifest.json"
@@ -39,13 +39,11 @@ CANONICAL_INPUTS = (
     "reconciled-decisions.json",
     "reconciliation-seal.json",
     "operation-packet.json",
-    "fixed-point/fixed-point-proof.json",
-    "fixed-point/fixed-point-seal.json",
-    "fixed-point/projection-decisions.json",
-    "fixed-point/replay/projected-container.json",
-    "fixed-point/replay/canonical-scan.json",
-    "fixed-point/replay/scan-assurance.json",
-    "fixed-point/replay/obligation-ledger.json",
+    "target-validation/projected-container.json",
+    "target-validation/canonical-scan.json",
+    "target-validation/scan-assurance.json",
+    "target-validation/validation-proof.json",
+    "target-validation/validation-seal.json",
 )
 
 
@@ -63,32 +61,14 @@ def _hash_without(payload: dict[str, Any], *fields: str) -> str:
     )
 
 
-def _projection_decisions(package_dir: Path) -> list[dict[str, Any]]:
-    path = package_dir / "fixed-point" / "projection-decisions.json"
-    if not path.is_file():
-        return []
-    return as_list(_load(path).get("canonical_decisions"))
-
-
 def _decision_owner(row: dict[str, Any]) -> dict[str, Any]:
-    if row.get("owning_cycle"):
-        return {
-            "owner_kind": "projection_review_and_reconciliation",
-            "owning_cycle": row.get("owning_cycle"),
-            "owning_reviews": row.get("owning_reviews", []),
-            "repair_rule": (
-                "Reopen both focused projection reviews with separate fresh agents and contexts, "
-                "repeat projection reconciliation and required neutral verification, "
-                "then rerun fixed-point closure."
-            ),
-        }
     return {
         "owner_kind": "source_audit_and_reconciliation",
         "owning_audits": row.get("owning_audits", []),
         "repair_rule": (
             "Reopen the owning source audit in a fresh amendment context bound to its "
             "prior seal, repeat exact reconciliation and required neutral verification, "
-            "then rerun fixed-point closure."
+            "then rerun deterministic target validation."
         ),
     }
 
@@ -108,10 +88,9 @@ def _code_object_keys(scan: dict[str, Any]) -> set[str]:
 
 
 def _canonical_decision_rows(package_dir: Path) -> list[dict[str, Any]]:
-    original = as_list(
+    rows = as_list(
         _load(package_dir / "reconciled-decisions.json").get("canonical_decisions")
     )
-    rows = [*original, *_projection_decisions(package_dir)]
     seen: set[str] = set()
     result = []
     errors = []
@@ -237,7 +216,7 @@ def build_canonical_record(
 ) -> dict[str, Any]:
     require_safe_package_root(package_dir)
     errors = reconciliation_seal_errors(package_dir)
-    errors.extend(fixed_point_seal_errors(package_dir))
+    errors.extend(target_validation_seal_errors(package_dir))
     if errors:
         raise ValueError("canonical seal prerequisites failed: " + "; ".join(errors))
     record_path = package_dir / CANONICAL_RECORD_FILE
@@ -247,11 +226,10 @@ def build_canonical_record(
     source_scan = _load(package_dir / "canonical-scan.json")
     source_assurance = _load(package_dir / "scan-assurance.json")
     source_ledger = _load(package_dir / "obligation-ledger.json")
-    target_root = package_dir / "fixed-point" / "replay"
+    target_root = package_dir / "target-validation"
     target_scan = _load(target_root / "canonical-scan.json")
     target_assurance = _load(target_root / "scan-assurance.json")
-    target_ledger = _load(target_root / "obligation-ledger.json")
-    proof = _load(package_dir / "fixed-point" / "fixed-point-proof.json")
+    proof = _load(target_root / "validation-proof.json")
     packet = _load(package_dir / "operation-packet.json")
     decisions = _canonical_decision_rows(package_dir)
     operation_errors = _operation_errors(packet, decisions)
@@ -295,9 +273,6 @@ def build_canonical_record(
             ),
             "canonical_scan_sha256": target_scan.get("canonical_scan_sha256"),
             "scan_assurance_sha256": target_assurance.get("scan_assurance_sha256"),
-            "obligation_ledger_sha256": target_ledger.get(
-                "obligation_ledger_sha256"
-            ),
             "source_layer_counts": target_scan.get("source_layer_counts", {}),
             "object_directory": _object_directory(target_scan),
             "material_count_deltas": _count_deltas(
@@ -305,12 +280,11 @@ def build_canonical_record(
                 target_scan.get("source_layer_counts", {}),
             ),
         },
-        "fixed_point": {
+        "target_validation": {
             "status": proof.get("status"),
-            "stable_cycle": proof.get("stable_cycle"),
-            "completed_cycles": proof.get("completed_cycles"),
-            "stable_hashes": proof.get("stable_hashes", {}),
-            "fixed_point_proof_sha256": proof.get("fixed_point_proof_sha256"),
+            "validated_hashes": proof.get("validated_hashes", {}),
+            "validation_proof_sha256": proof.get("validation_proof_sha256"),
+            "boundary": proof.get("boundary"),
         },
         "summary": {
             "decision_counts": dict(sorted(decision_counts.items())),

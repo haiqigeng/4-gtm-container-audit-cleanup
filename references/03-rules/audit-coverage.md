@@ -22,7 +22,7 @@ verdict.
 
 Every applicable semantic obligation in areas 2–26 receives exactly one decision.
 Area 1 is owned by the evidence/assurance gate; area 27 is owned by target
-synthesis, projection, replay, and fixed-point status:
+synthesis and deterministic target-validation status:
 
 - `defect`: wrong, contradictory, unsafe, broken, or obsolete configuration;
 - `correct_but_materially_non_optimal`: materially simpler or lower-drift target with the
@@ -37,6 +37,23 @@ Record an optimisation only when repetition or complexity is visible, a current
 GTM mechanism supports the target, all material distinctions are preserved, the
 benefit is concrete, exact operations are expressible, and no runtime result is
 invented.
+
+Both independent audits must identify the complete source-supported improvement
+upfront. For each consolidation or removal, trace all consumers, remaps, and
+remaining dependencies; include consequential cleanup in the same coherent
+target. Resolve shared settings, trigger/blocker ownership, loader/destination
+families, code behaviour, and final naming across the container before sealing.
+Use source evidence beyond generated candidates; candidates never determine the
+verdict or limit the search for material improvements.
+
+Missing authored operations are unfinished agent work, not external owner
+decisions. When a static defect or equivalence is established, finish the exact
+proposal if the evidence supports it. Separate an independently actionable
+defect from an unrelated ownership question in the same object or family, using
+existing atomic decisions and structured open discovery where needed. If the
+repair itself needs an unknown default, guard value, or lifecycle choice, retain
+that specific boundary instead of guessing. A source-visible missing guard or
+global reset does not prove that a runtime failure occurred.
 
 ## Consent And Routing Architecture
 
@@ -319,15 +336,22 @@ downstream server-container enforcement is outside this audit.”
 - For each family decide what is wrong, materially non-optimal, justified, or
   blocked, then define what a senior analyst would build from empty for the same
   proven needs.
+- Include source-proven downstream cleanup and all required consumer remaps in
+  that initial target; do not reserve them for a later simulated-target audit.
 
-### 27. Exact Operations And Fixed-Point Optimization
+### 27. Exact Operations And Deterministic Target Validation
 
 - Compile creates, additions, changes, named-field removals, remaps, renames,
-  pauses, deletions, and dependencies; project the complete target and rescan
-  references, reachability,
-  consent, routing, naming, conflicts, and newly unused objects.
+  pauses, deletions, and dependencies. Simulate the complete combined packet from
+  the locked original and recompute target facts and assurance. Validate exact
+  references, dependencies, writes, protected objects, and the implemented
+  consent/routing safeguards.
 - Admit only reconciled operations with exact before/after state, static
-  verification, rollback, and deterministic fixed-point closure.
+  verification, and rollback. Reconstruct saved validation evidence from sealed
+  predecessors before canonical sealing.
+- Target validation does not generate semantic work queues or recommendations.
+  A pass proves the implemented static checks, not runtime behaviour or the
+  absence of further possible optimisation. There is no convergence gate.
 
 ## Evidence And Source Policy
 

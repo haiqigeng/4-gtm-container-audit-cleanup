@@ -298,8 +298,6 @@ def _comparison_row(
         or present.get("applicability", "applicable"),
         "source_coordinates": obligation.get("source_coordinates")
         or present.get("source_coordinates", []),
-        "semantic_repair_records": obligation.get("semantic_repair_records")
-        or present.get("semantic_repair_records", []),
         "classification": classification,
         "neutral_verification_required": requires_neutral,
         "neutral_verification_id": verification_id if requires_neutral else "",
@@ -343,7 +341,6 @@ def _comparison_row(
         "fact_kind": comparison["fact_kind"],
         "subject_keys": comparison["subject_keys"],
         "source_coordinates": comparison["source_coordinates"],
-        "semantic_repair_records": obligation.get("semantic_repair_records", []),
         "verification_reasons": reasons,
         "neutral_question": (
             "From the supplied evidence and applicable contract, what source-supported "
@@ -514,12 +511,23 @@ def _reconciliation_scaffold_payloads(
 
 
 def scaffold_reconciliation(package_dir: Path) -> dict[str, Any]:
+    require_safe_package_root(package_dir)
+    outputs = (
+        RECONCILIATION_SCAFFOLD_FILE, NEUTRAL_QUEUE_FILE,
+        RECONCILIATION_UNIT_DIRECTORY, RECONCILIATION_COMPLETION_FILE,
+        RECONCILIATION_FILE, NEUTRAL_FILE, RECONCILED_RECORD_FILE,
+        RECONCILIATION_SEAL_FILE,
+    )
+    existing = [name for name in outputs if (package_dir / name).exists()]
+    if existing:
+        raise FileExistsError(
+            "reconciliation outputs already exist; preserve completed work: "
+            + ", ".join(existing)
+        )
     reconciliation, neutral = _reconciliation_scaffold_payloads(package_dir)
     write_json(package_dir / RECONCILIATION_SCAFFOLD_FILE, reconciliation)
     write_json(package_dir / NEUTRAL_QUEUE_FILE, neutral)
     unit_root = package_dir / RECONCILIATION_UNIT_DIRECTORY
-    if unit_root.exists():
-        raise FileExistsError(f"reconciliation unit directory already exists: {unit_root}")
     unit_root.mkdir()
     manifest, units = _reconciliation_unit_payloads(reconciliation, neutral)
     write_json(unit_root / RECONCILIATION_UNIT_MANIFEST, manifest)
@@ -703,7 +711,6 @@ def _neutral_errors(
             "area_id",
             "subject_keys",
             "source_coordinates",
-            "semantic_repair_records",
             "verification_reasons",
             "neutral_question",
             "neutral_evidence",
@@ -891,7 +898,6 @@ def finalize_reconciliation(
             "candidate_id",
             "applicability",
             "source_coordinates",
-            "semantic_repair_records",
             "classification",
             "neutral_verification_required",
             "neutral_verification_id",
@@ -954,9 +960,6 @@ def finalize_reconciliation(
                 "candidate_id": row.get("candidate_id"),
                 "applicability": row.get("applicability"),
                 "source_coordinates": row.get("source_coordinates", []),
-                "semantic_repair_records": row.get(
-                    "semantic_repair_records", []
-                ),
                 "reconciliation_class": row.get("classification"),
                 "neutral_verification_id": row.get("neutral_verification_id"),
                 "decision": canonical,

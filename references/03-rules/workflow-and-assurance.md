@@ -4,7 +4,7 @@
 
 - Authority and stage boundary
 - Stages 1–7
-- Independence, repair, and fixed-point rules
+- Independence, repair, and target-validation rules
 - Speed and trust
 
 ## Authority And Boundary
@@ -22,11 +22,11 @@ locked source/context/contract
   -> canonical deterministic scan
   -> raw-source assurance in a separate fresh agent context
   -> typed obligation ledger
-  -> two complete audits in separate fresh agent contexts
+  -> two complete parallel audits in separate fresh agent contexts
   -> independent validation and seals
   -> fresh-agent reconciliation and neutral review
   -> exact target operations
-  -> projected-container fixed-point proof and replay
+  -> deterministic validation of the combined target
   -> sealed canonical record
   -> evidence-locked editorial transformation
   -> one workbook plus technical/fidelity/reader/privacy gates
@@ -34,6 +34,12 @@ locked source/context/contract
 
 There is no three-run mode, reduced-depth mode, same-context fallback, or legacy
 workbook path.
+
+One normal execution has one comprehensive source pass: scan and assurance,
+two independent audits in parallel, and one reconciliation. Simulation after
+reconciliation validates the combined packet without new semantic reviews or
+recommendations. Separately authorized development evaluations may repeat to
+improve the skill; they are outside this product workflow.
 
 ## Stage 1 — Evidence Gate
 
@@ -43,9 +49,12 @@ registry, and optional approved requirement identities. Block partial identity,
 invalid entity layers, duplicate IDs, or missing evidence that prevents a static
 configuration judgment.
 
-Start without a redundant confirmation only when the user named one resolvable
-source, no competing source exists, complete identity can be read, and the
-requested outcome is the full audit workbook.
+The user must explicitly supply or identify exactly one authoritative source.
+Never search for a likely export, infer a filename, or choose between supplied
+files. Use the exact missing-source request and successful-completion wording
+in `SKILL.md`; all other necessary clarification remains contextual. Once the
+selected source resolves and its complete identity passes, proceed without a
+redundant confirmation.
 
 ## Stage 2 — Canonical Scan And Independent Assurance
 
@@ -84,8 +93,8 @@ named by its evidence anchors; registry-enriched statements and contract metadat
 are never an applicability source.
 
 Area ownership is explicit: area 1 is the evidence and assurance gate, areas
-2–26 are complete semantic-audit obligations, and area 27 is the exact-operation,
-projection, replay, and fixed-point control. Gate/control outcomes do not receive
+2–26 are complete semantic-audit obligations, and area 27 is the exact-operation
+and deterministic target-validation control. Gate/control outcomes do not receive
 invented semantic decision classes.
 
 ## Stages 3 And 4 — Two Complete Independent Audits
@@ -98,6 +107,20 @@ then closes the same transversal units. Both complete every applicable semantic
 obligation in areas 2–26 using the same decision schema. Literal object and
 branch completeness is proven once by the scan assurance and compact checkpoint,
 not restated as repetitive per-object prose.
+
+Find consequential cleanup and a coherent complete target during these initial
+audits. Follow every proposed consolidation or removal through all consumers and
+remaining dependencies. Close shared settings, trigger/blocker ownership,
+loader/destination families, custom-code behaviour, and final naming before
+sealing. Generated candidates are neutral prompts, not verdicts or limits on
+source-based discovery; preserve justified variants and true owner decisions.
+
+An absent authored operation is unfinished agent work. It does not turn a known
+static repair into an external owner decision. Separate independently actionable
+defects from unrelated ownership questions within the same object or family;
+use existing atomic decisions and structured open discovery when needed. Do not
+guess missing defaults or guard values. Source-visible missing guards or global
+resets establish configured behaviour, not proof of a runtime failure.
 
 The decision schema is class-specific. All decisions carry a concise criteria
 assessment, priority, confidence, and citations. Exact target, verification,
@@ -180,7 +203,9 @@ forward-slash relative path with no absolute prefix, drive, empty component,
 `.` component, `..` component, or alternate-data-stream separator. Rehashing a
 manifest never authorises a path outside its owning package directory. A
 failed amendment leaves current and historical seals unchanged. Canonical sealing
-closes this amendment path; later semantic repair uses a successor package.
+closes in-place source amendments for that package. Later semantic repair uses a
+new working successor retaining validated source evidence and both audit histories;
+the same amendment protocol applies there after downstream outputs are excluded.
 Stage the new audit, new seal, immutable work-unit snapshot, and predecessor
 history together. A failed commit must restore the prior current audit and seal
 byte-for-byte, remove the new snapshot and partial history, and clear staging.
@@ -234,7 +259,7 @@ required neutral review may instead reject or narrow a proposal to a supported
 non-actionable decision. Never retain an inadequate claim just to pass the gate;
 report the exact owning decision that requires repair.
 
-When directly editing source or projection reconciliation JSON, use bounded
+When directly editing source reconciliation JSON, use bounded
 patches anchored to exact row IDs. After each batch, check JSON parsing, complete
 row membership, and unchanged locked fields against the immutable scaffold or
 queue before continuing. A successful text patch is not a validation result.
@@ -252,11 +277,7 @@ equality, including closed nested rows, before authored dispositions can
 influence a canonical decision. A self-rehashed scaffold or expected-answer hint
 is not evidence.
 
-Focused projection decisions use cycle-addressed canonical identities. Re-reviewing
-the same obligation in a later fixed-point cycle therefore preserves both sealed
-cycle records without colliding with or overwriting the earlier decision.
-
-## Stage 6 — Exact Operations And Fixed Point
+## Stage 6 — Exact Operations And Deterministic Target Validation
 
 Only reconciled and required-neutral-verified decisions enter target synthesis.
 Operations support creates, additions, changes, named-field removals, remaps,
@@ -269,60 +290,39 @@ The complete operation packet is a pure projection of sealed reconciliation;
 every downstream gate rebuilds it and requires exact semantic equality rather
 than trusting a locally consistent packet seal.
 
-Each projection cycle starts from the locked original and applies the complete
-current packet in dependency order. Rerun the global scan and independent
-assurance and regenerate obligations. Send every materially changed semantic
-obligation through two fresh review agents. The review agents receive the same
-locked projected evidence and contract but not each other's findings. Seal both
-outputs, then reconcile them in a separate fresh context using the same neutral
-decision rules as Stage 5.
+Use `scripts/gtm_target_validation.py` to reconstruct the operation packet from
+sealed reconciliation and simulate the complete packet from the locked original
+in dependency order. Check references, dependencies, conflicting writes,
+protected objects, and the implemented consent/routing safeguards. Recompute
+the simulated container's canonical scan and assurance to verify derived facts.
+These deterministic checks do not reopen semantic obligations, call target
+reviewers, or create new recommendations.
 
-Compare source coordinates through stable, unique GTM object identities. An
-export-array position shift alone does not require another semantic judgment.
-Keep the actual coordinates in all evidence; skip a repeat only when complete
-comparison evidence matches unambiguously. Changed configuration, code, scope,
-relationships, and opaque derived identities remain reviewable.
+Graph checks compare source and target issues, including repeated broken-reference
+occurrences within one consumer, and reject new failures. Unchanged
+source reference/dependency issues retain their reconciled dispositions and are
+recorded in the validation proof; a pass does not relabel them as repaired.
 
-Record projected graph, scan, obligation, relationship, decision, and operation
-hashes. A cycle is stable only when no new or changed actionable obligation
-remains, prior operations still resolve their decisions, bounded outcomes remain
-explicit, and scan plus assurance pass. Replay the stable packet once from the
-locked original and require the complete hash tuple to match. Replay
-independently rebuilds projected container, scan, assurance, obligation ledger,
-decisions, operation packet, state history, and proof. Canonical sealing then
-reconstructs the complete record and exact closed manifest inventory from those
-verified predecessors. Self-rehashed replacement artifacts cannot become
-authority.
+The five saved artifacts under `target-validation/` are
+`projected-container.json`, `canonical-scan.json`, `scan-assurance.json`,
+`validation-proof.json`, and `validation-seal.json`. The module exposes
+`validate_target` and `target_validation_seal_errors`. The seal check reconstructs
+the result from the locked original and sealed predecessors; self-rehashed
+substitutes cannot become authority. Canonical sealing binds that result in
+`target_validation` and reconstructs the exact canonical record and manifest.
 
-Allow at most three cycles including the first. Return
-`non_convergent_target_state` when cycle three remains actionable, a prior hash
-tuple recurs while actionable, a target oscillates, operations conflict, or no
-exact safe operation exists. This block cannot be bypassed by dropping work or
-weakening assurance.
-
-If an authorized skill correction changes derived scan evidence while the current
-cycle is unfinished, use `repair-scan` from the validation reference after its
-writers have stopped. It keeps the same source, operation packet and cycle number,
-and preserves the complete previous cycle under `prior-cycle`. Each new review
-bundle contains only its own peer's retained decisions whose entire obligation
-evidence is unchanged. The plan excludes those records from authoring; validation
-reconstructs them from the bound predecessor seal and rejects edits. New and changed
-obligations go to two fresh independent reviewers. Reconciliation carries forward
-only completed rows that still validate against identical review decisions and
-neutral evidence; a fresh reconciler owns the remaining work. No older cycle or
-sealed closure is replaced, and non-convergence cannot be reset through repair.
-
-Build a next-cycle candidate in an isolated staging directory. Validate the
-candidate decision set, complete operation packet, consent-ownership safety,
-global scan, and independent assurance before committing it. Commit packet,
-projection decisions, and the cycle directory as one recoverable transition. On
-any failure, restore the preceding packet and decision record, remove staging,
-and return `non_convergent_target_state` with the deterministic reason.
+A pass proves only the implemented static checks. It does not prove runtime
+behaviour or that no further optimisation could be found. There are no semantic
+target-review cycles or convergence gate. Trace a concrete validation failure to
+its affected operation and owning decision. Object-matched candidates are not
+proven owners; unresolved diagnostics require focused dependency/action inspection,
+not reopening the whole packet. Never erase a finding
+or invent an external owner question simply to obtain a pass.
 
 ## Stage 7 — Human Delivery
 
-After fixed-point replay, seal one canonical record and transform it through the
-rules in `references/03-rules/workbook-delivery.md`. The delivery layer may change
+After deterministic target validation, seal one canonical record and transform
+it through the rules in `references/03-rules/workbook-delivery.md`. The delivery layer may change
 declared prose only. It cannot create a finding, target, operation, evidence
 boundary, priority, or confidence value.
 
@@ -331,12 +331,27 @@ record and require its seal and closed inventory to match. Workbook fidelity
 compares visible delivery with that canonical projection, never with a mutable
 map treated as its own authority.
 
-A missing or incorrect canonical delivery field stops Stage 7. Create a new
-semantic-successor package from the same locked source, bind it to the sealed
-predecessor canonical record plus an approved repair brief, and rerun all stages.
-Each repair is released after source checkpoints as an obligation for both fresh
-audits and neutral reconciliation. Stage 7 never patches or replaces a sealed
-semantic record.
+A missing or incorrect canonical delivery field stops Stage 7. For a user-
+authorized focused repair, pass the exact decision IDs and a concrete reason to
+`scripts/gtm_audit_repair.py`. It validates the prior package and creates a new
+working successor retaining source locks, scan, assurance, ledger, checkpoints,
+both complete audits, seals, and histories. Only generated downstream outputs are
+excluded from the copy; the predecessor stays unchanged. The repair receipt
+identifies each exact owning source record and its prior seal.
+
+Use a fresh amendment context for each affected audit owner and the existing
+source-audit amendment protocol. Preserve unaffected source judgments and the
+original peer-blind evidence boundaries. Then reconstruct reconciliation in one
+fresh context and rerun target synthesis, target validation, canonical sealing,
+and the dependent workbook gates. This does not restart the complete source
+audits or release repair evidence through new checkpoints.
+
+The helper neither authors amendments nor carries semantic conclusions into new
+scan evidence. A fresh reconciler may reuse a prior neutral conclusion only when
+the newly reconstructed comparison, both source decisions, and neutral evidence
+match the prior scaffolds exactly. An unchanged ID or hash alone is insufficient.
+The reconciler owns changed rows and fresh completion provenance; the helper
+does not automatically transfer verdicts. Stage 7 never patches a sealed record.
 
 ## Speed Without Weakening Trust
 
@@ -346,4 +361,4 @@ deterministically prefilled agreement rows, one authored neutral decision projec
 to its owning comparison, per-shard validation, hash-bound resume, and deterministic
 workbook generation.
 None may reduce obligation coverage, expose one audit to the other, turn judgment
-into a fact, or skip projected closure.
+into a fact, or skip combined target validation.

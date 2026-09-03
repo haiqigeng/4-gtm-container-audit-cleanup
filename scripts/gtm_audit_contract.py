@@ -212,7 +212,7 @@ AUDIT_AREAS: tuple[dict[str, Any], ...] = (
     },
     {
         "area_id": "AREA-27",
-        "title": "Exact operations and fixed-point optimization",
+        "title": "Exact operations and static target validation",
         "phase": "post_reconciliation",
         "method": "post_reconciliation_proof",
     },

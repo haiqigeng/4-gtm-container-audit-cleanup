@@ -21,27 +21,40 @@ objects are not accepted.
   concrete `evidence`;
 - an analyst-approved tracking plan or requirement artifact. It is withheld from
   each audit until that audit seals its source-only checkpoint.
-- for a post-canonical semantic repair only: the sealed predecessor
-  `canonical-record.json` and one approved `gtm_semantic_repair_brief` bound to
-  that record. The new package must use the same locked source; repair evidence
-  is withheld until each fresh audit seals its source checkpoint.
 
 Inference may route review; it cannot silently become an approved fact. Ambiguity
 that changes a verdict becomes an owner decision or evidence limit.
+
+For a focused repair, identify the validated prior audit package, a new working
+successor path, the user-authorized exact decision IDs, and a concrete reason.
+Repair scope identifies affected decisions; it does not inject new evidence into
+the locked source audits. The helper resolves exact canonical, obligation, or source
+decision IDs to their owning records; it does not infer a repair scope.
 
 ## Outputs
 
 The audit package contains immutable source and contract locks, the canonical
 scan, independent scan assurance, obligation ledger, two isolated audit bundles
 and seals, reconciliation and neutral verification, exact operation packet,
-fixed-point proof and deterministic replay, sealed canonical record and manifest,
+deterministic target-validation evidence, sealed canonical record and manifest,
 delivery map/editorial seals, workbook build and verification artifacts, and
 independent fidelity/reader review seals.
 
-A semantic successor additionally contains copied predecessor record/manifest/
-seal evidence, the approved repair brief, explicit post-checkpoint repair
-evidence on each exact owning obligation, and an immutable lineage binding. It is a complete new audit package,
-not an in-place patch or reduced workflow.
+The target-validation result consists of five files beneath `target-validation/`:
+`projected-container.json`, `canonical-scan.json`, `scan-assurance.json`,
+`validation-proof.json`, and `validation-seal.json`. The canonical record binds
+that result under `target_validation`. These artifacts validate the combined
+packet; they do not carry simulated-target semantic reviews or new decisions.
+
+A working repair successor retains the validated source locks, scan, assurance,
+ledger, checkpoints, both complete audits, seals, and histories. Its repair
+receipt records the exact requested IDs, owning records, reason, predecessor
+inventory, and excluded downstream paths. Generated reconciliation, operation,
+target-validation, canonical, and delivery outputs are omitted from the new
+working copy. The predecessor remains unchanged. Amend only the exact owning
+source records through the existing amendment protocol, then reconstruct and
+validate dependent reconciliation, target, canonical, and workbook artifacts.
+The helper creates no new scan or judgment and does not rerun the source audits.
 
 The user-facing output is exactly one `.xlsx` workbook with four required visible
 sheets and an optional Custom Code sheet, as specified in
@@ -50,7 +63,11 @@ technical artifact, not a second workbook.
 
 ## Completion State
 
-`pass` means canonical audit closure, fixed-point replay, exact workbook coverage,
+`pass` means complete source-audit coverage, deterministic target validation,
+canonical sealing, exact workbook coverage,
 technical verification, fidelity, workbook-only reader, rendered-layout, privacy,
 and formula checks all passed. A blocked workflow reports its exact unmet gate;
 it never substitutes a partial workbook.
+
+Passing proves the implemented static checks and delivery gates, not runtime
+behaviour or that every possible optimisation has been exhausted.

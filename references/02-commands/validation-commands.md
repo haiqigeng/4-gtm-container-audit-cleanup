@@ -4,8 +4,9 @@
 
 - Build the evidence package
 - Complete and seal source audits
+- Repair exact owning records
 - Reconcile and synthesize
-- Prove fixed point
+- Validate the combined target
 - Build and seal delivery
 
 Commands assume execution from the skill root with Python 3.11+ and the bundled
@@ -52,38 +53,6 @@ python -B scripts/gtm_scan_assurance.py container.json canonical-scan.json --ven
 python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package --context context.json --requirements requirements.json --scan-assurance scan-assurance.json --pretty
 ```
 
-For a defect discovered after canonical sealing, create an approved repair brief:
-
-```json
-{
-  "kind": "gtm_semantic_repair_brief",
-  "schema_version": 1,
-  "status": "approved",
-  "canonical_record_sha256": "<exact predecessor record hash>",
-  "repair_records": [
-    {
-      "repair_id": "REPAIR-MISSING-NEXT-STEP",
-      "canonical_decision_id": "<exact canonical decision ID>",
-      "fields": ["next_step"],
-      "reason": "The sealed decision lacks the required evidence-bound next step for faithful delivery."
-    }
-  ]
-}
-```
-
-Then start one new same-source successor package:
-
-```powershell
-python -B scripts/gtm_canonical_scan.py container.json --out successor-canonical-scan.json
-python -B scripts/gtm_scan_assurance.py container.json successor-canonical-scan.json --vendor-registry references/03-rules/vendor-registry.toml --out successor-scan-assurance.json --agent-id successor-scan-assurance-agent --context-id successor-scan-assurance-context
-python -B scripts/gtm_audit_package_build.py container.json --out-dir audit-package-successor --supersedes-canonical-record prior-audit-package/canonical-record.json --semantic-repair-brief semantic-repair-brief.json --scan-assurance successor-scan-assurance.json --pretty
-```
-
-The builder validates the predecessor record/manifest/seal, exact source hash,
-repair decision IDs and fields, copies lineage evidence, and adds each repair as
-post-checkpoint evidence on its exact owning obligation. The successor reruns the
-complete workflow.
-
 The output directory must be new or empty. Package creation verifies the runtime
 identity, builds the deterministic scan and obligation ledger, and creates the
 locked inputs for both audits. Run scan assurance first in a separate fresh agent
@@ -93,7 +62,8 @@ create those contexts, block with a concise capability message.
 
 ## Complete And Seal Source Audits
 
-Each audit must run in a distinct fresh agent context over its locked bundle.
+The two complete audits run in parallel, each in a distinct fresh agent context
+over its locked bundle.
 Record its agent/context labels and locked input hash in its provenance, complete
 its `source-checkpoint.json`, then seal the checkpoint:
 
@@ -144,7 +114,8 @@ python -B scripts/gtm_audit_plan.py scaffold audit-package/audit-bundles/audit-b
 ```
 
 In its own fresh context, each agent edits only its own plan. The scaffold locks
-neutral `candidate_groups` from structural fields. Author compact
+neutral `candidate_groups` from structural fields; those groups are not verdicts.
+Author compact
 `decision_profiles` that assign complete candidate-group IDs, and exact
 `obligation_overrides` for every obligation in a candidate that must split.
 Review every obligation. The applicator expands profiles and proves exact-once
@@ -181,6 +152,14 @@ Plan application runs the established operation simulator against the locked
 source before any audit write. Leave plan `open_discoveries` as `[]` unless a genuinely new semantic
 record satisfies the complete structured discovery contract. Do not copy the
 checkpoint's concise string notes into the plan.
+
+Before sealing, include source-proven consequential cleanup and exact consumer
+remaps in a coherent target. Lack of an authored operation is unfinished agent
+work, not an owner decision. Separate independently actionable defects from
+unrelated owner questions in the same object or family, using existing atomic
+records and structured open discovery where needed. Do not guess defaults or
+claim a runtime failure solely from a source-visible missing guard or global reset.
+
 The scaffold's locked `authoring_contract` lists class-required fields. Missing
 runtime evidence limits runtime claims; it does not replace a static verdict for
 container-visible configuration. The plan has a closed schema: locked
@@ -218,10 +197,11 @@ children and cannot be redirected. The package root itself must not be a symlink
 junction, or reparse point. Every public Python and workbook command performs the
 same non-traversing check over the complete package tree before package I/O.
 
-Before canonical sealing, an audit amendment uses a new fresh agent context and binds
-`--amendment-of` to the current audit seal hash. After canonical sealing, use the
-successor-package command above. Never edit a sealed result in place or expose
-the other audit.
+Before canonical sealing, an audit amendment uses a new fresh agent context and
+binds `--amendment-of` to the current audit seal hash. For a package whose
+downstream outputs must be invalidated, use the focused repair procedure below
+and apply these amendment commands in its working copy. Never edit a sealed
+result in place or expose the other audit to the amendment owner.
 
 For an amendment, set `audit.amendment_parent_seal_sha256` to that current seal
 hash. Supply new agent/context labels bound to the unchanged audit bundle, then
@@ -234,6 +214,42 @@ python -B scripts/gtm_cleanroom_audit.py seal audit-package audit-a --amendment-
 
 The amendment records its locked input and output hashes. Audit A and Audit B
 labels remain distinct.
+
+## Repair Exact Owning Records
+
+For user-authorized repair of exact decisions, create a new working copy:
+
+```powershell
+python -B scripts/gtm_audit_repair.py audit-package audit-package-repair --decision-id <exact-canonical-or-obligation-or-source-decision-ID> --reason '<concrete defect>'
+```
+
+Repeat `--decision-id` for additional authorized exact IDs. A source-decision ID
+selects its audit owner; a canonical or obligation ID resolves the associated
+owning records. The output path must not exist, must have an existing parent,
+and must not overlap the predecessor. The helper validates retained evidence and
+copies source locks, scan, assurance, ledger, checkpoints, both complete audits,
+seals, and histories unchanged. Only generated reconciliation, operation,
+target-validation, canonical, and delivery outputs are excluded from the copy.
+The original package remains unchanged. Read the returned repair receipt for
+the exact owning records, prior seals, and excluded paths.
+
+In `audit-package-repair`, a fresh context for each affected audit owner amends
+only the exact requested source records through the existing plan and source-
+audit amendment commands above. Use the owning audit ID and its current seal
+hash, preserve unaffected judgments and checkpoint provenance, and keep peer
+findings out of the amendment context. The helper does not author these changes,
+produce a new scan, or validate old judgments against changed scan evidence.
+Do not repeat package creation, source scan/assurance, or checkpoint commands.
+
+Then run the reconciliation and synthesis commands below against
+`audit-package-repair`, followed by target validation, canonical sealing, and
+the dependent workbook gates. One fresh reconciler may retain a predecessor
+neutral conclusion only if the complete reconstructed comparison, including
+both source decisions, and its neutral evidence exactly match the predecessor
+scaffolds. An ID or hash match alone is insufficient. That reconciler owns
+changed rows and fresh completion provenance; the helper transfers no verdicts
+automatically. This is staged repair of affected work and its dependants, not a
+new complete source-audit run.
 
 ## Reconcile And Synthesize
 
@@ -268,57 +284,35 @@ The synthesizer accepts no new semantic choice. It validates operation identity,
 exact source values, dependencies, write conflicts, `do_not_touch`, and projected
 application.
 
-## Prove Fixed Point
+## Validate The Combined Target
 
 ```powershell
-python -B scripts/gtm_fixed_point.py start audit-package
+python -B scripts/gtm_target_validation.py audit-package
 ```
 
-When a cycle awaits review, complete `review-a` and `review-b` with two fresh
-review agents over the same locked projected evidence. Do not give either agent
-the peer findings. Each reviewer scaffolds and applies its isolated declarative
-plan; use only locked obligation IDs and coordinates, and never create an ad hoc
-reference resolver:
+This command reconstructs the combined packet from sealed reconciliation,
+simulates it from the locked original, checks references, dependencies, writes,
+protected objects and implemented consent/routing safeguards, and recomputes
+projected facts and assurance. It writes exactly five target-validation artifacts:
 
-```powershell
-python -B scripts/gtm_audit_plan.py scaffold-projection audit-package 1 review-a audit-package/projection-scratch/cycle-01/review-a/review-plan.json
-python -B scripts/gtm_audit_plan.py scaffold-projection audit-package 1 review-b audit-package/projection-scratch/cycle-01/review-b/review-plan.json
-python -B scripts/gtm_audit_plan.py apply-projection audit-package 1 review-a audit-package/projection-scratch/cycle-01/review-a/review-plan.json --agent-id <review-a-agent> --context-id <review-a-context>
-python -B scripts/gtm_audit_plan.py apply-projection audit-package 1 review-b audit-package/projection-scratch/cycle-01/review-b/review-plan.json --agent-id <review-b-agent> --context-id <review-b-context>
-```
+- `target-validation/projected-container.json`
+- `target-validation/canonical-scan.json`
+- `target-validation/scan-assurance.json`
+- `target-validation/validation-proof.json`
+- `target-validation/validation-seal.json`
 
-Use the actual cycle number in both the command and zero-padded scratch path.
-Seal both, reconcile them in a separate fresh context, then advance:
+Successful outputs are immutable; the command refuses to overwrite an existing
+target-validation directory. Graph checks reject newly introduced failures and
+record unchanged source issues with their existing reconciled dispositions.
 
-```powershell
-python -B scripts/gtm_projection_review.py seal-review audit-package 1 review-a
-python -B scripts/gtm_projection_review.py seal-review audit-package 1 review-b
-python -B scripts/gtm_projection_review.py scaffold-reconciliation audit-package 1
-python -B scripts/gtm_projection_review.py finalize audit-package 1
-python -B scripts/gtm_fixed_point.py advance audit-package
-```
-
-Repeat only for the cycle requested by state. Three cycles is the hard maximum.
-A `non_convergent_target_state` is a blocking result, not permission to skip work.
-
-During authorized skill evolution, a derived-scan correction can reopen the current
-unfinished cycle after both reviews are sealed but before closure is sealed:
-
-```powershell
-python -B scripts/gtm_fixed_point.py repair-scan audit-package --reason "Describe the corrected scan defect and its affected evidence."
-```
-
-First wait for current review/reconciliation writers to finish and save their
-drafts. This command preserves them and their plans under that cycle's
-`prior-cycle`, validates the unchanged projected container, and replaces only the
-current derived scan and review bundles. The source, packet and cycle number stay
-unchanged. Scaffold fresh plans at the usual paths; they contain only new or
-changed obligations. Each peer's locked `retained-review.json` preserves its own
-unchanged decisions and must not be edited. Use fresh agent/context labels, seal
-both reviews, then scaffold reconciliation. Its `retained_comparisons` count
-identifies completed rows whose full inputs still match. Preserve those rows and
-complete the remaining rows in a fresh reconciliation context. Do not use repair
-to reopen a sealed closure or to bypass non-convergence.
+The module exposes `validate_target` and `target_validation_seal_errors` for
+maintained callers. Seal validation reconstructs the saved result from its
+locked predecessors and rejects self-rehashed substitutes. No semantic target
+review, new recommendation, or convergence gate follows this command. A failure
+must be traced to the affected work; it is not permission to drop a finding.
+Diagnostics distinguish explicit operation owners from object-matched candidates.
+When ownership is unresolved, inspect the failed dependency and relevant actions
+before reopening exact records; do not reopen the complete packet.
 
 After a pass:
 
@@ -326,10 +320,11 @@ After a pass:
 python -B scripts/gtm_canonical_record.py audit-package
 ```
 
-Fixed-point sealing independently replays the packet from the locked source and
-rebuilds projected evidence, obligations, decisions, state/history, proof, and
-seals. Canonical sealing independently reconstructs its exact closed record and
-manifest inventory from those predecessors.
+Canonical sealing binds the verified result under `target_validation` and
+independently reconstructs its exact closed record and manifest inventory from
+those predecessors. Passing proves the implemented static checks, not runtime
+behaviour or exhaustive optimality. Repeated development evaluations belong to
+the separate forward-test protocol, outside a normal product execution.
 
 ## Build And Seal Delivery
 
@@ -370,6 +365,6 @@ Record distinct agent/context labels and exact locked input/output hashes for th
 two delivery reviews. Neither review receives the other's findings.
 
 The final seal returns the one workbook path. If sealed semantic content is
-missing or wrong, start the same-source successor package described above. If
+missing or wrong, use the focused repair procedure above. If
 wording/layout alone fails, create a fresh editorial amendment, rebuild, and
 repeat the affected delivery checks.

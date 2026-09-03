@@ -1,16 +1,16 @@
-# GTM Container Audit & Optimize — v2.2.0 Evolution Record
+# GTM Container Audit & Optimize — Evolution Record
 
 ## Status And Authority
 
-This document records the product decisions that produced the v2.2.0 static audit
-workflow. It is an evolution record, not a second runtime contract.
+This document records the current single-pass product decisions and historical
+release changes. It is an evolution record, not a second runtime contract.
 
 The authoritative implementation sources are:
 
 - `SKILL.md` for activation, workflow, and hard boundaries;
 - `references/03-rules/audit-coverage.md` for the North Star and all audit areas;
 - `references/03-rules/workflow-and-assurance.md` for independence, reconciliation,
-  and fixed-point closure;
+  and deterministic target validation;
 - `references/03-rules/domain-contracts.md` for current GTM, Google, CMP, vendor,
   and client-side transport criteria;
 - `references/03-rules/workbook-delivery.md` for the human delivery contract.
@@ -45,6 +45,14 @@ The audit is not only a defect finder. It must distinguish:
 A candidate is never a verdict. Repetition alone is never enough to recommend
 consolidation. Every recommendation must preserve all proven timing, value, type,
 consent, route, destination, scope, and ownership distinctions.
+
+One execution has one comprehensive source scan and assurance, two complete
+independent semantic audits in parallel, one reconciliation, deterministic
+validation of their combined recommendations, and one verified workbook. Source-
+visible consequential cleanup and coherent target design belong in the initial
+audits. No simulated-target semantic review cycle or convergence gate is part
+of the product. A static validation pass does not establish runtime behaviour or
+guarantee that no further optimisation could be found.
 
 ## Current Phase Boundary
 
@@ -279,11 +287,13 @@ destination, loader, consent owner, route, source, market, brand, and product;
 include singletons and open discovery. Define what a senior analyst would build
 from empty for the same proven needs.
 
-### 27. Exact Operations And Fixed-Point Optimization
+### 27. Exact Operations And Deterministic Target Validation
 
 Compile exact creates, additions, changes, named-field removals, remaps, renames,
-pauses, deletions, dependencies, verification, and rollback. Project the complete
-target and repeat global closure until stable or deterministically blocked.
+pauses, deletions, dependencies, verification, and rollback. Simulate the complete
+combined target from the locked source and validate references, dependencies,
+conflicting writes, protected objects, and implemented consent/routing safeguards.
+Recompute target facts and assurance without creating new semantic work.
 
 ## Decided Workflow
 
@@ -305,7 +315,7 @@ The scan may create candidates but may not carry a verdict, recommendation,
 selected policy, operation requirement, or target hint.
 
 Area 1 closes through this evidence/assurance gate, areas 2–26 through both
-semantic audits, and area 27 through operation synthesis and fixed-point proof.
+semantic audits, and area 27 through operation synthesis and target validation.
 
 ### Stages 3 And 4 — Two Complete Independent Audits
 
@@ -318,7 +328,18 @@ Both cover every applicable semantic obligation. Each receives its own locked
 input bundle and records agent/context labels plus exact input/output hashes. Both
 may read the same version-locked skill rules; neither receives the other's work
 before both are complete and sealed. Audit B is generated-candidate-blind until
-its source-only checkpoint.
+its source-only checkpoint. Both audits seal their source-only checkpoint before
+approved requirement evidence is released.
+
+Both audits inspect all consumers and remaining dependencies before recommending
+consolidation or removal, and include source-supported consequential cleanup in
+the same coherent target. Close shared settings, trigger/blocker ownership,
+loader/destination families, naming, and custom-code behaviour before sealing.
+Lack of an authored operation is unfinished agent work, not an owner decision.
+Separate independently actionable defects from unrelated ownership questions in
+the same object or family through existing atomic records and structured open
+discovery where needed. Never guess defaults or treat a source-visible missing
+guard or global reset as proof of an observed runtime failure.
 
 ### Stage 5 — Neutral Reconciliation
 
@@ -331,29 +352,35 @@ disagreement, one-sided finding, and material-risk class. It may confirm, narrow
 reject, or keep blocked; it cannot invent a third actionable target. Record its
 agent/context labels and exact locked input/output hashes.
 
-### Stage 6 — Target Synthesis And Fixed Point
+### Stage 6 — Target Synthesis And Deterministic Validation
 
 Compile only reconciled and required-neutral-verified decisions into exact
-operations. Every cycle starts from the locked original, applies the full packet,
-reruns global scan and assurance, and sends every materially changed semantic
-obligation to two fresh review agents that do not receive peer findings. Their
-sealed outputs are reconciled in a separate fresh context.
+operations. `scripts/gtm_target_validation.py` reconstructs the combined packet
+from sealed reconciliation, simulates it from the locked original, checks the
+implemented static invariants, and recomputes the projected facts and assurance.
+It introduces no semantic choices, review queues, or new recommendations.
 
-Allow at most three cycles. Block as `non_convergent_target_state` on cycle-three
-actionability, recurring actionable hashes, oscillation, conflict, or the absence
-of an exact safe operation. Replay the stable packet from the original and require
-the complete hash tuple to match before canonical sealing.
-Candidate next cycles are staged and validated before the packet, projection
-decisions, and cycle directory commit. Failure restores the prior committed
-artifacts and leaves no partial next cycle.
+The module exposes `validate_target` and `target_validation_seal_errors`.
+Its five artifacts beneath `target-validation/` are `projected-container.json`,
+`canonical-scan.json`, `scan-assurance.json`, `validation-proof.json`, and
+`validation-seal.json`. Reconstruct saved content from locked predecessors to
+reject self-rehashed substitutes. The canonical record binds the verified result
+under `target_validation`. A pass covers the implemented static checks only.
 
 ### Stage 7 — Human Workbook
 
 Map the sealed canonical record to one human workbook. A missing or incorrect
-mandatory delivery field starts a complete same-source successor package bound to
-the predecessor canonical seal and an approved repair brief. Both fresh audits
-and neutral reconciliation own the correction before a new record is sealed.
-Delivery never patches or overwrites a sealed semantic record.
+mandatory delivery field stops delivery. A focused repair names user-authorized
+exact decision IDs and a concrete reason. The repair helper validates and copies
+the prior package to a new working successor, retaining source locks, scan,
+assurance, checkpoints, both complete audits, seals, and histories. It excludes
+only generated downstream outputs and leaves the predecessor unchanged.
+
+Exact owning records use the existing fresh-context source-audit amendment
+protocol, followed by reconciliation, target synthesis/validation, canonical
+sealing, and dependent workbook gates. The complete source audits do not restart.
+The helper creates no new scan or judgment and does not automatically carry prior
+judgments onto changed evidence. Delivery never patches a sealed semantic record.
 
 The editorial transformation may improve declared prose fields only. Deterministic
 workbook build and exact recovery must pass. Fidelity review and workbook-only
@@ -374,9 +401,13 @@ Speed comes from:
 - deterministic workbook generation.
 
 None of those mechanisms may reduce obligation coverage, reviewer independence,
-raw evidence, projected closure, or the static evidence boundary. Audit-result
+raw evidence, combined target validation, or the static evidence boundary. Audit-result
 quality and trustworthiness remain the primary objective; time to result is
 secondary.
+
+Separately authorized development work may repeat evaluations and corrections to
+improve the skill. Those evaluation repeats do not create a product loop or a
+target-discovery stage inside an audit execution.
 
 ## Human Workbook Decision Surface
 
@@ -411,7 +442,7 @@ implementation through an authorised GTM configuration workflow.
 | Consent and routing | Strengthened with the four-route model, direct blocker rule, Advanced proof, and pure-transporter inheritance |
 | Business architecture | Strengthened with families, singletons, relationship candidates, and greenfield target closure |
 | Independent review | Two complete fresh-agent audits plus fresh-agent reconciliation and targeted neutral review |
-| Target operations | Retained within the static phase and strengthened by projection/replay |
+| Target operations | Retained within the static phase and checked through combined target simulation and deterministic reconstruction |
 | Human delivery | Replaced by one canonical technical record and one analyst workbook |
 | Three-run workflow and copied dual workbooks | Removed as obsolete |
 | GTM mutation/import/version/publication | Deliberately absent from v2 |
@@ -426,16 +457,22 @@ tabs, or compatibility modes.
   removed rather than wrapped.
 - The product has one complete workflow and one workbook implementation.
 - Scanner, assurance, obligation, audit independence, reconciliation, operation,
-  fixed-point, canonical record, and delivery concerns remain separate modules.
+  target-validation, canonical record, and delivery concerns remain separate modules.
 - The existing optional parser and bundled spreadsheet artifact runtime are used;
   no duplicate authoring library was introduced.
-- The fixed-point and semantic-successor repair contracts are long-term invariants, not
-  temporary bridges.
+- Combined target validation is a single deterministic stage with no semantic
+  target-review loop. Focused repair reuses the existing source-audit amendment
+  protocol in a validated working copy and rebuilds its dependent outputs.
 - The v2 cutover occurred only after a complete scan-to-workbook path passed.
 
-## Final Release Review And Resolutions
+## Historical Release Review And Resolutions
 
-The repeated pre-release review found and resolved sixty-four issues:
+The following sixty-four entries describe past release work, including the former
+fixed-point/projection-review design. They are historical notes, not operational
+instructions or current guarantees. That design has been superseded by the
+single-pass workflow above; no legacy command or execution path is retained.
+The former full-workflow successor constructor and repair-evidence injection were
+removed. Current focused repair follows Stage 7 above.
 
 1. Three retained analyzer messages still used v1 mutation/approval wording.
    They now refer to evidence lock, static target synthesis, or a separately
@@ -474,20 +511,19 @@ The repeated pre-release review found and resolved sixty-four issues:
    fresh reconciliation agent now receives the two sealed audits, resolves every
    required neutral class, and records lightweight hash-bound provenance.
 10. A canonical semantic defect could identify its owning record but the sealed
-    workflow had no executable repair path. The builder now creates immutable
-    same-source successor packages bound to the predecessor canonical seal and an
-    approved field-level repair brief; every repair enters both fresh audits as a
-    post-checkpoint requirement on its exact owning obligation.
-11. Next-cycle preparation wrote projection decisions and the operation packet
-    before cycle assurance completed. Candidate cycles are now staged; failure
-    restores the preceding records, removes staging, and deterministically blocks
-    without a partial cycle.
+    workflow had no executable repair path. That release used complete same-source
+    successor runs. This historical constructor was removed; current repair copies
+    validated source audit evidence and amends exact owners before rebuilding
+    dependent outputs.
+11. In the former cycle design, next-cycle preparation wrote decisions and the
+    packet before assurance completed. That release added staged transitions and
+    rollback. This is historical behavior of the removed cycle workflow.
 12. A tagged release and runtime manifest could accept dirty build provenance.
     Tagged release checks and declared/installed runtime identity now fail unless
     the manifest records a clean source commit.
-13. Projection review independence was underspecified. Every materially changed
-    projected obligation now receives two fresh review agents with peer-blind
-    inputs, followed by fresh-context reconciliation of their sealed results.
+13. The former projection-review design added two peer-blind fresh review agents
+    and fresh reconciliation for changed projected obligations. Those target
+    semantic reviews are not part of the current product contract.
 14. Fidelity and workbook-only reader checks now use separate fresh agents,
     declared locked inputs, distinct labels, and exact input/output hashes.
 15. Pre-canonical audit amendments retain the immutable source checkpoint, use a
@@ -567,16 +603,17 @@ The repeated pre-release review found and resolved sixty-four issues:
 32. Base reconciliation accepted a correctly rehashed but altered scaffold or
     neutral queue. Finalisation now reconstructs both exact closed structures
     directly from the two sealed audits before accepting authored dispositions.
-33. Projection reconciliation had the same mutable-scaffold weakness. Its
-    scaffold, neutral queue, decision set, reviews, and seal are now independently
-    regenerated from the sealed cycle evidence.
+33. The former projection reconciliation rebuilt its scaffold, queue, decisions,
+    reviews, and seal from cycle evidence to address mutable-scaffold weakness.
 34. An operation packet could be changed and rehashed after reconciliation.
-    Synthesis is now one pure deterministic projection, and every fixed-point
-    consumer reconstructs and exactly compares the complete packet.
+    Synthesis became a pure deterministic projection and its former fixed-point
+    consumers reconstructed the complete packet. Deterministic reconstruction
+    remains required by the current target-validation contract.
 35. Fixed-point state and proof could be made internally consistent without a
-    genuinely independent replay. Sealing now rebuilds the projected container,
+    genuinely independent replay. That release rebuilt the projected container,
     scan, assurance, ledger, decisions, packet, history, proof, and seals from the
-    locked source in an isolated replay workspace.
+    locked source in an isolated replay workspace. The current product uses
+    deterministic target validation without those semantic cycle artifacts.
 36. A canonical record and manifest could be replaced by a self-rehashed
     alternative. Canonical sealing now reconstructs the exact record and closed
     manifest inventory from verified predecessors before comparing its seal.
@@ -714,7 +751,7 @@ Release requires all of the following to pass from a clean final commit:
 - release structure and semantic-version checks;
 - declared runtime identity and clean package/installed-tree equality;
 - complete unit and end-to-end workflow tests;
-- complete branch-aware coverage gate over all 37 Python trust-boundary modules;
+- complete branch-aware coverage gate over every current Python trust-boundary module;
 - Ruff and dead-code checks;
 - strict fail-closed online official-source registry validation;
 - complete workbook-runtime generation and verification;

@@ -4,7 +4,7 @@
 
 - Evidence and scan
 - Independent audit and reconciliation
-- Target closure
+- Target validation
 - Human delivery
 - Automatic failure
 
@@ -39,15 +39,20 @@
 
 ## Independent Audit And Reconciliation
 
-- Audit A and Audit B run in separate fresh agent contexts over separate locked
-  input bundles, use distinct agent/context labels, and record exact input and
-  output hashes.
+- Audit A and Audit B run in parallel in separate fresh agent contexts over
+  separate locked input bundles, use distinct agent/context labels, and record
+  exact input and output hashes.
 - Neither audit receives peer findings, discoveries, rationale, scratch work, or
   target proposals until both audits are complete and sealed.
 - Both seal source-only checkpoints before approved external requirements; Audit
   B is also generated-candidate-blind before its checkpoint.
 - Each audit completes every applicable semantic obligation and its global
   shared-infrastructure/target closure.
+- Each initial audit identifies source-supported consequential cleanup, consumer
+  remaps, and a coherent complete target. A candidate is not a verdict. Missing
+  authored operations remain unfinished agent work, and independently actionable
+  defects are separated from unrelated external owner questions without guessed
+  defaults or claims of observed runtime failure.
 - Neither audit accessed the other's verdicts or scratch before both seals.
 - Reconciliation compares atomic exact obligations and exposes every agreement,
   complement, one-sided finding, conflict, and evidence-boundary difference.
@@ -60,7 +65,7 @@
 - That fresh reconciliation agent performs neutral review for every mandatory
   material class and records its labels plus exact locked input/output hashes.
 
-## Target Closure
+## Target Validation
 
 - Every actionable canonical decision has exact creates, additions, changes,
   named-field removals, remaps, renames, pauses, deletions, dependencies,
@@ -72,19 +77,19 @@
   server consent-gating owner.
 - No operation touches an exact `do_not_touch` key, uses an invalid path, conflicts
   with another write, depends on an unknown ID, or deletes before required remaps.
-- Each projection begins from the locked original, applies the full packet, and
-  passes global scan plus independent assurance.
-- Every materially changed projected obligation receives two fresh-agent reviews
-  whose inputs exclude peer findings; their sealed results are reconciled in a
-  separate fresh context.
-- Stability occurs in at most three cycles and deterministic replay reproduces
-  every stable hash; otherwise the result is `non_convergent_target_state`.
-- Replay independently reconstructs the projected container, scan, assurance,
-  obligation ledger, decisions, packet, state/history, proof, and canonical
-  closed manifest from the locked source and sealed predecessors.
-- A failed candidate cycle leaves the preceding packet and projection-decision
-  record byte-identical and leaves no partial next-cycle directory.
-- The canonical record is complete and sealed after fixed-point replay.
+- Simulation begins from the locked original, applies the full reconciled packet,
+  and passes the implemented static checks plus recomputed scan and assurance.
+  Graph checks reject newly introduced reference/dependency failures; unchanged
+  source issues retain their reconciled dispositions and are recorded in proof.
+- The five artifacts in `target-validation/` are `projected-container.json`,
+  `canonical-scan.json`, `scan-assurance.json`, `validation-proof.json`, and
+  `validation-seal.json`. Seal validation reconstructs their content from locked
+  evidence and sealed predecessors instead of trusting self-consistent hashes.
+- Validation generates no semantic target-review queues or recommendations and
+  requires no convergence. Passing proves only the implemented static checks,
+  not runtime behaviour or the absence of further possible optimisation.
+- The canonical record is complete and sealed after target validation, binds the
+  result under `target_validation`, and matches its reconstructed closed manifest.
 
 ## Human Delivery
 
@@ -92,10 +97,13 @@
 - The delivery map and its seal are exact deterministic projections of an
   independently reconstructed canonical record; workbook fidelity uses that
   authority and cannot be detached by rehashing a mutable delivery artifact.
-- A missing or wrong sealed semantic field starts a same-source successor package
-  bound to the predecessor canonical seal and approved repair brief; both fresh
-  audits disposition every repair before a new canonical record can be sealed.
-  Delivery code never patches the predecessor.
+- A missing or wrong sealed semantic field stops delivery. A user-authorized
+  focused repair names exact decision IDs and a concrete reason. Its new working
+  successor preserves validated source evidence, checkpoints, both audits, seals,
+  and histories while excluding generated downstream outputs. The predecessor
+  remains unchanged. Exact owning records use the existing source amendment
+  protocol before dependent reconciliation, target, canonical, and workbook
+  validation. No complete source-audit restart or new scan judgment is implied.
 - Every canonical audit decision has one disjoint primary owner; every operation
   has one Recommendations row; all locked fields remain unchanged after the
   deterministic privacy projection.
@@ -140,8 +148,8 @@ Fail or block on partial/ambiguous evidence, assurance mismatch, unavailable
 required fresh agent contexts, peer findings supplied before independent audits
 or reviews are sealed, incomplete obligations, unresolved reconciliation or
 neutral work, invalid provenance hashes, semantic invention during
-synthesis/delivery, operation conflict, a partial candidate cycle,
-non-convergence, invalid successor lineage, canonical drift, workbook row drift,
+synthesis/delivery, operation conflict, failed or substituted target validation,
+invalid repair provenance, canonical drift, workbook row drift,
 missing delivery coverage, dirty release provenance, privacy/formula risk,
 illegible rendering, incomplete trust-boundary coverage evidence, unavailable
 required official vendor evidence at release, or any claim of mutation/publication.

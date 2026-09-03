@@ -6,15 +6,16 @@
 | Product purpose and phase boundary | `../01-skill/purpose.md` and `../01-skill/non-goals.md` |
 | Inputs and outputs | `../01-skill/inputs-outputs.md` |
 | Definition of done | `../01-skill/acceptance-criteria.md` |
-| Dual-audit workflow and fixed point | `workflow-and-assurance.md` |
+| Dual-audit workflow and target validation | `workflow-and-assurance.md` |
 | Human workbook | `workbook-delivery.md` |
 | Runtime/release identity | `scripts/gtm_skill_identity.py` and `.skill-build-manifest.json` |
 | Canonical scan and assurance | `scripts/gtm_canonical_scan.py` and `scripts/gtm_scan_assurance.py` |
 | Obligation ownership | `scripts/gtm_obligation_ledger.py` |
 | Audit bundles, provenance, validation, and seals | `scripts/gtm_cleanroom_audit.py` |
-| Independent source-audit and projection semantic plans | `scripts/gtm_audit_plan.py` |
+| Focused working successor for exact source-decision repair | `scripts/gtm_audit_repair.py` and `workflow-and-assurance.md` |
+| Independent source-audit semantic plans | `scripts/gtm_audit_plan.py` |
 | Reconciliation and neutral checks | `scripts/gtm_reconciliation.py` |
-| Operation model and projection | `scripts/gtm_operation_model.py`, `scripts/gtm_target_synthesis.py`, and `scripts/gtm_fixed_point.py` |
+| Operation model and target validation | `scripts/gtm_operation_model.py`, `scripts/gtm_target_synthesis.py`, and `scripts/gtm_target_validation.py` |
 | Canonical record | `scripts/gtm_canonical_record.py` |
 | Delivery mapping/build/reviews | `scripts/gtm_delivery_mapper.py`, `scripts/gtm_workbook_build.mjs`, `scripts/gtm_workbook_verify.mjs`, and `scripts/gtm_delivery_reviews.py` |
 | GTM JSON structure | `container-json-guide.md` |
