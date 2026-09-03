@@ -120,6 +120,15 @@ object group, event, vendor, route, or configuration at issue. Do not repeat
 generic stock paragraphs across unrelated rows. Keep object inventories out of
 visible prose when the affected-scope cell and row note already carry them.
 
+Do not copy audit instructions or shared policy paragraphs into Current behavior.
+When a row assesses naming or another non-behavioural property of a code object,
+label that assessment explicitly instead of inventing executable behaviour.
+Explain shared conventions once in the overview; keep each row object-specific.
+When a retained finding depends on a separately listed change or owner answer,
+name the exact existing operation or decision ID and its destination sheet.
+Clarify that no additional change is needed for this audit focus, rather than
+implying the object needs no change at all. Never invent a cross-reference.
+
 In `01 Overview`, present highest-value actions as a numbered, one-action-per-line
 list. Allocate enough visible rows for every summary block and verify that no
 action or summary is clipped in the rendered preview.
