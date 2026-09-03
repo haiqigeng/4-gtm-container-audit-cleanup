@@ -51,9 +51,11 @@ ledger, checkpoints, both complete audits, seals, and histories. Its repair
 receipt records the exact requested IDs, owning records, reason, predecessor
 inventory, and excluded downstream paths. Generated reconciliation, operation,
 target-validation, canonical, and delivery outputs are omitted from the new
-working copy. The predecessor remains unchanged. Amend only the exact owning
-source records through the existing amendment protocol, then reconstruct and
-validate dependent reconciliation, target, canonical, and workbook artifacts.
+working copy. The predecessor remains unchanged. Repair the exact owning stage.
+Amend a source record through the existing protocol only when its own judgment
+is defective; a reconciliation-only repair preserves both source audits and seals.
+Then reconstruct and validate dependent reconciliation, target, canonical, and
+workbook artifacts.
 The helper creates no new scan or judgment and does not rerun the source audits.
 
 The user-facing output is exactly one `.xlsx` workbook with four required visible

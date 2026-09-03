@@ -33,9 +33,11 @@ procedure in `workflow-and-assurance.md` with user-authorized exact decision IDs
 and a concrete reason. The helper creates a new working successor retaining
 validated source evidence, checkpoints, both audits, seals, and histories, while
 excluding generated downstream outputs. The predecessor remains unchanged.
-Amend the exact owning source records through the existing protocol, then
-reconstruct reconciliation, target validation, canonical authority, and the
-dependent workbook checks. Do not restart the full source audits. The mapper,
+Repair the exact owning stage. Amend source records through the existing protocol
+only when their own judgments are defective; a reconciliation-only error keeps
+both source audits and seals unchanged. Then reconstruct reconciliation, target
+validation, canonical authority, and the dependent workbook checks. Do not restart
+the full source audits. The mapper,
 editor, builder, and repair helper may not invent or patch sealed semantics.
 
 The editorial transformation may edit only declared prose fields. It must preserve

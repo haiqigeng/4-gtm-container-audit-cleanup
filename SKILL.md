@@ -339,9 +339,10 @@ Use `scripts/gtm_delivery_mapper.py` only after canonical sealing. If a mandator
 delivery field is absent or semantically wrong, stop delivery and reopen its
 owning records with `scripts/gtm_audit_repair.py`. The working successor preserves
 source evidence, checkpoints, both source audits and their seals; the predecessor
-remains unchanged. Amend only the affected decisions in their owning audit
-contexts, reconcile the affected work, and rebuild dependent validation and
-delivery. Do not rerun ingestion or the complete audits. Delivery may never patch
+remains unchanged. Repair the owning stage: amend a source audit only when its
+own decision is defective; for a reconciliation-only error, retain both source
+audits and seals unchanged. Reconcile the affected work and rebuild dependent
+validation and delivery. Do not rerun ingestion or the complete audits. Delivery may never patch
 a canonical field or overwrite a sealed predecessor.
 The delivery map must be an exact deterministic projection of the independently
 reconstructed canonical record; workbook fidelity is checked against that same

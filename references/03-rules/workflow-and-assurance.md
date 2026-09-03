@@ -347,9 +347,11 @@ both complete audits, seals, and histories. Only generated downstream outputs ar
 excluded from the copy; the predecessor stays unchanged. The repair receipt
 identifies each exact owning source record and its prior seal.
 
-Use a fresh amendment context for each affected audit owner and the existing
-source-audit amendment protocol. Preserve unaffected source judgments and the
-original peer-blind evidence boundaries. Then reconstruct reconciliation in one
+Repair the stage that owns the defect. If a source judgment is defective, use a
+fresh amendment context for its audit owner and the existing source-audit
+amendment protocol. A reconciliation-only error keeps both source audits and
+seals unchanged. Preserve unaffected judgments and the original peer-blind
+evidence boundaries. Then reconstruct reconciliation in one
 fresh context and rerun target synthesis, target validation, canonical sealing,
 and the dependent workbook gates. This does not restart the complete source
 audits or release repair evidence through new checkpoints.

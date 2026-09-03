@@ -101,9 +101,11 @@
   focused repair names exact decision IDs and a concrete reason. Its new working
   successor preserves validated source evidence, checkpoints, both audits, seals,
   and histories while excluding generated downstream outputs. The predecessor
-  remains unchanged. Exact owning records use the existing source amendment
-  protocol before dependent reconciliation, target, canonical, and workbook
-  validation. No complete source-audit restart or new scan judgment is implied.
+  remains unchanged. Defective source judgments use the existing exact-record
+  amendment protocol; reconciliation-only errors preserve both source audits and
+  seals. Repair the owning stage before dependent reconciliation, target,
+  canonical, and workbook validation. No complete source-audit restart or new
+  scan judgment is implied.
 - Every canonical audit decision has one disjoint primary owner; every operation
   has one Recommendations row; all locked fields remain unchanged after the
   deterministic privacy projection.
