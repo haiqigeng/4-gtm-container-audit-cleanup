@@ -301,6 +301,11 @@ projection-local resolver or infer a configured object from normalized display
 text. Permit at most three cycles.
 Block as `non_convergent_target_state` on cycle-three actionability, recurring
 actionable hashes, oscillation, conflicts, or no exact safe operation.
+During explicitly authorized skill evolution, a corrected derived scan may reopen
+the current unfinished cycle with the `repair-scan` command described in the
+validation reference. Preserve its predecessor snapshot and exact unchanged
+decisions; use fresh peer contexts only for changed obligations. This does not
+restart ingestion, replace a sealed closure, or reset the three-cycle limit.
 Construct each next cycle in staging and commit its decision record, operation
 packet, and cycle directory together. Any candidate-cycle safety or assurance
 failure preserves the last committed packet and decisions and returns the blocked

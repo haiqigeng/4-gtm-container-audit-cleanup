@@ -42,6 +42,8 @@ NEUTRAL_QUEUE_FILE = "projection-neutral-queue.json"
 NEUTRAL_FILE = "projection-neutral-verification.json"
 CLOSURE_FILE = "projection-closure.json"
 CLOSURE_SEAL_FILE = "projection-closure-seal.json"
+RETAINED_REVIEW_FILE = "retained-review.json"
+PRIOR_CYCLE_DIRECTORY = "prior-cycle"
 
 LOCKED_DECISION_FIELDS = (
     "obligation_id",
@@ -103,6 +105,72 @@ def _scaffold_decision(
     }
 
 
+def retained_projection_review(cycle_dir: Path, review_id: str) -> dict[str, Any] | None:
+    """Reuse only exact unchanged obligations from this peer's sealed predecessor."""
+    require_safe_package_root(cycle_dir.parents[1])
+    state = json.loads((cycle_dir / "cycle-state.json").read_text(encoding="utf-8"))
+    binding = state.get("scan_repair")
+    prior = cycle_dir / PRIOR_CYCLE_DIRECTORY
+    if binding is None and not prior.exists():
+        return None
+    if not isinstance(binding, dict) or not prior.is_dir():
+        raise ValueError("scan repair predecessor binding or snapshot is missing")
+    prior_state = json.loads((prior / "cycle-state.json").read_text(encoding="utf-8"))
+    if prior_state.get("cycle_state_sha256") != _hash_without(prior_state, "cycle_state_sha256") or (
+        binding.get("prior_cycle_state_sha256") != prior_state.get("cycle_state_sha256")
+    ):
+        raise ValueError("scan repair predecessor cycle binding is invalid")
+    seal_path = prior / REVIEW_SEAL_ROOT / f"{review_id}.json"
+    review_path = prior / REVIEW_SEAL_ROOT / f"{review_id}.review.json"
+    seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    if (binding.get("prior_review_seal_sha256") or {}).get(review_id) != seal.get("review_seal_sha256"):
+        raise ValueError("scan repair predecessor review binding is invalid")
+    if seal.get("review_seal_sha256") != _hash_without(seal, "review_seal_sha256"):
+        raise ValueError("retained projection review predecessor seal is invalid")
+    if seal.get("completed_review_sha256") != file_sha256(review_path):
+        raise ValueError("retained projection review predecessor changed")
+    errors = validate_projection_review(prior, review_id, _review_path=review_path)
+    if errors:
+        raise ValueError("retained projection review predecessor failed: " + "; ".join(errors))
+    before = json.loads((prior / "projection-obligations.json").read_text(encoding="utf-8"))
+    after = json.loads((cycle_dir / "projection-obligations.json").read_text(encoding="utf-8"))
+    if before.get("cycle_number") != after.get("cycle_number"):
+        raise ValueError("scan repair must keep the owning projection cycle")
+    if json.loads((prior / "projected-container.json").read_text(encoding="utf-8")) != json.loads(
+        (cycle_dir / "projected-container.json").read_text(encoding="utf-8")
+    ):
+        raise ValueError("scan repair cannot change the projected container")
+    old = {row["obligation_id"]: row for row in before["obligations"]}
+    unchanged = {row["obligation_id"] for row in after["obligations"]
+                 if row == old.get(row["obligation_id"])}
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    return {
+        "kind": "gtm_retained_projection_review",
+        "review_id": review_id,
+        "prior_review_seal_sha256": seal["review_seal_sha256"],
+        "prior_agent_id": review["independent_agent_id"],
+        "prior_context_id": review["independent_context_id"],
+        "decisions": [row for row in review["decisions"] if row["obligation_id"] in unchanged],
+    }
+
+
+def projection_repair_prior_identities(cycle_dir: Path) -> tuple[set[str], set[str]]:
+    """A fresh amendment cannot reuse either prior peer or their reconciler."""
+    require_safe_package_root(cycle_dir.parents[1])
+    prior = cycle_dir / PRIOR_CYCLE_DIRECTORY
+    if not prior.exists():
+        return set(), set()
+    paths = [prior / REVIEW_SEAL_ROOT / f"{review_id}.json" for review_id in REVIEW_IDS]
+    reconciliation = prior / RECONCILIATION_FILE
+    if reconciliation.is_file():
+        paths.append(reconciliation)
+    identities = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    return (
+        {str(row["independent_agent_id"]) for row in identities if row.get("independent_agent_id")},
+        {str(row["independent_context_id"]) for row in identities if row.get("independent_context_id")},
+    )
+
+
 def prepare_projection_reviews(
     cycle_dir: Path,
     cycle_number: int,
@@ -162,6 +230,17 @@ def prepare_projection_reviews(
                 "conclusion": "",
             },
         }
+        retained = retained_projection_review(cycle_dir, review_id)
+        if retained is not None:
+            retained_path = bundle / RETAINED_REVIEW_FILE
+            write_json(retained_path, retained)
+            locked_files.append({
+                "path": RETAINED_REVIEW_FILE,
+                "sha256": file_sha256(retained_path), "mutable": False,
+            })
+            by_id = {row["obligation_id"]: row for row in retained["decisions"]}
+            review["decisions"] = [by_id.get(row["obligation_id"], row)
+                                   for row in review["decisions"]]
         manifest = {
             "kind": "gtm_projection_review_bundle_manifest",
             "schema_version": 1,
@@ -247,6 +326,25 @@ def validate_projection_review(
     review = json.loads(review_path.read_text(encoding="utf-8"))
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     manifest = json.loads((bundle / REVIEW_MANIFEST_FILE).read_text(encoding="utf-8"))
+    try:
+        retained = retained_projection_review(cycle_dir, review_id)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return [*errors, str(exc)]
+    retained_path = bundle / RETAINED_REVIEW_FILE
+    if retained is not None:
+        if not retained_path.is_file() or json.loads(retained_path.read_text(encoding="utf-8")) != retained:
+            errors.append("retained projection decisions differ from their sealed predecessor")
+        actual = {row.get("obligation_id"): row for row in as_list(review.get("decisions"))
+                  if isinstance(row, dict)}
+        if any(actual.get(row["obligation_id"]) != row for row in retained["decisions"]):
+            errors.append("unchanged retained projection decision was edited")
+        prior_agents, prior_contexts = projection_repair_prior_identities(cycle_dir)
+        if review.get("independent_agent_id") in prior_agents:
+            errors.append("projection repair requires a fresh agent")
+        if review.get("independent_context_id") in prior_contexts:
+            errors.append("projection repair requires a fresh context")
+    elif retained_path.exists():
+        errors.append("retained projection decisions have no sealed predecessor")
     expected_review_fields = {
         "kind",
         "schema_version",
@@ -555,14 +653,60 @@ def _projection_reconciliation_payloads(
 def scaffold_projection_reconciliation(cycle_dir: Path) -> dict[str, Any]:
     reconciliation, neutral = _projection_reconciliation_payloads(cycle_dir)
     write_json(cycle_dir / RECONCILIATION_SCAFFOLD_FILE, reconciliation)
-    write_json(cycle_dir / RECONCILIATION_FILE, reconciliation)
     write_json(cycle_dir / NEUTRAL_QUEUE_FILE, neutral)
+    retained_count = _retain_completed_reconciliation(cycle_dir, reconciliation, neutral)
+    write_json(cycle_dir / RECONCILIATION_FILE, reconciliation)
     write_json(cycle_dir / NEUTRAL_FILE, neutral)
     return {
         "status": "ready_for_projection_reconciliation",
         "comparisons": len(as_list(reconciliation.get("comparisons"))),
         "neutral_verifications": len(as_list(neutral.get("verifications"))),
+        "retained_comparisons": retained_count,
     }
+
+
+def _retain_completed_reconciliation(
+    cycle_dir: Path, reconciliation: dict[str, Any], neutral: dict[str, Any]
+) -> int:
+    """Carry validated authored rows only when both reviews and evidence still match."""
+    prior = cycle_dir / PRIOR_CYCLE_DIRECTORY
+    paths = (prior / RECONCILIATION_FILE, prior / NEUTRAL_FILE)
+    if not all(path.is_file() for path in paths):
+        return 0
+    previous, previous_neutral = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    old_comparisons = {row.get("comparison_id"): row for row in previous.get("comparisons", [])
+                       if isinstance(row, dict)}
+    old_neutral = {row.get("verification_id"): row for row in previous_neutral.get("verifications", [])
+                   if isinstance(row, dict)}
+    neutral_by_id = {row["verification_id"]: row for row in neutral["verifications"]}
+    retained_count = 0
+    mutable = {"status", "canonical_decision", "reconciliation_rationale"}
+    for row in reconciliation["comparisons"]:
+        old = old_comparisons.get(row["comparison_id"], {})
+        if set(old) != set(row) or any(old[key] != row[key] for key in row.keys() - mutable):
+            continue
+        decision = old.get("canonical_decision")
+        if (old.get("status") != "complete" or not isinstance(decision, dict)
+                or semantic_contract_errors(decision, "retained reconciliation")
+                or len(str(old.get("reconciliation_rationale") or "").split()) < 8
+                or not canonical_matches_allowed(decision, list(row["review_decisions"].values()),
+                                                 allow_neutral_rejection=row["neutral_verification_required"])):
+            continue
+        if (decision.get("decision_class") == "not_applicable") != (row.get("applicability") == "source_counted_zero"):
+            continue
+        if row["neutral_verification_required"]:
+            expected_row = neutral_by_id[row["neutral_verification_id"]]
+            authored = old_neutral.get(row["neutral_verification_id"])
+            if not authored or authored.get("canonical_decision") != decision:
+                continue
+            expected = {**neutral, "verifications": [expected_row]}
+            candidate = {**neutral, "status": "complete", "verifications": [authored]}
+            if _neutral_errors(cycle_dir, candidate, expected):
+                continue
+            expected_row.update(authored)
+        row.update({key: old[key] for key in mutable})
+        retained_count += 1
+    return retained_count
 
 
 def _neutral_errors(
@@ -680,6 +824,9 @@ def finalize_projection_reconciliation(
         str(seal.get("independent_context_id") or "") for seal in review_seals
     }:
         errors.append("projection reconciliation must use a distinct context")
+    prior_agents, prior_contexts = projection_repair_prior_identities(cycle_dir)
+    if agent_id in prior_agents or context_id in prior_contexts:
+        errors.append("projection repair reconciliation requires a fresh agent and context")
     errors.extend(_neutral_errors(cycle_dir, neutral, expected_neutral))
     expected_rows = {
         str(row.get("comparison_id") or ""): row for row in as_list(expected.get("comparisons"))

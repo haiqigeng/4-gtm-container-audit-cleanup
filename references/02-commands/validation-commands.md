@@ -300,6 +300,26 @@ python -B scripts/gtm_fixed_point.py advance audit-package
 
 Repeat only for the cycle requested by state. Three cycles is the hard maximum.
 A `non_convergent_target_state` is a blocking result, not permission to skip work.
+
+During authorized skill evolution, a derived-scan correction can reopen the current
+unfinished cycle after both reviews are sealed but before closure is sealed:
+
+```powershell
+python -B scripts/gtm_fixed_point.py repair-scan audit-package --reason "Describe the corrected scan defect and its affected evidence."
+```
+
+First wait for current review/reconciliation writers to finish and save their
+drafts. This command preserves them and their plans under that cycle's
+`prior-cycle`, validates the unchanged projected container, and replaces only the
+current derived scan and review bundles. The source, packet and cycle number stay
+unchanged. Scaffold fresh plans at the usual paths; they contain only new or
+changed obligations. Each peer's locked `retained-review.json` preserves its own
+unchanged decisions and must not be edited. Use fresh agent/context labels, seal
+both reviews, then scaffold reconciliation. Its `retained_comparisons` count
+identifies completed rows whose full inputs still match. Preserve those rows and
+complete the remaining rows in a fresh reconciliation context. Do not use repair
+to reopen a sealed closure or to bypass non-convergence.
+
 After a pass:
 
 ```powershell

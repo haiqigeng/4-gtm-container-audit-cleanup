@@ -300,6 +300,18 @@ tuple recurs while actionable, a target oscillates, operations conflict, or no
 exact safe operation exists. This block cannot be bypassed by dropping work or
 weakening assurance.
 
+If an authorized skill correction changes derived scan evidence while the current
+cycle is unfinished, use `repair-scan` from the validation reference after its
+writers have stopped. It keeps the same source, operation packet and cycle number,
+and preserves the complete previous cycle under `prior-cycle`. Each new review
+bundle contains only its own peer's retained decisions whose entire obligation
+evidence is unchanged. The plan excludes those records from authoring; validation
+reconstructs them from the bound predecessor seal and rejects edits. New and changed
+obligations go to two fresh independent reviewers. Reconciliation carries forward
+only completed rows that still validate against identical review decisions and
+neutral evidence; a fresh reconciler owns the remaining work. No older cycle or
+sealed closure is replaced, and non-convergence cannot be reset through repair.
+
 Build a next-cycle candidate in an isolated staging directory. Validate the
 candidate decision set, complete operation packet, consent-ownership safety,
 global scan, and independent assurance before committing it. Commit packet,

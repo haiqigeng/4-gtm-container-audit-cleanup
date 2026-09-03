@@ -26,6 +26,8 @@ from gtm_operation_model import (
     validate_operations,
 )
 from gtm_projection_review import (
+    PRIOR_CYCLE_DIRECTORY,
+    _sealed_review_errors,
     prepare_projection_reviews,
     projection_closure_seal_errors,
 )
@@ -429,6 +431,7 @@ def _create_cycle(
     *,
     cycle_dir: Path | None = None,
     decisions: list[dict[str, Any]] | None = None,
+    prior_cycle_dir: Path | None = None,
 ) -> dict[str, Any]:
     cycle_dir = cycle_dir or _cycle_directory(package_dir, cycle_number)
     if cycle_dir.exists() and any(cycle_dir.iterdir()):
@@ -499,8 +502,18 @@ def _create_cycle(
             "prior_operations_resolve_source_decisions": True,
         },
     }
+    if prior_cycle_dir is not None:
+        state["scan_repair"] = {
+            "prior_cycle_state_sha256": _load(prior_cycle_dir / "cycle-state.json")["cycle_state_sha256"],
+            "prior_review_seal_sha256": {
+                review_id: _load(prior_cycle_dir / "review-seals" / f"{review_id}.json")["review_seal_sha256"]
+                for review_id in ("review-a", "review-b")
+            },
+        }
     state["cycle_state_sha256"] = _hash_without(state, "cycle_state_sha256")
     write_json(cycle_dir / "cycle-state.json", state)
+    if prior_cycle_dir is not None:
+        shutil.copytree(prior_cycle_dir, cycle_dir / PRIOR_CYCLE_DIRECTORY)
     review = prepare_projection_reviews(cycle_dir, cycle_number, delta)
     state["projection_review_status"] = review.get("status")
     state["cycle_state_sha256"] = _hash_without(state, "cycle_state_sha256")
@@ -1240,6 +1253,110 @@ def advance_fixed_point(package_dir: Path) -> dict[str, Any]:
     }
 
 
+def repair_projection_scan(package_dir: Path, reason: str) -> dict[str, Any]:
+    """Reopen only the current unfinished projection after a derived-scan fix."""
+    require_safe_package_root(package_dir)
+    if not reason.strip():
+        raise ValueError("scan repair requires the concrete scanner correction reason")
+    state = _global_state(package_dir)
+    number = int(state.get("current_cycle") or 0)
+    if state.get("status") != "awaiting_projection_reviews" or not 1 <= number <= MAX_CYCLES:
+        raise ValueError("scan repair requires an unfinished current projection cycle")
+    cycle = _cycle_directory(package_dir, number)
+    if (cycle / "projection-closure-seal.json").exists() or (package_dir / "canonical-record-seal.json").exists():
+        raise ValueError("scan repair cannot replace a sealed closure or canonical record")
+    current_cycle = _load(cycle / "cycle-state.json")
+    history = as_list(state.get("cycle_history"))
+    if (state.get("state_sha256") != _hash_without(state, "state_sha256")
+            or len(history) != number or history[-1].get("cycle_number") != number
+            or history[-1].get("cycle_state_sha256") != current_cycle.get("cycle_state_sha256")
+            or current_cycle.get("cycle_state_sha256") != _hash_without(current_cycle, "cycle_state_sha256")):
+        raise ValueError("scan repair requires the exact current cycle and state history")
+    packet = _load(package_dir / "operation-packet.json")
+    errors = _packet_errors(package_dir, packet) + _sealed_review_errors(cycle)
+    if errors:
+        raise ValueError("scan repair predecessor gate failed: " + "; ".join(errors))
+    projected = apply_operations(_load(package_dir / "locked-source.json"), packet["operations"])
+    if projected != _load(cycle / "projected-container.json"):
+        raise ValueError("scan repair cannot change the source or operation packet")
+    previous = package_dir if number == 1 else _cycle_directory(package_dir, number - 1)
+    root = package_dir / FIXED_POINT_ROOT
+    staged = Path(tempfile.mkdtemp(prefix=f".cycle-{number:02d}-scan-repair-", dir=root))
+    backup = staged.with_name(staged.name + "-previous")
+    scratch = package_dir / "projection-scratch" / f"cycle-{number:02d}"
+    state_path = root / STATE_FILE
+    prior_state = state_path.read_bytes()
+    rollback_failed = False
+    try:
+        created = _create_cycle(
+            package_dir, number, packet, _load(previous / "obligation-ledger.json"),
+            cycle_dir=staged, prior_cycle_dir=cycle,
+        )
+        if _load(staged / "canonical-scan.json") == _load(cycle / "canonical-scan.json"):
+            raise ValueError("scan repair produced no corrected scan evidence")
+        if created["status"] != "awaiting_projection_reviews":
+            raise ValueError("corrected scan requires review before it can claim closure")
+        snapshot = staged / PRIOR_CYCLE_DIRECTORY
+        def hashes(directory: Path) -> dict[str, str]:
+            return {str(path.relative_to(directory)): file_sha256(path)
+                    for path in directory.rglob("*") if path.is_file()}
+        if hashes(cycle) != hashes(snapshot):
+            raise ValueError("projection predecessor changed while copying its snapshot")
+        if scratch.exists():
+            shutil.copytree(scratch, snapshot / "projection-scratch")
+            if hashes(scratch) != hashes(snapshot / "projection-scratch"):
+                raise ValueError("projection plans changed while copying their snapshot")
+        created["scan_repair_reason"] = reason.strip()
+        created["cycle_state_sha256"] = _hash_without(created, "cycle_state_sha256")
+        write_json(staged / "cycle-state.json", created)
+        next_state = {**state, "status": created["status"], "cycle_history": [
+            *state["cycle_history"][:-1],
+            {"cycle_number": number, "cycle_state_sha256": created["cycle_state_sha256"],
+             "hashes": created["hashes"], "status": created["status"]},
+        ]}
+        next_state["state_sha256"] = _hash_without(next_state, "state_sha256")
+        moved_cycle = moved_scratch = installed = False
+        try:
+            cycle.replace(backup)
+            moved_cycle = True
+            if scratch.exists():
+                scratch.replace(backup / "projection-scratch")
+                moved_scratch = True
+            staged.replace(cycle)
+            installed = True
+            _atomic_write_json(state_path, next_state)
+        except OSError:
+            try:
+                if installed:
+                    cycle.replace(staged)
+                if moved_scratch:
+                    (backup / "projection-scratch").replace(scratch)
+                if moved_cycle:
+                    backup.replace(cycle)
+                state_path.write_bytes(prior_state)
+            except OSError as recovery_error:
+                rollback_failed = True
+                raise RuntimeError(f"scan repair rollback needs recovery; preserve {staged} and {backup}") from recovery_error
+            raise
+        # The exact predecessor and plans remain in cycle/prior-cycle.
+        if hashes(backup) != hashes(cycle / PRIOR_CYCLE_DIRECTORY):
+            raise RuntimeError(f"scan repair snapshot verification failed; preserve {backup}")
+        require_safe_package_root(package_dir)
+        shutil.rmtree(backup)
+        retained_counts = {}
+        for review_id in ("review-a", "review-b"):
+            review = _load(cycle / "reviews" / review_id / "review.json")
+            retained_counts[review_id] = sum(row["status"] == "complete" for row in review["decisions"])
+        return {"status": "awaiting_projection_reviews", "cycle": number,
+                "retained_decisions": retained_counts,
+                "pending_decisions_per_review": len(review["decisions"]) - retained_counts["review-b"],
+                "prior_cycle": str(cycle / PRIOR_CYCLE_DIRECTORY)}
+    finally:
+        if staged.exists() and not rollback_failed:
+            require_safe_package_root(package_dir)
+            shutil.rmtree(staged)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1249,15 +1366,20 @@ def main() -> int:
     advance.add_argument("package_dir", type=Path)
     status = subparsers.add_parser("status")
     status.add_argument("package_dir", type=Path)
+    repair = subparsers.add_parser("repair-scan")
+    repair.add_argument("package_dir", type=Path)
+    repair.add_argument("--reason", required=True)
     args = parser.parse_args()
     try:
         if args.command == "start":
             result = start_fixed_point(args.package_dir)
         elif args.command == "advance":
             result = advance_fixed_point(args.package_dir)
+        elif args.command == "repair-scan":
+            result = repair_projection_scan(args.package_dir, args.reason)
         else:
             result = _global_state(args.package_dir)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "blocked", "errors": [str(exc)]}))
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2))

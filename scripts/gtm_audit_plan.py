@@ -39,7 +39,10 @@ from gtm_cleanroom_audit import (
 )
 from gtm_lib import as_list, require_safe_package_root, write_json
 from gtm_operation_model import validate_operations
-from gtm_projection_review import REVIEW_IDS, validate_projection_review
+from gtm_projection_review import (
+    REVIEW_IDS, retained_projection_review, projection_repair_prior_identities,
+    validate_projection_review,
+)
 
 PLAN_FIELDS = {
     "kind",
@@ -556,14 +559,17 @@ def scaffold_projection_plan(
     output = _projection_plan_path(package, cycle_number, review_id, output)
     if output.exists():
         raise FileExistsError(f"plan output already exists: {output}")
-    output.parent.mkdir(parents=True, exist_ok=False)
-    payload = _empty_plan(review_id, as_list(review.get("decisions")))
+    retained = retained_projection_review(review_path.parents[2], review_id)
+    retained_ids = {row["obligation_id"] for row in (retained or {}).get("decisions", [])}
+    payload = _empty_plan(review_id, [row for row in as_list(review.get("decisions"))
+                                     if row["obligation_id"] not in retained_ids])
     payload["global_shared_infrastructure_review"] = (
         "This projection plan preserves the source audit shared-infrastructure review without reinterpretation."
     )
     payload["global_target_architecture_review"] = (
         "This projection plan reviews changed obligations without replacing the complete target architecture review."
     )
+    output.parent.mkdir(parents=True, exist_ok=True)
     write_json(output, payload)
     return payload
 
@@ -588,21 +594,28 @@ def apply_projection_plan(
     review = _read_json(review_path)
     plan_path = _projection_plan_path(package, cycle_number, review_id, plan_path)
     plan = _read_json(plan_path)
+    retained = retained_projection_review(cycle_dir, review_id)
+    retained_by_id = {row["obligation_id"]: row for row in (retained or {}).get("decisions", [])}
+    rows = [row for row in as_list(review.get("decisions")) if isinstance(row, dict)]
+    pending_rows = [row for row in rows if row["obligation_id"] not in retained_by_id]
     errors = _plan_errors(
-        plan, review_id, _candidate_decision_groups(as_list(review.get("decisions")))
+        plan, review_id, _candidate_decision_groups(pending_rows)
     )
+    prior_agents, prior_contexts = projection_repair_prior_identities(cycle_dir)
+    if agent_id.strip() in prior_agents or context_id.strip() in prior_contexts:
+        errors.append("projection repair requires a fresh agent and context")
     if plan.get("open_discoveries"):
         errors.append("projection plans cannot introduce open discoveries")
-    rows = [row for row in as_list(review.get("decisions")) if isinstance(row, dict)]
     locked_by_obligation = {
-        str(row.get("obligation_id") or ""): row for row in rows
+        str(row.get("obligation_id") or ""): row for row in pending_rows
     }
-    if len(locked_by_obligation) != len(rows) or "" in locked_by_obligation:
+    if len(locked_by_obligation) != len(pending_rows) or "" in locked_by_obligation:
         errors.append("projection review decision identities are blank or duplicated")
     authored, group_count, authored_errors = _author_decisions(
         locked_by_obligation, plan
     )
     errors.extend(authored_errors)
+    authored.update(retained_by_id)
     operations = [
         row["operation_proposal"]
         for row in authored.values()
@@ -637,7 +650,8 @@ def apply_projection_plan(
         "fresh_context": True,
         "peer_findings_received_before_completion": False,
         "conclusion": (
-            "Every changed obligation was independently reviewed against the locked projected evidence."
+            "Changed obligations were independently reviewed against locked projected evidence; "
+            "any retained decisions are exact unchanged work from the same peer's sealed predecessor."
         ),
     }
     write_json(review_path, review)
