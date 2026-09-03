@@ -188,7 +188,8 @@ tool is available. Do not search implementation source with `rg`, `grep`, or
 another discovery command, enumerate unknown paths, or run exploratory shell
 commands. Other than exact-path reads and one structured edit of the isolated
 declarative audit plan, the only executable commands are the documented
-checkpoint, plan scaffold/apply, validate, seal, and post-seal validate gates.
+checkpoint, plan scaffold/apply, validate, and seal gates. Reconciliation's
+scaffold command performs the subsequent sealed-audit and history check.
 
 After checkpoint release, use `scripts/gtm_audit_plan.py` to scaffold exactly
 `audit-scratch/<audit-id>/audit-plan.json`. The assigned fresh agent authors

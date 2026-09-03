@@ -224,7 +224,10 @@ python -B scripts/gtm_cleanroom_audit.py seal audit-package audit-a --amendment-
 ```
 
 The amendment records its locked input and output hashes. Audit A and Audit B
-labels remain distinct.
+labels remain distinct. After sealing, proceed to reconciliation scaffold, which
+checks both sealed audits and their histories. Do not rerun candidate `validate`
+as a post-seal check: without an amendment parent it expects an initial audit;
+with one it expects a new candidate against the now-current seal.
 
 ## Repair Exact Owning Records
 
