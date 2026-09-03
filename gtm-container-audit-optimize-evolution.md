@@ -20,11 +20,13 @@ wins and this record must be corrected before release.
 
 ## Active Development Goal — Final Qualification And Release Addendum
 
-Approved by the user on 2026-09-03. This extends the active development goal's
-completion criteria; it does not change the skill's North Star or runtime
-workflow. It supersedes the earlier restriction on Git push and release
-publication only. GTM mutation and local skill installation remain outside this
-authorization.
+Approved by the user on 2026-09-03 and extended on 2026-09-04. This extends the
+active development goal's completion criteria; it does not change the skill's North Star or runtime
+workflow. It supersedes the earlier restrictions on Git push, release publication
+and local skill installation. Installation is authorized only after publication,
+as specified below. GTM mutation remains outside this authorization. This latest
+approval also supersedes the older local-installation exclusion in the saved
+Goal Mode objective and historical entries below.
 
 After completing the existing improvement, four-pair evaluation, correction and
 regression work, perform one final independent release-candidate evaluation:
@@ -58,9 +60,34 @@ regression work, perform one final independent release-candidate evaluation:
 5. Verify that the remote `main`, release tag, published release and assets match
    the qualified version, and that repository-facing information is current.
    Report the version, commit, release link, evaluation evidence and any genuine
-   remaining limitations. Publication is part of completion, not merely a local
-   commit or prepared release draft. Report an actual access blocker rather than
-   claiming publication succeeded.
+   remaining limitations. Publication is required but is not the final completion
+   condition; the installed-release test below must also pass. A local
+   commit or prepared release draft does not satisfy publication. Report an
+   actual access blocker rather than claiming publication succeeded.
+6. Install the exact published release into the local skill installation,
+   replacing only this skill's existing copy without retaining a backup. Verify
+   the destination and preserve unrelated skills and user artifacts. Confirm
+   that the installed files match the published asset; test the installed copy,
+   not the development checkout or a locally patched substitute.
+7. Run one complete normal single-pass audit from that installed release using
+   the already authorized NVRJ4J default export. Use fresh agents/contexts and
+   the existing skill workflow and delivery requirements. Keep the cleaned
+   counterpart and all previous findings withheld from the source auditors.
+   After delivery, compare the result with the NVRJ4J cleaned counterpart under
+   the same full audit-area and evidence-based comparison rules as the four-pair
+   goal. The cleaned container remains comparison evidence, not ground truth.
+   Apply the same design, utility, technical health, coherence, independence,
+   workbook fidelity and AGENTS.md acceptance standards; this is a complete
+   production-use acceptance test, not merely an installation smoke test.
+8. Keep the goal active if this test exposes an in-scope defect or fails an
+   existing acceptance criterion. Fix the owning component, rerun affected
+   checks and comparisons, and revisit other container pairs when their evidence
+   is invalidated. Preserve unaffected development work. Publish a corrected new
+   release, reinstall that published copy without a backup, and repeat the
+   installed-release test. Do not alter an existing published version or count a
+   patched installed copy as a passing release. Goal completion requires the
+   final published and installed version to pass this production-use test as
+   well as all preceding requirements. No fixed development retry count applies.
 
 This is a development/release gate, not additional machinery required during a
 normal container audit. Reuse valid evidence and resume the earliest affected
