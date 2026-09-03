@@ -37,6 +37,7 @@ from gtm_lib import (  # noqa: E402
     container_version,
     is_system_trigger_reference,
     stable_hash,
+    trigger_group_members,
 )
 from gtm_operation_model import (  # noqa: E402
     apply_operations,
@@ -139,6 +140,40 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_trigger_remap_updates_group_members_without_rewriting_unrelated_values(self) -> None:
+        source = operation_fixture()
+        source["containerVersion"]["tag"][0]["blockingTriggerId"] = ["10", "11"]
+        group = {
+            "triggerId": "12", "name": "Required events", "type": "TRIGGER_GROUP",
+            "parameter": [
+                {"key": "triggerIds", "type": "LIST", "list": [
+                    {"type": "TRIGGER_REFERENCE", "value": "10"},
+                    {"type": "TRIGGER_REFERENCE", "value": "11"},
+                    {"type": "TRIGGER_REFERENCE", "value": 10},
+                ]},
+                {"key": "unrelated", "value": 'Keep "10" and 10 unchanged'},
+                {"key": "otherIds", "list": [{"value": "10"}]},
+            ],
+            "notes": 'Do not replace "10" in descriptive text',
+        }
+        source["containerVersion"]["trigger"].append(group)
+        original = copy.deepcopy(source)
+        change = operation("OP-REMAP-TRIGGER", remaps=[{
+            "from_object_key": "trigger:10", "to_object_key": "trigger:11",
+            "consumer_object_keys": ["tag:1", "trigger:12"],
+        }], deletions=[{"object_key": "trigger:10"}])
+        self.assertEqual([], validate_operations(source, [change]))
+        projected = apply_operations(source, [change])
+        tag = projected["containerVersion"]["tag"][0]
+        projected_group = projected["containerVersion"]["trigger"][1]
+        self.assertEqual(["11"], tag["firingTriggerId"])
+        self.assertEqual(["11", "11"], tag["blockingTriggerId"])
+        self.assertEqual(["11", "11", "11"], trigger_group_members(projected_group))
+        self.assertEqual(group["parameter"][1:], projected_group["parameter"][1:])
+        self.assertEqual(group["notes"], projected_group["notes"])
+        self.assertEqual(original, source)
+        self.assertTrue(validate_operations(source, [change], do_not_touch={"trigger:12"}))
+
     def test_simulation_catches_implicit_reference_drift_without_protected_objects(self) -> None:
         source = operation_fixture()
         original = copy.deepcopy(source)

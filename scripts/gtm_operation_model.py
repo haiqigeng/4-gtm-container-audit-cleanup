@@ -146,7 +146,13 @@ def _remap_consumer(
                     to_id if str(value) == from_id else value
                     for value in consumer[field]
                 ]
-        consumer.update(_replace_reference(consumer, f'"{from_id}"', f'"{to_id}"'))
+        if consumer.get("type") == "TRIGGER_GROUP":
+            for parameter in as_list(consumer.get("parameter")):
+                if not isinstance(parameter, dict) or parameter.get("key") != "triggerIds":
+                    continue
+                for member in as_list(parameter.get("list")):
+                    if isinstance(member, dict) and str(member.get("value")) == from_id:
+                        member["value"] = to_id
         return
     if layer == "variable":
         before = "{{" + _object_name(catalog, from_key) + "}}"

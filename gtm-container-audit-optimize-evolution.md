@@ -72,6 +72,12 @@ rewrites from renames/remaps must respect source-bound field-change ordering.
 Before-value drift names the exact failed operation. Repair the affected authored
 dependencies and dependent reconciliation records, retaining all unaffected work.
 
+Trigger remaps update structured trigger-group membership as well as tag firing
+and blocking lists. They do not replace matching quoted IDs in unrelated text.
+This corrects simulation of already-authored consumer remaps; source decisions
+and intended targets remain unchanged. Combined-target graph validation remains
+the gate for newly broken references.
+
 ## Current Phase Boundary
 
 The v2 workflow accepts one complete GTM **web-container** export or equivalent
