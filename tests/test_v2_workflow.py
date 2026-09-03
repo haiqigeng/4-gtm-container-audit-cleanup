@@ -2311,6 +2311,48 @@ class V2WorkflowTests(unittest.TestCase):
         os.environ.get("CODEX_NODE") and os.environ.get("CODEX_ARTIFACT_NODE_MODULES"),
         "The explicit bundled Node.js and artifact-tool runtime are required",
     )
+    def test_custom_code_workbook_has_visible_decision_labels(self) -> None:
+        payload = minimal_export()
+        payload["containerVersion"]["tag"] = [
+            {
+                "tagId": "1",
+                "name": "Support marker",
+                "type": "html",
+                "parameter": [
+                    {
+                        "type": "template",
+                        "key": "html",
+                        "value": "<script>dataLayer.push({event: 'audit_fixture'});</script>",
+                    }
+                ],
+                "firingTriggerId": ["2147479553"],
+            }
+        ]
+        self.export.write_text(json.dumps(payload), encoding="utf-8")
+        self.run_to_editorial()
+        node = os.environ["CODEX_NODE"]
+        run_node_script(node, SCRIPTS / "gtm_workbook_build.mjs", self.package)
+        run_node_script(node, SCRIPTS / "gtm_workbook_verify.mjs", self.package)
+        current = json.loads(
+            (self.package / "delivery" / "current-build.json").read_text(encoding="utf-8")
+        )
+        manifest = json.loads(
+            (
+                self.package / "delivery" / current["build_path"] / "workbook-build-manifest.json"
+            ).read_text(encoding="utf-8")
+        )
+        code_sheet = next(
+            sheet for sheet in manifest["normalized_model"]["sheets"]
+            if sheet["name"] == "05 Custom Code"
+        )
+        self.assertTrue(code_sheet["rows"])
+        self.assertEqual("Decision", code_sheet["headers"][3])
+        self.assertTrue(all(row["values"][3] for row in code_sheet["rows"]))
+
+    @unittest.skipUnless(
+        os.environ.get("CODEX_NODE") and os.environ.get("CODEX_ARTIFACT_NODE_MODULES"),
+        "The explicit bundled Node.js and artifact-tool runtime are required",
+    )
     def test_artifact_workbook_build_verify_and_delivery_seal(self) -> None:
         self.run_actionable_to_editorial()
         node = os.environ["CODEX_NODE"]

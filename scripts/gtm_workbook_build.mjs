@@ -467,7 +467,9 @@ function buildDataSheet(workbook, deliveryMap, editorialIndex, config, model) {
     values.forEach((_value, index) => {
       const mapped = rows[index];
       const priority = String(mapped.locked.priority || "None");
-      const label = String(mapped.locked.human_decision_label || "");
+      const label = String(
+        deliveryMap.overview.decision_labels?.[mapped.locked.decision_class] || "",
+      );
       sheet.getRangeByIndexes(5 + index, 0, 1, config.headers.length).format.fill =
         label ? decisionFill(label) : priorityFill(priority);
       addTechnicalComment(workbook, sheet, `A${6 + index}`, mapped, model);
@@ -640,7 +642,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
           row.locked.decision_id,
           prose.affected_scope,
           prose.current_behavior,
-          row.locked.human_decision_label,
+          deliveryMap.overview.decision_labels[row.locked.decision_class],
           prose.finding,
           prose.safest_target,
           prose.linked_action,

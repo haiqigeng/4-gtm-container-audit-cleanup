@@ -78,8 +78,8 @@ def _decision_owner(row: dict[str, Any]) -> dict[str, Any]:
 def _code_object_keys(scan: dict[str, Any]) -> set[str]:
     keys: set[str] = set()
     for row in as_list((scan.get("code_evidence") or {}).get("rows")):
-        if isinstance(row, dict) and str(row.get("object_key") or ""):
-            keys.add(str(row["object_key"]))
+        if isinstance(row, dict) and row.get("layer") and row.get("object_id"):
+            keys.add(f"{row['layer']}:{row['object_id']}")
     for row in as_list(scan.get("objects")):
         if not isinstance(row, dict):
             continue
