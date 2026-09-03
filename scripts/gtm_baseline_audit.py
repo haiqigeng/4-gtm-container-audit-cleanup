@@ -76,6 +76,8 @@ ALWAYS_TRUE_REGEX = {".*", "^.*$", ".+", "^.+$"}
 # A source-specific retained verdict is valid when the review proves that the
 # visible distinction is intentional.
 REVIEW_CANDIDATE_FINDING_TYPES = {
+    "naming_architecture_mismatch",
+    "folder_naming_review",
     "complex_trigger_candidate",
     "complex_zone_boundary_candidate",
     "duplicate_variable_path",
@@ -93,7 +95,6 @@ REVIEW_CANDIDATE_FINDING_TYPES = {
 # These findings depend on ownership or policy evidence that the export cannot
 # decide. They may remain visible owner decisions with a concrete recommendation.
 BUSINESS_DECISION_FINDING_TYPES = {
-    "naming_policy_confirmation_required",
     "nested_trigger_groups",
     "paused_objects_for_lifecycle_review",
     # The export proves the condition, but not whether a paused implementation
@@ -3492,8 +3493,7 @@ def add_tag_naming_findings(
                 "selected naming policy and keep every final tag name unique."
             ),
             extra={
-                "source_lens": "inferred_policy_candidate",
-                "policy_confirmation_required": True,
+                "source_lens": "naming_pattern_candidate",
                 "selected_naming_policy": selected,
                 "target_naming_pattern": pattern,
                 "proposed_final_name": proposed,
@@ -3532,8 +3532,7 @@ def add_trigger_naming_findings(
                 "trigger-group consumers."
             ),
             extra={
-                "source_lens": "inferred_policy_candidate",
-                "policy_confirmation_required": True,
+                "source_lens": "naming_pattern_candidate",
                 "selected_naming_policy": selected,
                 "target_naming_pattern": f"{prefix} - event_or_condition",
                 "proposed_final_name": proposed,
@@ -3571,8 +3570,7 @@ def add_variable_naming_findings(
                 "templates, Custom HTML, and Custom JavaScript."
             ),
             extra={
-                "source_lens": "inferred_policy_candidate",
-                "policy_confirmation_required": True,
+                "source_lens": "naming_pattern_candidate",
                 "selected_naming_policy": selected,
                 "target_naming_pattern": f"{prefix} - name_or_source",
                 "proposed_final_name": proposed,
@@ -3610,8 +3608,7 @@ def add_folder_naming_findings(
             "Keep or simplify folder naming after counting objects per area.",
             "owner_decision_needed | cleanup_operation | documented_exception",
             extra={
-                "source_lens": "inferred_policy_candidate",
-                "policy_confirmation_required": True,
+                "source_lens": "naming_pattern_candidate",
                 "selected_naming_policy": selected,
                 "target_naming_pattern": "Area",
                 "proposed_final_name": proposed,
@@ -3636,30 +3633,6 @@ def add_naming_architecture_findings(
 
     tag_order = str(naming_policy.get("tag_order") or "vendor_event_scope")
     selected = str(naming_policy.get("selected_policy") or "default-standardized")
-    if selected != "local-normalized":
-        builder.add_finding(
-            module_name,
-            "naming_policy_confirmation_required",
-            "container",
-            [],
-            "naming_policy:unconfirmed",
-            (
-                "The export has no dominant, reliable tag naming order. Per-object "
-                "conformance cannot be judged against an inferred default without imposing "
-                "a policy that the container does not prove."
-            ),
-            (
-                "Confirm the intended naming convention once, then generate the complete "
-                "rename set after behavior, canonical objects, remaps, and deletions are settled."
-            ),
-            extra={
-                "source_lens": "inferred_policy_candidate",
-                "policy_confirmation_required": True,
-                "selected_naming_policy": selected,
-                "target_naming_pattern": "Unresolved until owner confirmation",
-            },
-        )
-        return
     blocking_trigger_ids = {
         str(trigger_id) for tag in tags for trigger_id in as_list(tag.get("blockingTriggerId"))
     }
