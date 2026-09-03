@@ -159,8 +159,11 @@ formula-injection and privacy checks before
 sealing delivery. Workbook completion is not GTM mutation approval.
 
 The automated privacy check is deliberately bounded. It covers configured
-sensitive-key indicators, email-like values, local user paths, secret/token-like
-assignments, workbook comment redaction, and formula-injection safety. A pass does
-not certify the absence of every possible form of personal data. Preserve the
+sensitive-key indicators, GTM parameter and name/value-table payloads, email-like
+values, local user paths, secret/token-like assignments, workbook comment
+redaction, and formula-injection safety. Parameter names, object identities, and
+canonical action hashes remain available; matched sensitive values stay in the
+sealed technical evidence, not workbook comments. A pass does not certify the
+absence of every possible form of personal data. Preserve the
 separate semantic audit of identity and privacy-sensitive fields and do not turn
 the delivery check into a generic DLP system.

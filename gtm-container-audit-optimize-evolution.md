@@ -60,6 +60,12 @@ explicitly retire that same object instead. Retirement keeps the normal semantic
 consumer, dependency, and neutral-review checks. Each action has one operation
 owner; do not edit a field and delete its object in the same target.
 
+Workbook redaction follows GTM's parameter representation as well as ordinary
+sensitive dictionary keys. It redacts sensitive parameter payloads and sibling
+name/value-table values before they enter visible rows or technical comments,
+while preserving names, ordering, object identities, and canonical action hashes.
+This presentation correction does not change source evidence or audit judgments.
+
 ## Current Phase Boundary
 
 The v2 workflow accepts one complete GTM **web-container** export or equivalent

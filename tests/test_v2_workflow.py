@@ -47,7 +47,6 @@ from gtm_delivery_mapper import (  # noqa: E402
     validate_editorial,
 )
 from gtm_delivery_reviews import scaffold_delivery_reviews, seal_delivery  # noqa: E402
-from gtm_target_validation import validate_target  # noqa: E402
 from gtm_lib import file_sha256, locked_evidence_coordinates, stable_hash  # noqa: E402
 from gtm_reconciliation import (  # noqa: E402
     canonical_matches_allowed,
@@ -57,6 +56,7 @@ from gtm_reconciliation import (  # noqa: E402
 )
 from gtm_scan_assurance import assure_scan  # noqa: E402
 from gtm_target_synthesis import compile_operation_packet  # noqa: E402
+from gtm_target_validation import validate_target  # noqa: E402
 
 
 def build_package(export_path: Path, out_dir: Path, **kwargs: object) -> dict:

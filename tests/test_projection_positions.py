@@ -6,6 +6,9 @@ import copy
 import unittest
 
 from test_v2_operation_safety import operation, operation_fixture
+
+# The fixture module adds scripts/ to sys.path before this runtime import.
+# isort: split
 from gtm_operation_model import apply_operations, validate_operations
 
 

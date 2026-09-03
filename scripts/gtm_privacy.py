@@ -58,10 +58,47 @@ def redact_delivery_value(value: Any, field_name: str = "") -> Any:
     if field_name and SENSITIVE_KEY_RE.search(field_name):
         return "<redacted>"
     if isinstance(value, dict):
-        return {
-            str(key): redact_delivery_value(child, str(key))
+        parameter_key = value.get("key")
+        sensitive_parameter = isinstance(parameter_key, str) and bool(
+            SENSITIVE_KEY_RE.search(parameter_key)
+        )
+        result = {
+            str(key): (
+                "<redacted>"
+                if sensitive_parameter and key in {"value", "list", "map"}
+                else redact_delivery_value(child, str(key))
+            )
             for key, child in value.items()
         }
+        # GTM table rows store a parameter name and its value in sibling entries.
+        # Inspect the original name before redaction, preserving keys and order.
+        entries = value.get("map")
+        if isinstance(entries, list) and isinstance(result.get("map"), list):
+            sensitive_row = any(
+                isinstance(entry, dict)
+                and isinstance(entry.get("key"), str)
+                and entry.get("key") in {"parameter", "name", "property", "fieldName"}
+                and isinstance(entry.get("value"), str)
+                and SENSITIVE_KEY_RE.search(entry["value"])
+                for entry in entries
+            )
+            if sensitive_row:
+                for entry in result["map"]:
+                    if (
+                        isinstance(entry, dict)
+                        and isinstance(entry.get("key"), str)
+                        and entry.get("key")
+                        in {
+                            "parameterValue",
+                            "value",
+                            "propertyValue",
+                            "fieldValue",
+                        }
+                    ):
+                        for payload in ("value", "list", "map"):
+                            if payload in entry:
+                                entry[payload] = "<redacted>"
+        return result
     if isinstance(value, list):
         return [redact_delivery_value(child, field_name) for child in value]
     if isinstance(value, str):
