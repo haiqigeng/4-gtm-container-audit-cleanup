@@ -109,9 +109,13 @@
 - Every canonical audit decision has one disjoint primary owner; every operation
   has one Recommendations row; all locked fields remain unchanged after the
   deterministic privacy projection.
+- A non-owner decision whose subjects include a code-evidence object appears in
+  Custom Code. Code-evidence identity is the existing `layer:object_id`; Custom
+  HTML, Custom JavaScript, and custom-template findings cannot fall through to
+  Full Audit because an absent alternate key was assumed.
 - The workbook has the required sheets/columns, safe formulas, redacted comments
-  for long technical detail, accessible formatting, and no hidden decision
-  surface.
+  for long technical detail, accessible formatting, frozen headings and identity
+  columns on data sheets, and no hidden decision surface.
 - Recovery rebuild matches normalized sheets, cells, formulas, comments,
   navigation text, and dimensions; imported comment text, location, and count
   also match.
