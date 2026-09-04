@@ -23,7 +23,7 @@ from gtm_delivery_mapper import (  # noqa: E402
     validate_editorial,
 )
 from gtm_delivery_reviews import _expected_fidelity_input  # noqa: E402
-from gtm_lib import stable_hash, write_json  # noqa: E402
+from gtm_lib import file_sha256, stable_hash, write_json  # noqa: E402
 
 
 def canonical_fixture():
@@ -86,7 +86,12 @@ class WorkbookLocalisationTests(unittest.TestCase):
         gate = patch("gtm_delivery_mapper.canonical_record_seal_errors", return_value=[])
         gate.start()
         self.addCleanup(gate.stop)
-        write_json(self.package / "canonical-record.json", canonical_fixture())
+        write_json(self.package / "locked-source.json", {
+            "containerVersion": {"tag": [{"tagId": "1", "name": "GA4 - purchase"}]}
+        })
+        canonical = canonical_fixture()
+        canonical["source"]["source_sha256"] = file_sha256(self.package / "locked-source.json")
+        write_json(self.package / "canonical-record.json", canonical)
         create_delivery_map(self.package, "French")
         self.map = json.loads((self.package / "delivery/delivery-map.json").read_text(encoding="utf-8"))
         self.editorial_path = self.package / "delivery/editorial.json"

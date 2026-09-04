@@ -179,8 +179,10 @@ def build_operation_packet_payloads(
     source_path = package_dir / "locked-source.json"
     record_path = package_dir / "reconciled-decisions.json"
     context_path = package_dir / "context.json"
-    source = json.loads(source_path.read_text(encoding="utf-8"))
     record = json.loads(record_path.read_text(encoding="utf-8"))
+    from gtm_operation_model import read_operation_source
+    source_sha256 = record["source_sha256"]
+    source = read_operation_source(source_path, source_sha256)
     context = json.loads(context_path.read_text(encoding="utf-8"))
     operations = []
     decision_to_operation: dict[str, str] = {}
@@ -219,14 +221,14 @@ def build_operation_packet_payloads(
         for value in as_list((context.get("context") or {}).get("do_not_touch"))
         if str(value)
     }
-    errors.extend(validate_operations(source, operations, do_not_touch=do_not_touch))
+    errors.extend(validate_operations(source, operations, source_sha256=source_sha256, do_not_touch=do_not_touch))
     if errors:
         raise ValueError("operation safety gate failed: " + "; ".join(
             operation_error_context(operations, errors)
         ))
     ordered = dependency_order(operations)
     try:
-        projected = apply_operations(source, ordered)
+        projected = apply_operations(source, ordered, source_sha256=source_sha256)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("operation simulation failed: " + "; ".join(
             operation_error_context(ordered, [str(exc)])

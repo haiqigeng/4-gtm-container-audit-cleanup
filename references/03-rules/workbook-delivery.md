@@ -98,7 +98,11 @@ structured payloads in the canonical JSON; identify that location and the action
 hash explicitly when the comment summarizes them. Comments must never expose
 secret or personal values. The visible row names actual GTM objects and the
 complete change in analyst language; the canonical record preserves the exact
-action and unredacted technical evidence.
+action and its source reference. For changes/removals, recovery also requires the
+matching `locked-source.json`; raw old values are not copied into canonical
+operations. The mapper resolves them only transiently to derive redacted readable
+change detail, with sensitive parent/parameter context preserved. Notes identify
+the bound source and exact object/path as well as the canonical action hash.
 
 When a note defers bulk detail to the canonical record, make that implementation
 prerequisite explicit in the visible handoff. The workbook must still explain the

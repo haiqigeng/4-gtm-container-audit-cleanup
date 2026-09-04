@@ -24,6 +24,7 @@ from gtm_lib import (
     stable_hash,
     write_json,
 )
+from gtm_operation_model import read_operation_source
 
 REVIEW_ROOT = "reviews"
 FIDELITY_BUNDLE = "fidelity"
@@ -257,7 +258,8 @@ def _expected_fidelity_input(
     sealed_delivery_map = _load(delivery / "delivery-map.json")
     canonical = _load(package_dir / "canonical-record.json")
     delivery_map = delivery_map_from_record(
-        canonical, str(sealed_delivery_map.get("language") or "English")
+        canonical, str(sealed_delivery_map.get("language") or "English"),
+        source=read_operation_source(package_dir / "locked-source.json", canonical["source"]["source_sha256"]),
     )
     if delivery_map != sealed_delivery_map:
         raise ValueError("delivery map differs from canonical reconstruction")

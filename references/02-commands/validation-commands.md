@@ -166,12 +166,23 @@ and projected into the canonical decision, not repeated at decision level.
 Independent semantic review checks their specificity; a word count does not prove it.
 Action-row `json_path` values are object-relative (for example
 `$.priority`), never full `$.containerVersion...` source coordinates.
+For changes and named-field removals, use exactly `object_key`, `json_path`,
+and `before_source_sha256`; changes also require `after`. Copy the full
+`source_sha256` from the locked input identity, not a leaf hash. Literal `before`,
+redacted placeholders, alternate selectors and extra fields are rejected.
+The maintained gate verifies the actual source bytes against the independently
+locked identity, resolves the original value internally, and checks it again
+against the dependency-ordered target before writing. Values retain JSON types;
+missing is not null and false is not zero. Referenced paths must exist in the
+original; put a newly created object\'s complete target in its creation action.
+Do not copy secrets into `after`, verification or rollback prose. This reference
+removes old-value duplication; it does not sanitize an explicitly authored target.
 Plan application validates the combined operation set against the locked
 source before any audit write, including when no `do_not_touch` objects are
 declared. Renames and remaps can implicitly rewrite consumer fields. When another
 operation replaces or removes such a field, declare the necessary dependency so
 its exact source-bound before value still matches at application time. Do not rely
-on operation-ID sorting, alter before values, or discard an otherwise justified
+on operation-ID sorting, substitute another source binding, or discard an otherwise justified
 change to conceal an ordering conflict.
 
 Leave plan `open_discoveries` as `[]` unless a genuinely new semantic

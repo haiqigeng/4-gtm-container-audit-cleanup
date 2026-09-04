@@ -343,7 +343,13 @@ Only reconciled and required-neutral-verified decisions enter target synthesis.
 Operations support creates, additions, changes, named-field removals, remaps,
 renames, pauses, and deletions with stable IDs, dependencies, exact source-bound
 values, static
-verification, and rollback. The synthesiser cannot make a new semantic choice.
+verification, and rollback. Changes and named-field removals bind their original
+value through `before_source_sha256` plus the exact object key and relative path,
+not a duplicated literal `before`. Verify that hash against the actual,
+independently locked source bytes. Resolve values transiently from one immutable
+original catalog per pass; replay must reject drift, including typed-value drift,
+after earlier explicit or implicit writes. Keep the source reference unchanged in
+sealed proposals and canonical operations. No new workflow stage is introduced. The synthesiser cannot make a new semantic choice.
 Every write surface, including name and paused state, participates in the same
 cross-operation conflict model. Blank or no-op rename/pause actions block.
 The complete operation packet is a pure projection of sealed reconciliation;

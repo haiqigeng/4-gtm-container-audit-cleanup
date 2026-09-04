@@ -41,7 +41,13 @@ from gtm_cleanroom_audit import (
     operation_proposal_errors,
 )
 from gtm_lib import as_list, require_safe_package_root, write_json
-from gtm_operation_model import merge_exact_operation_ids, normalize_operation, validate_operations
+from gtm_operation_model import (
+    merge_exact_operation_ids,
+    normalize_operation,
+    object_catalog,
+    read_operation_source,
+    validate_operations,
+)
 
 PLAN_FIELDS = {
     "kind",
@@ -125,6 +131,12 @@ def _authoring_contract() -> dict[str, Any]:
             "action_json_path_rule": (
                 "object-relative JSONPath beginning with $, for example "
                 "$.priority; never a $.containerVersion path"
+            ),
+            "before_reference_rule": (
+                "changes/removals require before_source_sha256 copied from the locked "
+                "source_sha256. object_key and json_path identify the original value; "
+                "never copy it into the proposal. Recovery requires the canonical "
+                "operation and its bound locked source."
             ),
             "omitted_lists": "unused action lists and depends_on are completed as empty lists",
         },
@@ -499,6 +511,9 @@ def apply_plan(
         for row in as_list(ledger.get("obligations"))
         if isinstance(row, dict)
     }
+    source_sha256 = ledger["source_sha256"]
+    source = read_operation_source(bundle / "locked-source.json", source_sha256)
+    source_catalog = object_catalog(source)
     for obligation_id, decision in authored.items():
         obligation = obligation_by_id.get(obligation_id)
         if obligation:
@@ -507,6 +522,7 @@ def apply_plan(
                     decision,
                     obligation,
                     str(decision.get("decision_id") or obligation_id),
+                    source_catalog=source_catalog, source_sha256=source_sha256,
                 )
             )
     operations = [
@@ -516,7 +532,6 @@ def apply_plan(
     ]
     if not authored_errors:
         operations = merge_exact_operation_ids(operations)
-        source = _read_json(bundle / "locked-source.json")
         context = _read_json(bundle / "context.json")
         do_not_touch = {
             str(value)
@@ -527,6 +542,7 @@ def apply_plan(
             for error in validate_operations(
                 source,
                 operations,
+                source_sha256=source_sha256,
                 do_not_touch=do_not_touch,
             )
         )

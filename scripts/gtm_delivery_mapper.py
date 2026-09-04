@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 from pathlib import Path
@@ -24,7 +25,15 @@ from gtm_lib import (
     stable_hash,
     write_json,
 )
-from gtm_operation_model import _action_targets
+from gtm_operation_model import (
+    _action_targets,
+    get_json_path,
+    object_catalog,
+    read_operation_source,
+    same_json_value,
+    set_json_path,
+    source_before,
+)
 from gtm_privacy import privacy_findings, redact_delivery_value
 
 DELIVERY_ROOT = "delivery"
@@ -197,7 +206,7 @@ def _operation_audit_area(sources: list[dict[str, Any]]) -> str:
 
 def _changed_note_paths(before: Any, after: Any, path: str) -> list[str]:
     """Keep changed leaf identities even when delivery redaction equalizes values."""
-    if type(before) is type(after) and before == after:
+    if same_json_value(before, after):
         return []
     if isinstance(before, dict) and isinstance(after, dict):
         return [
@@ -229,7 +238,7 @@ def _row(
 ) -> dict[str, Any]:
     safe_locked = redact_delivery_value(locked)
     if "technical_note" in locked:
-        hidden_changes = {}
+        hidden_changes = dict(locked.get("redacted_change_paths", {}))
         for kind, actions in locked["technical_note"].items():
             for index, action in enumerate(actions):
                 if "before" not in action or "after" not in action:
@@ -263,15 +272,52 @@ def _row(
     return payload
 
 
+def _safe_note_value(obj, path):
+    safe = redact_delivery_value(obj)
+    try:
+        return get_json_path(safe, path)
+    except KeyError:
+        # The path exists in the original, but a sensitive ancestor was redacted.
+        return "<redacted>"
+
+
+def _operation_note(operation, catalog, source_sha256):
+    """Project safe detail; old values are resolved only in memory from locked source."""
+    fields = ("creations", "additions", "changes", "removals", "remaps", "renames", "pauses", "deletions")
+    note = redact_delivery_value({field: operation.get(field, []) for field in fields})
+    hidden = {}
+    for kind in ("changes", "removals"):
+        for index, action in enumerate(operation.get(kind, [])):
+            before = source_before(action, catalog, source_sha256)
+            path = action["json_path"]
+            obj = catalog[action["object_key"]]["object"]
+            safe = note[kind][index]
+            safe["before"] = _safe_note_value(obj, path)
+            if kind == "changes":
+                changed = copy.deepcopy(obj)
+                set_json_path(changed, path, action["after"])
+                safe["after"] = _safe_note_value(changed, path)
+                visible = _changed_note_paths(safe["before"], safe["after"], path)
+                concealed = [
+                    item for item in _changed_note_paths(before, action["after"], path)
+                    if not any(item == p or item.startswith((p + ".", p + "[")) for p in visible)
+                ]
+                if concealed:
+                    hidden[f"{kind}[{index}]"] = concealed
+    return note, hidden
+
+
 def _recommendation_rows(
-    record: dict[str, Any], names: dict[str, str]
+    record: dict[str, Any], names: dict[str, str], source: dict[str, Any], source_sha256: str
 ) -> list[dict[str, Any]]:
     decisions = {
         str(row.get("canonical_decision_id") or ""): row
         for row in as_list(record.get("audit_decisions"))
     }
     result = []
+    catalog = object_catalog(source)
     for operation in as_list(record.get("operations")):
+        technical_note, redacted_paths = _operation_note(operation, catalog, source_sha256)
         operation_id = str(operation.get("operation_id") or "")
         source_ids = [
             str(value)
@@ -321,19 +367,8 @@ def _recommendation_rows(
                     "exact_target_state": operation.get("exact_target_state"),
                     "static_verification": operation.get("static_verification"),
                     "rollback": operation.get("rollback"),
-                    "technical_note": {
-                        field: operation.get(field, [])
-                        for field in (
-                            "creations",
-                            "additions",
-                            "changes",
-                            "removals",
-                            "remaps",
-                            "renames",
-                            "pauses",
-                            "deletions",
-                        )
-                    },
+                    "technical_note": technical_note,
+                    "redacted_change_paths": redacted_paths,
                 },
                 prose={
                     "audit_area": _operation_audit_area(sources),
@@ -678,12 +713,12 @@ def _delivery_coverage_errors(
 
 
 def delivery_map_from_record(
-    record: dict[str, Any], language: str = "English"
+    record: dict[str, Any], language: str = "English", *, source: dict[str, Any]
 ) -> dict[str, Any]:
     """Project the exact human delivery map from canonical semantic authority."""
 
     names = _name_index(record)
-    recommendations = _recommendation_rows(record, names)
+    recommendations = _recommendation_rows(record, names, source, record["source"]["source_sha256"])
     owner_rows = _owner_rows(record, names)
     owner_ids = set(as_list(record.get("owner_decision_ids")))
     code_ids = set(as_list(record.get("custom_code_decision_ids"))) - owner_ids
@@ -859,7 +894,8 @@ def create_delivery_map(
     if root.exists() and not _validate_only:
         raise ValueError("delivery artifacts already exist and are never overwritten")
     record = _load(package_dir / "canonical-record.json")
-    map_payload = delivery_map_from_record(record, language)
+    source = read_operation_source(package_dir / "locked-source.json", record["source"]["source_sha256"])
+    map_payload = delivery_map_from_record(record, language, source=source)
     if _validate_only:
         return map_payload
     root.mkdir()
@@ -954,7 +990,8 @@ def _delivery_map_errors(package_dir: Path) -> tuple[dict[str, Any], list[str]]:
         errors.extend(_delivery_coverage_errors(canonical, delivery_map))
         try:
             expected_map = delivery_map_from_record(
-                canonical, str(delivery_map.get("language") or "English")
+                canonical, str(delivery_map.get("language") or "English"),
+                source=read_operation_source(package_dir / "locked-source.json", canonical["source"]["source_sha256"]),
             )
         except ValueError as exc:
             errors.append(f"delivery map reconstruction failed: {exc}")

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from test_v2_operation_safety import operation, operation_fixture  # noqa: E402
 
-from gtm_lib import custom_template_ids, custom_template_type_index  # noqa: E402
+from gtm_lib import custom_template_ids, custom_template_type_index, stable_hash  # noqa: E402
 from gtm_operation_model import (  # noqa: E402
     apply_operations,
     operation_write_conflicts,
@@ -41,8 +41,8 @@ class OperationReferenceAndPathSafetyTests(unittest.TestCase):
                     "to_object_key": "customTemplate:20",
                     "consumer_object_keys": ["tag:1"],
                 }], deletions=[{"object_key": "customTemplate:10"}])
-                self.assertEqual([], validate_operations(data, [change]))
-                target = apply_operations(data, [change])["containerVersion"]
+                self.assertEqual([], validate_operations(data, [change], source_sha256=stable_hash(data, 64)))
+                target = apply_operations(data, [change], source_sha256=stable_hash(data, 64))["containerVersion"]
                 expected = copy.deepcopy(tag)
                 expected["type"] = "cvt_NEW" if gallery else "cvt_1_20"
                 self.assertEqual(expected, target["tag"][0])
@@ -64,9 +64,9 @@ class OperationReferenceAndPathSafetyTests(unittest.TestCase):
         }])
         for token in ("googtag", "cvt_SAME"):
             cv["tag"][0]["type"] = token
-            self.assertTrue(validate_operations(data, [change]))
+            self.assertTrue(validate_operations(data, [change], source_sha256=stable_hash(data, 64)))
             with self.assertRaises(ValueError):
-                apply_operations(data, [change])
+                apply_operations(data, [change], source_sha256=stable_hash(data, 64))
 
     def test_template_remap_can_target_a_declared_creation(self):
         for gallery in (False, True):
@@ -83,8 +83,8 @@ class OperationReferenceAndPathSafetyTests(unittest.TestCase):
                 "from_object_key": "customTemplate:10", "to_object_key": "customTemplate:20",
                 "consumer_object_keys": ["tag:1"],
             }], deletions=[{"object_key": "customTemplate:10"}])
-            self.assertEqual([], validate_operations(data, [change]))
-            target = apply_operations(data, [change])["containerVersion"]
+            self.assertEqual([], validate_operations(data, [change], source_sha256=stable_hash(data, 64)))
+            target = apply_operations(data, [change], source_sha256=stable_hash(data, 64))["containerVersion"]
             self.assertEqual("cvt_NEW" if gallery else "cvt_1_20", target["tag"][0]["type"])
 
     def test_unsupported_remap_layer_is_not_string_substitution(self):
@@ -96,9 +96,9 @@ class OperationReferenceAndPathSafetyTests(unittest.TestCase):
             "from_object_key": "gtagConfig:10", "to_object_key": "gtagConfig:20",
             "consumer_object_keys": ["tag:1"],
         }])
-        self.assertTrue(validate_operations(data, [change]))
+        self.assertTrue(validate_operations(data, [change], source_sha256=stable_hash(data, 64)))
         with self.assertRaisesRegex(ValueError, "unsupported remap layer"):
-            apply_operations(data, [change])
+            apply_operations(data, [change], source_sha256=stable_hash(data, 64))
 
     def test_same_gallery_retirement_preserves_token_and_resolves_survivor(self):
         data = operation_fixture()
@@ -113,8 +113,8 @@ class OperationReferenceAndPathSafetyTests(unittest.TestCase):
             "from_object_key": "customTemplate:10", "to_object_key": "customTemplate:20",
             "consumer_object_keys": ["tag:1"],
         }], deletions=[{"object_key": "customTemplate:10"}])
-        self.assertEqual([], validate_operations(data, [change]))
-        target = apply_operations(data, [change])["containerVersion"]
+        self.assertEqual([], validate_operations(data, [change], source_sha256=stable_hash(data, 64)))
+        target = apply_operations(data, [change], source_sha256=stable_hash(data, 64))["containerVersion"]
         self.assertEqual(cv["tag"], target["tag"])
         self.assertEqual(["20"], custom_template_ids(
             target["tag"][0], custom_template_type_index(target["customTemplate"])
@@ -122,13 +122,12 @@ class OperationReferenceAndPathSafetyTests(unittest.TestCase):
         cv["customTemplate"].append({
             "templateId": "30", "galleryReference": {"galleryTemplateId": "SAME"},
         })
-        self.assertTrue(validate_operations(data, [change]))
+        self.assertTrue(validate_operations(data, [change], source_sha256=stable_hash(data, 64)))
 
     def test_parent_child_writes_conflict_with_or_without_dependency(self):
         data = operation_fixture()
-        original = copy.deepcopy(data["containerVersion"]["tag"][0]["parameter"])
         first = operation("OP-PARENT", changes=[{
-            "object_key": "tag:1", "json_path": "$.parameter", "before": original,
+            "object_key": "tag:1", "json_path": "$.parameter", "before_source_sha256": stable_hash(data, 64),
             "after": [{"key": "new", "newValue": "FIRST"}],
         }])
         second = operation("OP-CHILD", additions=[{
@@ -137,23 +136,23 @@ class OperationReferenceAndPathSafetyTests(unittest.TestCase):
         for dependencies in ([], ["OP-PARENT"]):
             second["depends_on"] = dependencies
             self.assertTrue(operation_write_conflicts([first, second]))
-            self.assertTrue(validate_operations(data, [first, second]))
+            self.assertTrue(validate_operations(data, [first, second], source_sha256=stable_hash(data, 64)))
         with self.assertRaisesRegex(ValueError, "addition target already exists"):
-            apply_operations(data, [first, second])
+            apply_operations(data, [first, second], source_sha256=stable_hash(data, 64))
         merged = copy.deepcopy(first)
         merged["additions"] = second["additions"]
         self.assertTrue(operation_write_conflicts([merged]))
-        self.assertTrue(validate_operations(data, [merged]))
+        self.assertTrue(validate_operations(data, [merged], source_sha256=stable_hash(data, 64)))
 
     def test_disjoint_siblings_and_token_boundaries_are_not_conflicts(self):
         data = operation_fixture()
         tag = data["containerVersion"]["tag"][0]
         edits = [operation(f"OP-{index}", changes=[{
             "object_key": "tag:1", "json_path": f"$.parameter[{index}].value",
-            "before": row["value"], "after": f"NEW-{index}",
+            "before_source_sha256": stable_hash(data, 64), "after": f"NEW-{index}",
         }]) for index, row in enumerate(tag["parameter"])]
         self.assertEqual([], operation_write_conflicts(edits))
-        self.assertEqual([], validate_operations(data, edits))
+        self.assertEqual([], validate_operations(data, edits, source_sha256=stable_hash(data, 64)))
         paths = ["$.field", "$.fieldName", "$.rows[1].value", "$.rows[10].value"]
         unrelated = [operation(f"OP-{index}", additions=[{
             "object_key": "tag:1", "json_path": path, "value": "new",

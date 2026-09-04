@@ -144,8 +144,8 @@ class DeliveryClassTests(unittest.TestCase):
             "creations": [{"layer": "variable", "object": {
                 "variableId": "9", "name": "New settings", "type": "c",
             }}],
-            "changes": [{"object_key": "tag:2"}],
-            "removals": [{"object_key": "tag:3"}],
+            "changes": [{"object_key": "tag:2", "json_path": "$.notes", "before_source_sha256": "a" * 64, "after": "new"}],
+            "removals": [{"object_key": "tag:3", "json_path": "$.notes", "before_source_sha256": "a" * 64}],
             "deletions": [{"object_key": "variable:4"}],
             "remaps": [{"from_object_key": "trigger:5", "to_object_key": "trigger:6",
                         "consumer_object_keys": ["tag:2", "trigger:7"]}],
@@ -153,7 +153,8 @@ class DeliveryClassTests(unittest.TestCase):
         original = copy.deepcopy(source)
         expected = ["tag:1", "tag:2", "tag:3", "trigger:5", "trigger:6", "trigger:7",
                     "variable:4", "variable:9"]
-        row = _recommendation_rows(source, {key: f"Object {key}" for key in expected})[0]
+        row = _recommendation_rows(source, {key: f"Object {key}" for key in expected},
+            {"containerVersion": {"tag": [{"tagId": "2", "notes": "old"}, {"tagId": "3", "notes": "obsolete"}]}}, "a" * 64)[0]
         self.assertEqual(expected, row["locked"]["subject_keys"])
         self.assertIn("+5 more (see row note)", row["canonical_prose"]["affected_scope"])
         self.assertEqual(["CD-ONE"], row["locked"]["source_decision_ids"])

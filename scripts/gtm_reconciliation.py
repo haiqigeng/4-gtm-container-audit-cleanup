@@ -962,6 +962,9 @@ def finalize_reconciliation(
     }
     canonical_rows = []
     ledger = _read_json(package_dir / "obligation-ledger.json")
+    from gtm_operation_model import object_catalog, read_operation_source
+    source_sha256 = ledger["source_sha256"]
+    operation_source = object_catalog(read_operation_source(package_dir / "locked-source.json", source_sha256))
     obligation_by_id = {
         str(row.get("obligation_id") or ""): row
         for row in as_list(ledger.get("obligations"))
@@ -1005,7 +1008,8 @@ def finalize_reconciliation(
         obligation = obligation_by_id.get(str(row.get("obligation_id") or ""))
         if obligation:
             errors.extend(
-                decision_obligation_alignment_errors(canonical, obligation, label)
+                decision_obligation_alignment_errors(canonical, obligation, label,
+                    source_catalog=operation_source, source_sha256=source_sha256)
             )
         if row.get("applicability") == "source_counted_zero":
             if canonical.get("decision_class") != "not_applicable":

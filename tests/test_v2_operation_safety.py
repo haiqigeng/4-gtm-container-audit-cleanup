@@ -46,9 +46,11 @@ from gtm_operation_model import (  # noqa: E402
     dependency_order,
     merge_exact_operation_ids,
     normalize_operation,
+    object_catalog,
     operation_action_identity,
     operation_packet_sha256,
     operation_write_conflicts,
+    source_before,
     validate_operations,
 )
 from gtm_target_synthesis import (  # noqa: E402
@@ -145,6 +147,51 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_source_references_are_closed_and_missing_is_not_null(self):
+        source = operation_fixture()
+        source["containerVersion"]["tag"][0]["notes"] = None
+        digest = stable_hash(source, 64)
+        catalog = object_catalog(source)
+        action = {"object_key": "tag:1", "json_path": "$.notes", "before_source_sha256": digest}
+        self.assertIsNone(source_before(action, catalog, digest))
+        for invalid in (None, [], False, "text", {}, {**action, "before": "<redacted>"},
+                        {**action, "foreign": True}, {**action, "before_source_sha256": "a" * 16},
+                        {**action, "before_source_sha256": 1}, {**action, "before_source_sha256": "0" * 64}):
+            with self.subTest(kind=type(invalid).__name__), self.assertRaises(ValueError):
+                source_before(invalid, catalog, digest)
+        with self.assertRaises(KeyError):
+            source_before({**action, "json_path": "$.missing"}, catalog, digest)
+        removed = operation("OP-NULL", removals=[action])
+        self.assertEqual([], validate_operations(source, [removed], source_sha256=digest))
+        self.assertNotIn("notes", apply_operations(source, [removed], source_sha256=digest)["containerVersion"]["tag"][0])
+        self.assertIn("notes", source["containerVersion"]["tag"][0])
+
+    def test_replay_checks_typed_original_value_after_an_earlier_write(self):
+        for before, after in ((False, 0), (0, False), (None, "null"), ([False], [0])):
+            source = operation_fixture()
+            source["containerVersion"]["tag"][0]["notes"] = before
+            digest = stable_hash(source, 64)
+            reference = {"object_key": "tag:1", "json_path": "$.notes", "before_source_sha256": digest}
+            first = operation("OP-FIRST", changes=[{**reference, "after": after}])
+            second = operation("OP-SECOND", removals=[reference])
+            second["depends_on"] = ["OP-FIRST"]
+            original = copy.deepcopy([source, first, second])
+            self.assertTrue(validate_operations(source, [first, second], source_sha256=digest))
+            with self.assertRaisesRegex(ValueError, "removal before value drifted"):
+                apply_operations(source, [first, second], source_sha256=digest)
+            self.assertEqual(original, [source, first, second])
+
+    def test_replay_builds_original_catalog_once_for_many_actions(self):
+        from unittest.mock import patch
+        source = operation_fixture()
+        source["containerVersion"]["tag"][0]["notes"] = {str(i): i for i in range(100)}
+        digest = stable_hash(source, 64)
+        actions = [{"object_key": "tag:1", "json_path": "$.notes." + str(i),
+                    "before_source_sha256": digest, "after": i + 1} for i in range(100)]
+        with patch("gtm_operation_model.object_catalog", wraps=object_catalog) as catalogs:
+            apply_operations(source, [operation("OP-MANY", changes=actions)], source_sha256=digest)
+        self.assertEqual(1, sum(call.args[0] is source for call in catalogs.call_args_list))
+
     def test_discovery_keys_exclude_server_entities(self) -> None:
         for key in ("client:1", "transformation:1", "serverTemplate:1", "tag:"):
             self.assertIsNone(OBJECT_KEY_RE.fullmatch(key))
@@ -174,8 +221,8 @@ class V2OperationSafetyTests(unittest.TestCase):
             "from_object_key": "trigger:10", "to_object_key": "trigger:11",
             "consumer_object_keys": ["tag:1", "trigger:12"],
         }], deletions=[{"object_key": "trigger:10"}])
-        self.assertEqual([], validate_operations(source, [change]))
-        projected = apply_operations(source, [change])
+        self.assertEqual([], validate_operations(source, [change], source_sha256=stable_hash(source, 64)))
+        projected = apply_operations(source, [change], source_sha256=stable_hash(source, 64))
         tag = projected["containerVersion"]["tag"][0]
         projected_group = projected["containerVersion"]["trigger"][1]
         self.assertEqual(["11"], tag["firingTriggerId"])
@@ -184,7 +231,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         self.assertEqual(group["parameter"][1:], projected_group["parameter"][1:])
         self.assertEqual(group["notes"], projected_group["notes"])
         self.assertEqual(original, source)
-        self.assertTrue(validate_operations(source, [change], do_not_touch={"trigger:12"}))
+        self.assertTrue(validate_operations(source, [change], do_not_touch={"trigger:12"}, source_sha256=stable_hash(source, 64)))
 
     def test_simulation_catches_implicit_reference_drift_without_protected_objects(self) -> None:
         source = operation_fixture()
@@ -194,7 +241,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         after[0]["value"] = "G-NEW"
         cleanup = operation("Z-CONFIG", changes=[{
             "object_key": "tag:1", "json_path": "$.parameter",
-            "before": before, "after": after,
+            "before_source_sha256": stable_hash(source, 64), "after": after,
         }])
         implicit_writes = (
             operation("A-RENAME", renames=[{
@@ -208,7 +255,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         for implicit in implicit_writes:
             for protected in (None, set()):
                 with self.subTest(operation=implicit["operation_id"], protected=protected):
-                    errors = validate_operations(source, [implicit, cleanup], do_not_touch=protected)
+                    errors = validate_operations(source, [implicit, cleanup], do_not_touch=protected, source_sha256=stable_hash(source, 64))
                     self.assertTrue(any(
                         "Z-CONFIG: change before value drifted for tag:1 $.parameter" in error
                         for error in errors
@@ -216,8 +263,8 @@ class V2OperationSafetyTests(unittest.TestCase):
             ordered_implicit = copy.deepcopy(implicit)
             ordered_implicit["depends_on"] = ["Z-CONFIG"]
             operations = [ordered_implicit, cleanup]
-            self.assertEqual([], validate_operations(source, operations))
-            projected = apply_operations(source, operations)
+            self.assertEqual([], validate_operations(source, operations, source_sha256=stable_hash(source, 64)))
+            projected = apply_operations(source, operations, source_sha256=stable_hash(source, 64))
             parameters = projected["containerVersion"]["tag"][0]["parameter"]
             self.assertEqual("G-NEW", parameters[0]["value"])
             self.assertNotEqual("{{Old Variable}}", parameters[1]["value"])
@@ -230,6 +277,8 @@ class V2OperationSafetyTests(unittest.TestCase):
         )
 
     def test_source_proven_obligations_cannot_be_grouped_as_justified(self) -> None:
+        source = operation_fixture()
+        source["containerVersion"]["tag"].append({"tagId": "2", "firingTriggerId": ["2147479573"]})
         justified = {
             "decision_class": "justified_as_is",
             "operation_proposal": {},
@@ -256,7 +305,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                 "source-known configuration repair must be actionable" in error
                 for error in decision_obligation_alignment_errors(
                     justified, known_repair, "decision"
-                )
+                , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
             )
         )
 
@@ -269,7 +318,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                 "statically ineffective blocker is a defect" in error
                 for error in decision_obligation_alignment_errors(
                     justified, ineffective_blocker, "decision"
-                )
+                , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
             )
         )
 
@@ -291,7 +340,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                 "late default consent writer is a defect" in error
                 for error in decision_obligation_alignment_errors(
                     justified, late_consent_default, "decision"
-                )
+                , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
             )
         )
 
@@ -304,7 +353,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                     {
                         "object_key": "tag:2",
                         "json_path": "$.firingTriggerId[0]",
-                        "before": "2147479573",
+                        "before_source_sha256": stable_hash(source, 64),
                         "after": CONSENT_INITIALIZATION_TRIGGER_ID,
                     }
                 ],
@@ -314,7 +363,7 @@ class V2OperationSafetyTests(unittest.TestCase):
             [],
             decision_obligation_alignment_errors(
                 actionable, late_consent_default, "decision"
-            ),
+            , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64)),
         )
         actionable["operation_proposal"]["changes"][0]["after"] = "2147479593"
         self.assertTrue(
@@ -322,11 +371,13 @@ class V2OperationSafetyTests(unittest.TestCase):
                 "must move the default writer to Consent Initialization" in error
                 for error in decision_obligation_alignment_errors(
                     actionable, late_consent_default, "decision"
-                )
+                , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
             )
         )
 
     def test_source_known_repair_requires_the_exact_operation(self) -> None:
+        source = operation_fixture()
+        source["containerVersion"]["tag"][0]["parameter"][1]["value"] = "true"
         obligation = {
             "fact_kind": "configuration_obligation",
             "evidence": {
@@ -352,25 +403,25 @@ class V2OperationSafetyTests(unittest.TestCase):
                     {
                         "object_key": "tag:1",
                         "json_path": "$.parameter[1].value",
-                        "before": "true",
+                        "before_source_sha256": stable_hash(source, 64),
                         "after": "false",
                     }
                 ],
             },
         }
         self.assertEqual(
-            [], decision_obligation_alignment_errors(decision, obligation, "decision")
+            [], decision_obligation_alignment_errors(decision, obligation, "decision", source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
         )
         combined = copy.deepcopy(decision)
         combined["operation_proposal"]["deletions"] = [{"object_key": "tag:2"}]
         self.assertEqual(
-            [], decision_obligation_alignment_errors(combined, obligation, "decision")
+            [], decision_obligation_alignment_errors(combined, obligation, "decision", source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
         )
         retired = copy.deepcopy(decision)
         retired["operation_proposal"]["changes"] = []
         retired["operation_proposal"]["deletions"] = [{"object_key": "tag:1"}]
         self.assertEqual(
-            [], decision_obligation_alignment_errors(retired, obligation, "decision")
+            [], decision_obligation_alignment_errors(retired, obligation, "decision", source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
         )
         for substitute in (
             {"deletions": [{"object_key": "tag:2"}]},
@@ -384,16 +435,16 @@ class V2OperationSafetyTests(unittest.TestCase):
                 }
                 self.assertTrue(decision_obligation_alignment_errors(
                     incomplete, obligation, "decision"
-                ))
+                , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64)))
         retired["decision_class"] = "justified_as_is"
-        self.assertTrue(decision_obligation_alignment_errors(retired, obligation, "decision"))
+        self.assertTrue(decision_obligation_alignment_errors(retired, obligation, "decision", source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64)))
         decision["operation_proposal"]["changes"][0]["after"] = "true"
         self.assertTrue(
             any(
                 "exactly implement the source-known repair" in error
                 for error in decision_obligation_alignment_errors(
                     decision, obligation, "decision"
-                )
+                , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
             )
         )
 
@@ -412,9 +463,10 @@ class V2OperationSafetyTests(unittest.TestCase):
         self.assertIn("decision: rollback is missing", errors)
 
     def test_canonical_operation_accepts_concise_text_and_rejects_missing_meaning(self) -> None:
+        source = operation_fixture()
         proposal = operation("OP-REMOVE-PRIORITY", removals=[{
             "object_key": "tag:1", "json_path": "$.priority",
-            "before": {"type": "INTEGER", "value": "10"},
+            "before_source_sha256": stable_hash(source, 64),
         }])
         prose = {
             "exact_target_state": "Remove tag:1.priority.",
@@ -443,6 +495,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                     )
 
     def test_operation_family_requires_text_not_an_arbitrary_word_count(self) -> None:
+        source = operation_fixture()
         decision = {"decision_id": "AUDIT-A-DECISION-1"}
         proposal = {
             "operation_id": "OP-TEST-FAMILY",
@@ -456,7 +509,7 @@ class V2OperationSafetyTests(unittest.TestCase):
             **{field: [] for field in OPERATION_ACTION_FIELDS},
             "removals": [
                 {"object_key": "tag:1", "json_path": "$.priority",
-                 "before": {"type": "INTEGER", "value": "7"}}
+                 "before_source_sha256": stable_hash(source, 64)}
             ],
         }
         self.assertEqual([], operation_proposal_errors(proposal, decision, {}, "decision"))
@@ -529,8 +582,8 @@ class V2OperationSafetyTests(unittest.TestCase):
         merged = merge_exact_operation_ids([second, first])
         self.assertEqual(1, len(merged))
         self.assertEqual(["CD-1", "CD-2"], merged[0]["source_reconciled_decision_ids"])
-        self.assertEqual([], validate_operations(operation_fixture(), merged))
-        projected = apply_operations(operation_fixture(), merged)
+        self.assertEqual([], validate_operations(operation_fixture(), merged, source_sha256=stable_hash(operation_fixture(), 64)))
+        projected = apply_operations(operation_fixture(), merged, source_sha256=stable_hash(operation_fixture(), 64))
         self.assertEqual(["20"], [row["variableId"] for row in projected["containerVersion"]["variable"]])
         self.assertEqual(original, [first, second])
         stale_first = {**copy.deepcopy(first), "action_payload_sha256": "stale-first"}
@@ -554,7 +607,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         distinct = {**copy.deepcopy(second), "operation_id": "OP-OTHER-DELETE"}
         separate = merge_exact_operation_ids([first, distinct])
         self.assertEqual(2, len(separate))
-        self.assertTrue(validate_operations(operation_fixture(), separate))
+        self.assertTrue(validate_operations(operation_fixture(), separate, source_sha256=stable_hash(operation_fixture(), 64)))
 
     def test_recursive_work_unit_schema_type_failures_are_explicit(self) -> None:
         self.assertTrue(workload_estimate_schema_errors(None))
@@ -628,7 +681,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                 {
                     "object_key": "tag:1",
                     "json_path": "$.parameter[0].value",
-                    "before": "G-OLD",
+                    "before_source_sha256": stable_hash(source, 64),
                     "after": "G-NEW",
                 }
             ],
@@ -636,7 +689,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                 {
                     "object_key": "tag:1",
                     "json_path": "$.priority",
-                    "before": {"type": "INTEGER", "value": "10"},
+                    "before_source_sha256": stable_hash(source, 64),
                 }
             ],
             remaps=[
@@ -663,8 +716,8 @@ class V2OperationSafetyTests(unittest.TestCase):
         )
         second["depends_on"] = ["OP-001"]
         operations = [second, first]
-        self.assertEqual([], validate_operations(source, operations))
-        projected = apply_operations(source, operations)
+        self.assertEqual([], validate_operations(source, operations, source_sha256=stable_hash(source, 64)))
+        projected = apply_operations(source, operations, source_sha256=stable_hash(source, 64))
         cv = container_version(projected)
         tag = cv["tag"][0]
         self.assertEqual("G-NEW", tag["parameter"][0]["value"])
@@ -690,7 +743,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                 {
                     "object_key": "tag:1",
                     "json_path": "$.parameter[0].value",
-                    "before": "G-OLD",
+                    "before_source_sha256": stable_hash(source, 64),
                     "after": "G-A",
                 }
             ],
@@ -701,12 +754,12 @@ class V2OperationSafetyTests(unittest.TestCase):
                 {
                     "object_key": "tag:1",
                     "json_path": "$.parameter[0].value",
-                    "before": "G-OLD",
+                    "before_source_sha256": stable_hash(source, 64),
                     "after": "G-B",
                 }
             ],
         )
-        errors = validate_operations(source, [left, right], do_not_touch={"tag:1"})
+        errors = validate_operations(source, [left, right], do_not_touch={"tag:1"}, source_sha256=stable_hash(source, 64))
         self.assertTrue(any("conflicting writes" in error for error in errors))
         self.assertTrue(any("do_not_touch" in error for error in errors))
         self.assertTrue(operation_write_conflicts([left, right]))
@@ -732,13 +785,13 @@ class V2OperationSafetyTests(unittest.TestCase):
         self.assertTrue(
             any(
                 "conflicting writes" in error
-                for error in validate_operations(source, [pause, contradictory_pause])
+                for error in validate_operations(source, [pause, contradictory_pause], source_sha256=stable_hash(source, 64))
             )
         )
         self.assertTrue(
             any(
                 "pause is a no-op" in error
-                for error in validate_operations(source, [contradictory_pause])
+                for error in validate_operations(source, [contradictory_pause], source_sha256=stable_hash(source, 64))
             )
         )
 
@@ -766,7 +819,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         self.assertTrue(
             any(
                 "conflicting writes" in error
-                for error in validate_operations(source, [rename_a, rename_b])
+                for error in validate_operations(source, [rename_a, rename_b], source_sha256=stable_hash(source, 64))
             )
         )
 
@@ -782,12 +835,13 @@ class V2OperationSafetyTests(unittest.TestCase):
                 }
             ],
         )
-        errors = validate_operations(source, [rename], do_not_touch={"tag:1"})
+        errors = validate_operations(source, [rename], do_not_touch={"tag:1"}, source_sha256=stable_hash(source, 64))
         self.assertTrue(
             any("implicit operation" in error and "tag:1" in error for error in errors)
         )
 
     def test_server_route_client_gate_removal_requires_approved_owner(self) -> None:
+        source = operation_fixture()
         def consent_route_source(*, inherited_from_gtag_config: bool) -> dict:
             source = operation_fixture()
             cv = container_version(source)
@@ -847,7 +901,7 @@ class V2OperationSafetyTests(unittest.TestCase):
                 {
                     "object_key": "tag:1",
                     "json_path": "$.blockingTriggerId",
-                    "before": ["12"],
+                    "before_source_sha256": stable_hash(source, 64),
                 }
             ],
         )
@@ -856,7 +910,10 @@ class V2OperationSafetyTests(unittest.TestCase):
                 source = consent_route_source(
                     inherited_from_gtag_config=inherited
                 )
-                projected = apply_operations(source, [remove_gate])
+                for kind in ("changes", "removals"):
+                    for action in remove_gate[kind]:
+                        action["before_source_sha256"] = stable_hash(source, 64)
+                projected = apply_operations(source, [remove_gate], source_sha256=stable_hash(source, 64))
                 errors = server_consent_gate_regression_errors(
                     source,
                     projected,
@@ -888,7 +945,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         deleted = apply_operations(
             source,
             [operation("OP-DELETE-TAG", deletions=[{"object_key": "tag:1"}])],
-        )
+         source_sha256=stable_hash(source, 64))
         self.assertEqual(
             [],
             server_consent_gate_regression_errors(
@@ -950,12 +1007,12 @@ class V2OperationSafetyTests(unittest.TestCase):
                 {
                     "object_key": "tag:1",
                     "json_path": "$.blockingTriggerId",
-                    "before": ["12"],
+                    "before_source_sha256": stable_hash(source, 64),
                 }
             ],
         )
-        self.assertEqual([], validate_operations(source, [route_and_remove]))
-        projected = apply_operations(source, [route_and_remove])
+        self.assertEqual([], validate_operations(source, [route_and_remove], source_sha256=stable_hash(source, 64)))
+        projected = apply_operations(source, [route_and_remove], source_sha256=stable_hash(source, 64))
         errors = server_consent_gate_regression_errors(
             source,
             projected,
@@ -984,7 +1041,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         projected = apply_operations(
             source,
             [operation("OP-DELETE", deletions=[{"object_key": "variable:21"}])],
-        )
+         source_sha256=stable_hash(source, 64))
         cv = container_version(projected)
         self.assertNotIn("zone", cv)
 

@@ -140,8 +140,8 @@ OPERATION_PROPOSAL_FIELDS = {
 OPERATION_ACTION_ROW_FIELDS = {
     "creations": {"layer", "object"},
     "additions": {"object_key", "json_path", "value"},
-    "changes": {"object_key", "json_path", "before", "after"},
-    "removals": {"object_key", "json_path", "before"},
+    "changes": {"object_key", "json_path", "before_source_sha256", "after"},
+    "removals": {"object_key", "json_path", "before_source_sha256"},
     "remaps": {"from_object_key", "to_object_key", "consumer_object_keys"},
     "renames": {"object_key", "before", "after"},
     "pauses": {"object_key", "before", "after"},
@@ -188,6 +188,10 @@ def operation_proposal_schema_errors(
             proposal.get(field), fields, f"{label}: operation {field}"
         )
         errors.extend(row_errors)
+        if field in {"changes", "removals"}:
+            for row in _rows:
+                if not isinstance(row.get("before_source_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", row["before_source_sha256"]):
+                    errors.append(f"{label}: operation {field} requires a full source SHA-256")
     return errors
 
 

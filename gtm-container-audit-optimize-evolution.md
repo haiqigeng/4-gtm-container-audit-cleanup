@@ -18,6 +18,64 @@ The authoritative implementation sources are:
 If this record and an authoritative source ever differ, the authoritative source
 wins and this record must be corrected before release.
 
+## Active Development Goal — Readiness And Proportionate Evaluation Amendment
+
+Approved by the user on 2026-09-04. This amendment takes precedence over the
+saved Goal Mode objective's repeated-superiority requirement and historical
+sequencing instructions. It changes development acceptance, not the skill's
+North Star, audit areas, production workflow or independence requirements.
+
+Judge release readiness by general correctness, useful coverage, appropriate
+recommendations, reliable execution and trustworthy human delivery against the
+authoritative skill contract and all seven AGENTS.md rules. Resolve known
+material in-scope defects and missed material, source-supported improvements.
+Do not require indefinite proof of superiority over each familiar cleaned
+container in every dimension. Justified retention, equivalent valid designs,
+owner decisions and honest evidence limits are acceptable outcomes. More
+operations or fewer objects are not measures of quality by themselves.
+
+Retain all four authorized default/cleaned pairs as development evaluations.
+Keep cleaned exports and previous findings out of initial independent audits;
+use cleaned versions afterwards as comparison evidence, never answer keys.
+Record substantive differences against the existing audit areas, distinguishing
+defects, missed material opportunities, justified differences and optional
+enhancements. Complete a release-candidate evaluation campaign across all four
+containers rather than repeatedly qualifying one before examining the next.
+Stabilise the current candidate's blocking execution defects and finish the
+current NVRJ4J evaluation, then progress through the remaining three without
+requiring perfection on each. Record material findings and batch related general
+fixes across the campaign; a finding blocks release, not automatically evaluation
+of the next container. Fix immediately when it prevents valid execution or would
+invalidate the next evaluation. Optional enhancements and unproved universal
+superiority do not extend the goal. Previously inspected pairs are regression
+evidence, not independent proof of generalization.
+
+Adopt fixes for general, evidenced reasons. Check contrasting cases where the
+same change should not apply using existing tests and fixtures. Do not add
+container-specific production rules, a new evaluation framework, a mandatory
+holdout container, or extra workflow stages for this amendment.
+
+Preserve valid checkpoints and independent judgments. After a fix, rerun the
+owning step, affected dependants and relevant regression tests; repeat an entire
+container audit only when the change invalidates its source-level audit evidence
+or when required by the installed-release acceptance test. Never rebind old
+evidence to a new runtime without the maintained verification. Batch related
+fixes before rebuilding a candidate. Perform broad regression and final
+independent release review on the consolidated candidate rather than after each
+minor edit. Final evidence must still apply to the released candidate.
+
+This campaign sequencing was explicitly approved on 2026-09-04 and supersedes
+all earlier requirements to qualify NVRJ4J before examining the other containers.
+Use the existing evolution record, tests and audit artifacts; introduce no new
+tracking framework. Perform one consolidated final independent review, repair
+its material findings and recheck affected evidence. Final release acceptance
+still requires all four evaluations, no known unresolved material in-scope
+defects, and the published-and-installed normal production test below.
+
+The final qualification, repository publication and installed-release acceptance
+requirements below remain in force, using these readiness criteria instead of
+the superseded superiority stopping condition. Fixes remain local until ready.
+
 ## Active Development Goal — Final Qualification And Release Addendum
 
 Approved by the user on 2026-09-03 and extended on 2026-09-04. This extends the
@@ -80,8 +138,8 @@ regression work, perform one final independent release-candidate evaluation:
    the existing skill workflow and delivery requirements. Keep the cleaned
    counterpart and all previous findings withheld from the source auditors.
    After delivery, compare the result with the NVRJ4J cleaned counterpart under
-   the same full audit-area and evidence-based comparison rules as the four-pair
-   goal. The cleaned container remains comparison evidence, not ground truth.
+   the same full audit-area and evidence-based readiness criteria in the amendment
+   above. The cleaned container remains comparison evidence, not ground truth.
    Apply the same design, utility, technical health, coherence, independence,
    workbook fidelity and AGENTS.md acceptance standards; this is a complete
    production-use acceptance test, not merely an installation smoke test.
@@ -2606,3 +2664,149 @@ in 29.857 seconds (terminal 91466 finished). All 249 discovered tests have now
 executed successfully across the broad and targeted invocations. Repo-wide Ruff
 and git diff --check passed. This qualifies the local code batch for a new
 development candidate, not the full skill release or NVR utility comparison.
+
+Saved the batch locally as e2ffc68 and built skill-e2ffc68 from a clean local
+main clone. Git hardlink creation was denied on the first clone attempt; Git
+removed that failed destination, verified absent, and --no-hardlinks succeeded.
+No remote network or push was involved. Candidate workbook preflight passed.
+Fresh NVR canonical scan completed with unchanged source byte identity and scan
+hash 9a060f5ec3c8c8757d24773220ef43fb181c8fca89bf44bed434685cee669fd8.
+Kierkegaard (01a06d2c-5888-7dd1-bfd9-2c56992b1061) was assigned fresh neutral
+assurance using only exact source/scan/registry paths and candidate rules, with
+no prior judgments or cleaned evidence. Output scan-assurance-e2ffc68.json is
+pending. Existing packages remain unchanged; Linnaeus fidelity is still live.
+
+Fresh assurance passed all 19 checks. Package audit-package-e2ffc68 completed
+and independently accepted it: 558 objects, 14,854 leaves, 1,295 obligations.
+Runtime identity is clean commit e2ffc687c2a61aa1ca1c9dd0ba241b2239e32413,
+55 files, tree d9187d6a3067f2f7976b98c63fa6b1462dacc1eff5f749420d52d811d581b2ff.
+Completed assurance, lifecycle worker, reader and comparator agents were closed
+after a concurrency-limit response; no running work was terminated. Fresh peer-
+blind Audit A (Mendel, 01a06d2e-9bf1-7ae2-ac53-fddb277ba82c) and Audit B
+(Meitner, 01a06d2e-9c98-7d60-86da-d90ac08fb714) are now assigned their own
+locked source bundles and current skill rules only. No cleaned, prior finding,
+reader issue or comparison conclusion was supplied. Both must finish checkpoint,
+all released obligations, validation and sealing. PR semantic audits remain held
+until NVR qualifies; no release or remote changes occurred.
+
+Linnaeus completed fidelity for builds 000 and 001: each covers all 1,524 rows
+and overview, with three meaning failures. Build001's 20 changed rows pass;
+1,504 complete identical row inputs were verified before retained reading was
+reused. Failures: REC-OP-CODE-QUERY-1670-REPAIR carries another operation's
+utm_source rationale; OWN-CD-1743096A1904A66E assigns Taboola to transported
+lead 1392 despite unresolved destination; CODE-CD-01698DA7FCBCA029 calls epoch-
+time variable 1497 an event. Both reviews are complete failures, not approval.
+Retained editor Bacon was resumed for a new presentation-only amendment for
+these exact errors and bounded duplicate/internal-vocabulary polish. The known
+lifecycle canonical contradiction must remain untouched by that editor; current
+candidate's fresh source audits own new judgments. No peer findings were shared
+with the two current source auditors.
+
+Current Audit A returned incomplete at source review, after verifying seven
+locked bundle files; no checkpoint, plan or seal and no external blocker. The
+same Mendel context was immediately resumed from its last actually reviewed
+source position, retaining completed reading/hash checks and the unchanged
+independence boundary. This is an observed execution shortfall to track for
+normal-use qualification, not audit completion or a reason to restart the run.
+Audit B and the editorial correction continue independently.
+
+Audit B likewise returned incomplete during its candidate-blind source review,
+without a checkpoint/plan/seal or concrete external blocker. Meitner's existing
+context was resumed at the last reviewed source position, preserving candidate
+blindness and completed reading. No peer progress or conclusions were supplied.
+Both early audit stops are observed execution shortfalls; the current contract
+already requires coordinator continuation, so no duplicate rule was added.
+Successful completed audits and normal-use execution remain unproven.
+
+Editor completed seven exact prose corrections but validation failed before a
+new seal: reconstruction of the historical scan/assurance/target proof differed
+under current root e2ffc68 scanner. This is the expected runtime mismatch for
+the development delivery copy, not permission to rewrite its sealed evidence.
+Editor was resumed to validate/seal the same pending amendment using matching
+clean source-87e586a commands. Existing seal remains intact until successful
+validation. New audits continue on e2ffc68 and do not receive these corrections.
+
+Matching-runtime editorial validation/sealing passed: immutable editorial-002,
+seal 28e05568c045baee800b923d2aa93e626d42a0c46afb8dd062096841d54a968a,
+only seven declared prose fields changed. Historical development build-002
+completed with five previews and normalized workbook identity
+c963f54c2258d2eaa8324c55e733c81beb805d0ec073c6c58d36e9710c6afca4.
+Technical workbook verification passed with no errors. Delivery remains unsealed:
+presentation repair does not resolve the known canonical lifecycle issue or
+qualify the current candidate. Fresh source audits remain independent.
+
+Build002 review scaffolding completed (terminal 55434 finished): 1,524 fidelity
+rows and five reader sheets. Retained independent fidelity reviewer was resumed
+against build002's own locked bundle, requiring full input equality for retained
+reading and renewed assessment of changed content. No reader conclusions were
+supplied. Repeating a whole reader review of the known unfixed canonical issue
+is deferred; no reader approval or completed delivery is claimed. Both e2ffc68
+source-audit handles were polled and remain active.
+
+Build002 fidelity completed PASS: all 1,524 rows and overview, zero pending or
+failed rows. Seven changed rows were independently reassessed; 1,517 complete
+identical inputs retained verified prior reading. Coordinator inspected the
+actual result and attestation. Manifest binding is
+95cc1fa0df33999feaee4bcd531a64604f33598cbb3934002a2917a559c8f51d;
+workbook byte SHA 6d45fd99340c213608460d3942b70063086098659a07fd9616184bc2b774ac7d.
+All three prior wording discrepancies are resolved. Fidelity proves meaning
+preservation against bound canonical inputs only; the historical lifecycle
+contradiction and missing current-contract optimizations still prevent complete
+delivery/release qualification. Fresh e2ffc68 audit work remains the critical path.
+
+### Current audit execution: credential-bearing before-values
+
+Audit A returned with its checkpoint sealed and 89 decisions saved, not a
+completed audit. Auto-review rejected an authoring patch that would duplicate
+plaintext OAuth credentials in field-removal before-values. The rejected patch
+was not applied and the maintained plan applicator was not run. No secret values
+are recorded here. The owner confirmed the issue concerns tag 1182 field
+removals; a separate proposed whole-object deletion does not require its source
+contents to be copied. The owning analytical decisions remain unchanged.
+
+Coordinator inspection confirms OPERATION_ACTION_ROW_FIELDS requires literal
+before for changes/removals, and validate_operations compares it directly with
+the locked source value. A redaction is therefore not an accepted substitute.
+The denial explicitly recommends redacted or hashed before-values; no rejected
+write has been retried or bypassed. A safe source-binding representation remains
+to be designed and tested across authoring, validation and delivery, without
+weakening wrong-source rejection or duplicating secrets downstream.
+
+Audit A was resumed in its retained context for unaffected obligations only,
+preserving the credential-bearing decision as pending and forbidding substitution
+of deletion merely to pass. Audit B has not returned a completed result. Prior
+observation timeouts were verified waits, not additional cycles or audit progress.
+All changes remain local; no release qualification or remote write is claimed.
+
+### Source-reference implementation and focused verification
+
+The local implementation now replaces literal before-values for changes and
+named-field removals with before_source_sha256, bound to the independently locked
+source bytes plus exact object/path. Original values are resolved transiently;
+canonical operations preserve references and workbook notes derive redacted
+details. Recovery requires the canonical operation and matching original source.
+Literal-before compatibility is removed. Replay retains typed comparison,
+conflict/protected-path checks, and one original catalog per replay pass.
+Explicitly authored after-values are not automatically scrubbed.
+
+The implementation worker reports full-suite execution of 254 tests with three
+workbook skips, followed by all three workbook tests passing separately. These
+are worker-reported results, not a final release qualification. Coordinator
+independently reran six delivery-privacy tests, 23 operation-safety tests, 21
+target-validation tests and six workbook-note tests: all 56 passed. This includes
+synthetic credential removal through canonical creation without old-value copies,
+typed drift, rejected target/packet forgeries, bounded notes and preserved paths.
+Both coordinator test sessions (80265 and 33808) finished successfully.
+
+Independent read-only source-binding/code review is assigned to Dirac
+(01a06d93-83f4-7671-8356-5448da49b58d), excluding real audit evidence and secrets.
+Its result is pending. Current NVR auditors retain their original locked package;
+no in-flight artifacts were rebound or converted. Validated application of this
+representation to affected audit work remains pending. No commit or push.
+
+Dirac's independent focused review completed with no material findings in source
+binding, closed schemas, typed/implicit-write drift and failure-before-write.
+The reviewer reports 55 focused synthetic tests plus an independent in-memory
+binding/secret-removal/malformed-reference check passed, with no real container
+or credential access. This is scoped code review, not the final whole-skill review.
+The current audit handles remain active without a completed result.

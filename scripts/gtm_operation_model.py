@@ -4,14 +4,51 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import re
 from collections import defaultdict, deque
+from pathlib import Path
 from typing import Any
 
 from gtm_audit_contract import OPERATION_ACTION_FIELDS
+from gtm_audit_work_units import OPERATION_ACTION_ROW_FIELDS
 from gtm_lib import ID_KEYS, as_list, container_version, custom_template_type_index, stable_hash
 
 JSON_PATH_TOKEN_RE = re.compile(r"\.([^.[\]]+)|\[(\d+)\]")
+
+
+def read_operation_source(path: Path, expected_sha256: str) -> dict[str, Any]:
+    """Read the independently locked bytes once; never trust an action's identity."""
+    raw = path.read_bytes()
+    if not re.fullmatch(r"[0-9a-f]{64}", str(expected_sha256)) or hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError("operation source differs from the independently locked source")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("operation source must be an object")
+    return data
+
+
+def source_before(action: dict[str, Any], catalog: dict[str, dict[str, Any]], source_sha256: str) -> Any:
+    """Resolve a source reference transiently, without materializing it in an action."""
+    if not isinstance(action, dict):
+        raise ValueError("before must be a closed source reference")
+    expected = {"object_key", "json_path", "before_source_sha256"} | ({"after"} if "after" in action else set())
+    if set(action) != expected:
+        raise ValueError("before must be a closed source reference")
+    if not isinstance(action.get("before_source_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", action["before_source_sha256"]):
+        raise ValueError("before must be a closed source reference")
+    if action["before_source_sha256"] != source_sha256:
+        raise ValueError("before source identity differs from the locked source")
+    record = catalog.get(str(action.get("object_key") or ""))
+    if record is None:
+        raise ValueError("before source object is missing")
+    return get_json_path(record["object"], str(action.get("json_path") or ""))
+
+
+def same_json_value(left: Any, right: Any) -> bool:
+    """JSON equality without Python's bool/number coercion or list reordering."""
+    return stable_hash(left, 64) == stable_hash(right, 64)
 
 
 def object_catalog(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -398,6 +435,7 @@ def validate_operations(
     data: dict[str, Any],
     operations: list[dict[str, Any]],
     *,
+    source_sha256: str,
     do_not_touch: set[str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
@@ -447,8 +485,8 @@ def validate_operations(
                 if key in catalog:
                     obj = catalog[key]["object"]
                     try:
-                        if field == "changes" and get_json_path(obj, path) != action.get("before"):
-                            errors.append(f"{operation_id}: change before value differs at {key} {path}")
+                        if field == "changes":
+                            source_before(action, catalog, source_sha256)
                         if field == "additions":
                             try:
                                 get_json_path(obj, path)
@@ -476,10 +514,7 @@ def validate_operations(
                     errors.append(
                         f"{operation_id}: removal cannot delete identity field {key} {path}"
                     )
-                if get_json_path(record["object"], path) != action.get("before"):
-                    errors.append(
-                        f"{operation_id}: removal before value differs at {key} {path}"
-                    )
+                source_before(action, catalog, source_sha256)
             except (KeyError, ValueError):
                 errors.append(f"{operation_id}: invalid removal path {key} {path}")
         for action in as_list(operation.get("renames")):
@@ -535,7 +570,7 @@ def validate_operations(
             deleted[key] = operation_id
     if not errors:
         try:
-            projected_catalog = object_catalog(apply_operations(data, ordered))
+            projected_catalog = object_catalog(apply_operations(data, ordered, source_sha256=source_sha256))
         except (KeyError, TypeError, ValueError) as exc:
             errors.append(f"operation simulation failed: {exc}")
         else:
@@ -556,7 +591,15 @@ def validate_operations(
 def apply_operations(
     data: dict[str, Any],
     operations: list[dict[str, Any]],
+    *,
+    source_sha256: str,
 ) -> dict[str, Any]:
+    for operation in operations:
+        for kind in ("changes", "removals"):
+            for action in as_list(operation.get(kind)):
+                if not isinstance(action, dict) or set(action) != OPERATION_ACTION_ROW_FIELDS[kind]:
+                    raise ValueError(f"{operation.get('operation_id')}: {kind} fields differ from closed schema")
+    original_catalog = object_catalog(data)
     projected = copy.deepcopy(data)
     cv = container_version(projected)
     for operation in dependency_order(operations):
@@ -578,7 +621,7 @@ def apply_operations(
             )
         for action in as_list(operation.get("changes")):
             target = catalog[str(action["object_key"])]["object"]
-            if get_json_path(target, str(action["json_path"])) != action.get("before"):
+            if not same_json_value(get_json_path(target, str(action["json_path"])), source_before(action, original_catalog, source_sha256)):
                 raise ValueError(
                     f"{operation['operation_id']}: change before value drifted for "
                     f"{action['object_key']} {action['json_path']}"
@@ -586,7 +629,7 @@ def apply_operations(
             set_json_path(target, str(action["json_path"]), action.get("after"))
         for action in as_list(operation.get("removals")):
             target = catalog[str(action["object_key"])]["object"]
-            if get_json_path(target, str(action["json_path"])) != action.get("before"):
+            if not same_json_value(get_json_path(target, str(action["json_path"])), source_before(action, original_catalog, source_sha256)):
                 raise ValueError(
                     f"{operation['operation_id']}: removal before value drifted for "
                     f"{action['object_key']} {action['json_path']}"

@@ -298,7 +298,7 @@ def complete_checkpoint(
     checkpoint_audit(package, audit_id)
 
 
-def complete_priority_removal_decision(row: dict) -> None:
+def complete_priority_removal_decision(row: dict, source_sha256: str) -> None:
     row.update(
         {
             "status": "complete",
@@ -356,7 +356,7 @@ def complete_priority_removal_decision(row: dict) -> None:
                     {
                         "object_key": "tag:1",
                         "json_path": "$.priority",
-                        "before": {"type": "INTEGER", "value": "10"},
+                        "before_source_sha256": source_sha256,
                     }
                 ],
             },
@@ -376,7 +376,7 @@ def finalize_audit(
     for row in payload["decisions"]:
         complete_semantic_decision(row)
         if actionable_priority and row.get("fact_kind") == "explicit_firing_priority":
-            complete_priority_removal_decision(row)
+            complete_priority_removal_decision(row, payload["source_sha256"])
     payload["status"] = "complete"
     closure = payload["coverage_closure"]
     closure["reviewed_obligation_ids"] = [row["obligation_id"] for row in payload["decisions"]]
@@ -753,7 +753,7 @@ class V2WorkflowTests(unittest.TestCase):
         )
         authored = copy.deepcopy(priority)
         complete_semantic_decision(authored)
-        complete_priority_removal_decision(authored)
+        complete_priority_removal_decision(authored, audit["source_sha256"])
         plan["obligation_overrides"].append(
             {
                 "override_id": "priority-removal",
@@ -779,6 +779,12 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertEqual(before, audit_path.read_bytes())
 
         removal["json_path"] = "$.priority"
+        removal["before_source_sha256"] = "0" * 64
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "source reference"):
+            apply_plan(audit_path.parent, plan_path)
+        self.assertEqual(before, audit_path.read_bytes())
+        removal["before_source_sha256"] = audit["source_sha256"]
         for location, field, value, expected in (
             ("decision", "rollback", "Duplicated prose.", "only inside operation_proposal"),
             ("proposal", "source_decision_id", "forged", "unsupported or derived fields"),
@@ -1326,7 +1332,7 @@ class V2WorkflowTests(unittest.TestCase):
                 {
                     "object_key": "tag:1",
                     "json_path": "$.priority",
-                    "before": {"type": "INTEGER", "value": "10"},
+                    "before_source_sha256": file_sha256(self.package / "locked-source.json"),
                 }
             ],
         )
@@ -2171,7 +2177,7 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertIn("OP-REMOVE-REDUNDANT-PRIORITY", highest_value)
         self.assertEqual(
             recommendations[0]["locked"]["technical_note"]["removals"],
-            operation["removals"],
+            [{**operation["removals"][0], "before": {"type": "INTEGER", "value": "10"}}],
         )
 
     def test_delivery_cannot_patch_a_changed_sealed_semantic_record(self) -> None:
@@ -2523,7 +2529,7 @@ class V2WorkflowTests(unittest.TestCase):
                 "static_verification": "Only the support flag changes to false.",
                 "rollback": "Restore the support flag to true.", "depends_on": [],
                 **{field: [] for field in OPERATION_ACTION_FIELDS},
-                "changes": [{"object_key": "tag:1", "json_path": "$.parameter[1].value", "before": "true", "after": "false"}],
+                "changes": [{"object_key": "tag:1", "json_path": "$.parameter[1].value", "before_source_sha256": file_sha256(self.package / "locked-source.json"), "after": "false"}],
             }
 
         for audit_id in ("audit-a", "audit-b"):

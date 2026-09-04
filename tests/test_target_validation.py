@@ -79,6 +79,9 @@ def prepare_graph_fixture(root, source_payload, extra_actions=None):
             row = next(r for r in audit["decisions"] if r["fact_kind"] == "explicit_firing_priority")
             proposal = row["operation_proposal"]
             proposal.update(copy.deepcopy(extra_actions))
+            for kind in ("changes", "removals"):
+                for action in proposal[kind]:
+                    action["before_source_sha256"] = file_sha256(source)
             proposal["operation_family"] = "Exercise graph safety"
             row["target_direction"] = proposal["exact_target_state"] = (
                 "Apply exactly the synthetic fixture actions to exercise the target graph gate."
@@ -375,6 +378,35 @@ class TargetGraphSafetyTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
+    def test_source_reference_secret_removal_reaches_canonical_without_old_value(self):
+        from gtm_delivery_mapper import create_delivery_map
+        source = actionable_priority_export()
+        source["containerVersion"]["tag"][0]["oauthClientSecret"] = "synthetic-source-only"
+        package = prepare_graph_fixture(self.root, source, {"removals": [
+            {"object_key": "tag:1", "json_path": "$.priority", "before_source_sha256": "0" * 64},
+            {"object_key": "tag:1", "json_path": "$.oauthClientSecret", "before_source_sha256": "0" * 64},
+        ]})
+        original_source = (package / "locked-source.json").read_bytes()
+        self.assertEqual("pass", target_validation.validate_target(package)["status"])
+        build_canonical_record(package)
+        self.assertEqual([], canonical_record_seal_errors(package))
+        canonical = read_json(package / "canonical-record.json")
+        self.assertNotIn("synthetic-source-only", json.dumps(canonical["operations"]))
+        for operation in canonical["operations"]:
+            for action in operation["removals"]:
+                self.assertEqual({"object_key", "json_path", "before_source_sha256"}, set(action))
+                self.assertEqual(file_sha256(package / "locked-source.json"), action["before_source_sha256"])
+        create_delivery_map(package)
+        delivery = read_json(package / "delivery/delivery-map.json")
+        self.assertNotIn("synthetic-source-only", json.dumps(delivery))
+        recommendation = next(row for row in delivery["rows"] if row["primary_sheet"] == "02 Recommendations")
+        secret = next(row for row in recommendation["locked"]["technical_note"]["removals"]
+                      if row["json_path"] == "$.oauthClientSecret")
+        self.assertEqual("<redacted>", secret["before"])
+        projected = read_json(package / "target-validation/projected-container.json")
+        self.assertNotIn("oauthClientSecret", projected["containerVersion"]["tag"][0])
+        self.assertEqual(original_source, (package / "locked-source.json").read_bytes())
+
     def test_additional_broken_occurrence_in_existing_consumer_is_blocked(self):
         for kind in ("variable", "trigger"):
             with self.subTest(kind=kind):
@@ -386,13 +418,13 @@ class TargetGraphSafetyTests(unittest.TestCase):
                     })
                     actions = {"changes": [{
                         "object_key": "tag:1", "json_path": "$.parameter[0].value",
-                        "before": "purchase", "after": "{{Missing Variable}}",
+                        "before_source_sha256": "a" * 64, "after": "{{Missing Variable}}",
                     }]}
                 else:
                     tag["firingTriggerId"] = ["999"]
                     actions = {"changes": [{
                         "object_key": "tag:1", "json_path": "$.firingTriggerId",
-                        "before": ["999"], "after": ["999", "999"],
+                        "before_source_sha256": "a" * 64, "after": ["999", "999"],
                     }]}
                 package = prepare_graph_fixture(self.root / kind, source, actions)
                 before = file_snapshot(package)
@@ -409,7 +441,7 @@ class TargetGraphSafetyTests(unittest.TestCase):
         parameters = source["containerVersion"]["tag"][0]["parameter"]
         package = prepare_graph_fixture(self.root, source, {"changes": [
             {"object_key": "tag:1", "json_path": "$.parameter",
-             "before": parameters, "after": parameters[1:]},
+             "before_source_sha256": "a" * 64, "after": parameters[1:]},
         ]})
         self.assertEqual("pass", target_validation.validate_target(package)["status"])
 
@@ -456,7 +488,7 @@ class TargetGraphSafetyTests(unittest.TestCase):
                     })
                     actions = {"changes": [{
                         "object_key": "tag:1", "json_path": "$.parameter[0].value",
-                        "before": "purchase", "after": "{{Missing Variable}}",
+                        "before_source_sha256": "a" * 64, "after": "{{Missing Variable}}",
                     }]}
                 elif kind == "deleted_trigger":
                     actions = {"deletions": [{"object_key": "trigger:10"}]}
@@ -486,7 +518,7 @@ class TargetGraphSafetyTests(unittest.TestCase):
                     ]
                     actions = {"changes": [{
                         "object_key": "variable:20", "json_path": "$.parameter[0].value",
-                        "before": "constant", "after": "{{Dependency B}}",
+                        "before_source_sha256": "a" * 64, "after": "{{Dependency B}}",
                     }]}
                 package = prepare_graph_fixture(self.root / kind, source, actions)
                 packet = read_json(package / "operation-packet.json")

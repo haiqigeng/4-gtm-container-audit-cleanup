@@ -239,6 +239,11 @@ dependencies with empty lists. Supply every necessary action and dependency;
 follow the declared operation-family and structured-action contract.
 Action-row `json_path` values are object-relative paths such as
 `$.priority`, never full `$.containerVersion...` source coordinates.
+Changes and named-field removals use `before_source_sha256`, copied from the
+locked source identity, instead of literal `before`. The object key and path
+identify the old value. Never copy credentials into a proposal or its prose;
+recovery requires the canonical operation and matching locked source. See the
+command contract for the exact representation.
 The applicator validates the combined operation set against the locked source
 before writing; Stage 5 performs dependency-ordered target simulation. This
 exact-ID grouping removes repeated prose without using

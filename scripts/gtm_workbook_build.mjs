@@ -320,13 +320,17 @@ function technicalCommentText(row) {
       `Audit areas: ${locked.source_audit_areas.join(", ")}`,
       `Dependencies: ${locked.depends_on.join(", ") || "None"}`,
       `Target: ${locked.exact_target_state}`,
-      `Exact payload and recovery: ${reference}`,
+      `Exact payload and recovery: ${reference}; source-bound old values require the matching locked-source.json`,
       "Action details (redacted; unchanged nested values are not repeated):");
     for (const [kind, actions] of Object.entries(locked.technical_note)) {
       for (const [index, action] of actions.entries()) {
         lines.push(`${kind}[${index}]:`);
         for (const [key, value] of Object.entries(action)) {
           if (key === "before" || key === "after") continue;
+          if (key === "before_source_sha256") {
+            lines.push(`  Original value: matching locked-source.json (${value}), at this object and path; displayed detail is redacted.`);
+            continue;
+          }
           const detail = ["object", "value"].includes(key) ? noteValue(value, reference) : value;
           lines.push(`  ${key}: ${JSON.stringify(detail)}`);
         }

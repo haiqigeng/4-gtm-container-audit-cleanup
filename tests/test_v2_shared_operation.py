@@ -56,7 +56,7 @@ class SharedOperationWorkflowTests(unittest.TestCase):
         self.assertEqual({"unused_object", "naming_architecture_mismatch"}, {row["fact_kind"] for row in owners})
         self.assertEqual(2, len(owners))
         authored = copy.deepcopy(owners[0])
-        complete_priority_removal_decision(authored)
+        complete_priority_removal_decision(authored, audit["source_sha256"])
         authored.update({
             "current_behavior": "An unused constant remains under a nonstandard name.",
             "criteria_assessment": "No consumers require this variable or its name.",

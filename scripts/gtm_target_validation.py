@@ -165,7 +165,9 @@ def _reconstruct(package_dir: Path, staging: Path) -> dict[str, Any]:
         raise ValueError("; ".join(operation_error_context(
             operations, ["operation packet differs from sealed source semantic reconstruction"]
         )))
-    source = _load(package_dir / "locked-source.json")
+    from gtm_operation_model import read_operation_source
+    source_sha256 = packet["source_sha256"]
+    source = read_operation_source(package_dir / "locked-source.json", source_sha256)
     source_scan = _load(package_dir / "canonical-scan.json")
     output = staging / TARGET_VALIDATION_ROOT
     try:
@@ -176,7 +178,7 @@ def _reconstruct(package_dir: Path, staging: Path) -> dict[str, Any]:
         if regressions:
             raise ValueError("target graph regression: " + "; ".join(regressions))
         # This is an exact repeat from the original, never a new semantic cycle.
-        replay = apply_operations(source, operations)
+        replay = apply_operations(source, operations, source_sha256=source_sha256)
         if replay != projected:
             raise ValueError("target replay differs from source-reconciled projection")
         # Equality establishes the same scan input. Scan/serialization determinism

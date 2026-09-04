@@ -722,14 +722,25 @@ def operation_proposal_errors(
 
 
 def decision_obligation_alignment_errors(
-    decision: dict[str, Any], obligation: dict[str, Any], label: str
+    decision: dict[str, Any], obligation: dict[str, Any], label: str,
+    *, source_catalog: dict[str, dict[str, Any]], source_sha256: str,
 ) -> list[str]:
     """Reject verdicts that contradict an exact source-proven obligation."""
 
     errors: list[str] = []
     evidence = obligation.get("evidence") or {}
     decision_class = str(decision.get("decision_class") or "")
-    proposal = decision.get("operation_proposal") or {}
+    from gtm_operation_model import same_json_value, source_before
+
+    proposal = copy.deepcopy(decision.get("operation_proposal") or {})
+    for kind in ("changes", "removals"):
+        for action in as_list(proposal.get(kind)):
+            try:
+                before = source_before(action, source_catalog, source_sha256)
+            except (KeyError, TypeError, ValueError):
+                return [f"{label}: invalid {kind} source reference"]
+            action.pop("before_source_sha256", None)
+            action["before"] = before
     action_rows = [
         (field, row)
         for field in OPERATION_ACTION_FIELDS
@@ -776,7 +787,12 @@ def decision_obligation_alignment_errors(
             for action_field, row in action_rows
         )
         if decision_class in ACTIONABLE_DECISION_CLASSES and not retires_subject and (
-            field is None or (field, expected) not in action_rows
+            field is None or not any(
+                kind == field and same_json_value(row, {
+                    key: value for key, value in expected.items()
+                    if key != "after" or field == "changes"
+                }) for kind, row in action_rows
+            )
         ):
             errors.append(
                 f"{label}: operation must exactly implement the source-known repair"
@@ -1181,6 +1197,12 @@ def validate_audit(
         return errors
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    from gtm_operation_model import object_catalog, read_operation_source
+    source_sha256 = ledger["source_sha256"]
+    try:
+        operation_source = object_catalog(read_operation_source(bundle / "locked-source.json", source_sha256))
+    except ValueError as exc:
+        return [*errors, str(exc)]
     if work_unit_manifest_path.is_file():
         errors.extend(
             work_unit_completion_errors(
@@ -1328,7 +1350,8 @@ def validate_audit(
             errors.append(f"{label}: status must be complete")
         errors.extend(semantic_contract_errors(decision, label))
         errors.extend(
-            decision_obligation_alignment_errors(decision, obligation, label)
+            decision_obligation_alignment_errors(decision, obligation, label,
+                source_catalog=operation_source, source_sha256=source_sha256)
         )
         if obligation.get("applicability") == "source_counted_zero":
             if decision.get("decision_class") != "not_applicable":

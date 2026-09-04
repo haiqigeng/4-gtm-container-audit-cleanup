@@ -98,7 +98,7 @@ class OperationErrorContextTests(unittest.TestCase):
         rows = [
             operation("OP-PRIORITY", removals=[{
                 "object_key": "tag:1", "json_path": "$.priority",
-                "before": {"type": "INTEGER", "value": "0"},
+                "before_source_sha256": "a" * 64,
             }]),
             operation("OP-DELETE-VARIABLE", deletions=[{"object_key": "variable:20"}]),
         ]
