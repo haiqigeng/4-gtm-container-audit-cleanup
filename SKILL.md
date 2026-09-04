@@ -237,8 +237,9 @@ dependencies with empty lists. Supply every necessary action and dependency;
 follow the declared operation-family and structured-action contract.
 Action-row `json_path` values are object-relative paths such as
 `$.priority`, never full `$.containerVersion...` source coordinates.
-The applicator runs the existing operation simulator against the locked source
-before writing. This exact-ID grouping removes repeated prose without using
+The applicator validates the combined operation set against the locked source
+before writing; Stage 5 performs dependency-ordered target simulation. This
+exact-ID grouping removes repeated prose without using
 broad selectors or replacing evidence-specific judgment. Missing runtime evidence
 limits runtime claims; it does not justify deferring a container-visible static verdict.
 The maintained applicator

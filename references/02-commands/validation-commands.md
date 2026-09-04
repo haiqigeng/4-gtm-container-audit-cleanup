@@ -162,7 +162,7 @@ and projected into the canonical decision, not repeated at decision level.
 Independent semantic review checks their specificity; a word count does not prove it.
 Action-row `json_path` values are object-relative (for example
 `$.priority`), never full `$.containerVersion...` source coordinates.
-Plan application runs the established operation simulator against the locked
+Plan application validates the combined operation set against the locked
 source before any audit write, including when no `do_not_touch` objects are
 declared. Renames and remaps can implicitly rewrite consumer fields. When another
 operation replaces or removes such a field, declare the necessary dependency so

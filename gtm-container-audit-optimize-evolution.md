@@ -1933,3 +1933,29 @@ peer or cleaned findings were supplied, and the original source-only checkpoints
 remain unchanged. This is explicitly a resumed development evaluation, not a
 claim of an unassisted fresh production run. The installed-release test remains
 mandatory. The separately preserved older-runtime reconciliation continues.
+
+### 2026-09-04 — Both retained source audits sealed; current reconciliation started
+
+Audit B completed all 1,295 obligations across 126 work units in the
+`audit-package-22e9b01` development successor. Application, validation and sealing
+passed; seal:
+`d54f9d465d09a295772bbd28a5794aff7094786e74507d0c38e52b18b8d21692`.
+Coordinator validation independently returned PASS with no errors. Its 193
+unique operations passed an in-memory dependency-ordered simulation without
+writing a target or changing GTM. Audit A's retained seal and 294-operation
+simulation remain valid. The completed Audit B agent was closed.
+
+Current-runtime reconciliation scaffolding passed for 1,295 comparisons and
+neutral reviews in 44 units. Fresh reconciler
+`01a06a74-5040-79f0-94b2-84dbef3ffefb` owns the complete review with provenance
+`nvr-22e9b01-reconciler` / `nvr-22e9b01-reconciler-context`, receiving only this
+package's declared source/audit evidence and current locked rules. It receives
+no older reconciliation, cleaned export or expected conclusion. Reconciliation,
+combined target validation, workbook gates and the cleaned comparison are still
+pending; source-audit success is not release qualification.
+
+Corrected the entrypoint and command guide to distinguish plan application's
+combined operation validation from Stage 5's dependency-ordered target simulation.
+This documents actual responsibilities instead of adding a duplicate simulation
+stage. Skill validation and whitespace checks pass; no running runtime was
+modified by the wording correction.
