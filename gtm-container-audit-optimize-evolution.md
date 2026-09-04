@@ -2153,3 +2153,58 @@ retirement. This is a focused instruction correction, not another mechanism or
 workflow redesign. Quick skill validation and whitespace checks pass; amendment,
 independent reconciliation and real-container outcome verification remain pending.
 All changes remain local.
+
+Commit `17ddfb115247a8b2e4ad7b241ccbf67040964c00` was packaged locally as
+`skill-naming-17ddfb1`: 55 runtime files, version 2.2.1, clean source identity,
+tree SHA-256 `d952ce844dcfdb0a02af9d365b0cca72b397ea66eb17f932385ac31100c7a40c`.
+The declared identity check passed. This prepared copy is neither installed nor
+substituted into the locked in-progress amendment.
+
+The former reconciler separately reviewed the full naming reference and this
+commit's diff. It reported no concrete residual issue, confirmed preservation of
+meaningful local conventions, semantic accuracy, behavior-preserving scope and
+exact-object retirement handling, and found the narrow change consistent with
+all seven AGENTS.md rules. It requested no new mechanism. This scoped review is
+not whole-skill release approval or a replacement for the pending real-container
+amendment, reconciliation, workbook and comparison evidence.
+
+The fresh naming owner completed and sealed Audit B amendment sequence 2:
+`41882af5e9ebfd2e526bb10bf924240431b1accac08f52922211cd06a355e2dc`.
+Its application, complete own-operation simulation and source validation passed.
+All 14 decisions now propose exact behavior-preserving renames with verification
+and rollback. Main-agent comparison of all 1,295 decision payloads confirmed only
+the requested 14 changed; Audit A's file hash remains unchanged. The maintained
+reconciliation scaffold passed with 1,295 comparisons and 44 units.
+Fresh reconciler `nvr-naming-repair-reconciler` now owns eligible predecessor-review
+reuse, changed naming reviews, selected-set consistency and finalization. No
+canonical result or current workbook is claimed yet.
+
+### Focused trigger-type correction
+
+The fresh naming reconciler retained 1,281 eligible judgments and completed 13
+of the 14 changed naming reviews. The remaining rename depends on Audit B's
+blocker-removal operation for tag 202. The predecessor selected Audit A's
+equivalent action because B incorrectly described trigger 536 as `PAGEVIEW`.
+Read-only diagnosis confirmed the actual type is `CUSTOM_EVENT`, with an
+unanchored `gtm.js` event regex. That regex does not match the positive trigger's
+exact `gtm.load` event, so the removal remains justified; its rationale and
+precondition require correction, not a different target.
+
+The maintained helper created `audit-package-22e9b01-trigger-type-repair`,
+reopening only `AUDIT-B-OBL-07-A38C68032537F475`. Receipt:
+`repair-receipts/6f68ebbd6383e206eead1ff4d4babc70a892d9da5b69fddb52d2f98369f1aeeb.json`.
+Fresh source owner `nvr-trigger-type-repair-b` is assigned that isolated amendment.
+The 1,294 completed predecessor reviews remain preserved. The affected topology
+and dependent naming selection must be reconciled after resealing; no final
+reconciliation or target-validation pass is claimed. This factual correction
+does not justify adding another skill mechanism or restarting the full run.
+All work remains local, with no release push.
+
+The trigger-type amendment passed maintained application, validation and sealing
+as Audit B sequence 3, seal
+`065c90b796a85d0e4e7595c66bbaef30b91c3cbc48ba87c6abf24e6e2877325f`.
+Main-agent full decision comparison confirms exactly the requested decision
+changed among 1,295; Audit A remains byte-identical. Reconciliation scaffold
+passed with 1,295 comparisons and 44 units. Fresh reconciler
+`nvr-trigger-type-reconciler` owns eligible review reuse, the changed topology,
+dependent naming selection and finalization. Target validation remains pending.
