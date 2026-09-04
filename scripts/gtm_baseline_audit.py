@@ -1360,17 +1360,22 @@ def build_lifecycle_matrix(
                     else "unreferenced"
                 )
             elif layer in {"variable", "builtInVariable"}:
-                consumers = variable_consumers.get(object_name(obj), [])
-                # A malformed Unicode/whitespace reference remains separately
-                # reported by the exact missing-reference scan, while its
-                # normalized consumer keeps the canonical target out of an
-                # unsafe unused/deletion candidate.
-                normalized_consumers = normalized_variable_consumers.get(
-                    normalized_reference_name(object_name(obj)), []
+                reference_names = (
+                    builtin_reference_names(obj)
+                    if layer == "builtInVariable"
+                    else {object_name(obj)}
                 )
-                if normalized_consumers:
-                    consumers = list(consumers)
-                    for consumer in normalized_consumers:
+                consumers = []
+                # A malformed Unicode/whitespace reference remains separately
+                # reported by the exact missing-reference scan. Retain its
+                # normalized consumer for dependency-aware lifecycle review.
+                for reference_name in sorted(reference_names):
+                    for consumer in (
+                        variable_consumers.get(reference_name, [])
+                        + normalized_variable_consumers.get(
+                            normalized_reference_name(reference_name), []
+                        )
+                    ):
                         if consumer not in consumers:
                             consumers.append(consumer)
                 usage = (
@@ -1406,8 +1411,8 @@ def build_lifecycle_matrix(
                 usage = "configured_root"
 
             active_count, paused_count = consumer_activity(consumers)
-            if consumers and active_count == 0 and paused_count:
-                usage = "used_only_by_paused_tags"
+            if usage == "unreferenced" and consumers:
+                usage = "referenced_unreachable"
             rows.append(
                 {
                     "object_key": current_key,
@@ -1543,8 +1548,8 @@ def add_lifecycle_findings(builder: BaselineBuilder, lifecycle: list[dict[str, A
                 }
             ],
             row["object_key"],
-            "The object has no active consumer; every export-visible consumer is a paused tag.",
-            "Confirm the paused implementation is not a rollback requirement, then delete or retain as a documented exception.",
+            "The object or its folder members are reachable only from paused execution roots; direct consumers may be intermediate dependencies.",
+            "Confirm the paused implementation is not a rollback requirement; before retirement, remove or remap every remaining consumer in dependency order, or retain as a documented exception.",
         )
 
 
@@ -2204,16 +2209,16 @@ def add_unused_findings(
     folders = as_list(cv.get("folder"))
     templates = as_list(cv.get("customTemplate"))
     tags = as_list(cv.get("tag"))
-    gtag_configs = as_list(cv.get("gtagConfig"))
     lifecycle_by_key = {
         str(row.get("object_key") or ""): row for row in lifecycle
     }
+    unreachable_states = {"unreferenced", "referenced_unreachable"}
 
     builder.add_module("unused_variables", len(variables) + len(builtins))
     for layer, items in (("variable", variables), ("builtInVariable", builtins)):
         for variable in items:
             key = f"{layer}:{object_id(variable, layer)}"
-            if lifecycle_by_key.get(key, {}).get("usage_state") != "unreferenced":
+            if lifecycle_by_key.get(key, {}).get("usage_state") not in unreachable_states:
                 continue
             builder.add_finding(
                 "unused_variables",
@@ -2222,25 +2227,25 @@ def add_unused_findings(
                 [object_summary(variable, layer)],
                 key,
                 (
-                    "No active export-visible execution root reaches this enabled built-in "
+                    "No active or paused export-visible execution root reaches this enabled built-in "
                     "variable."
                     if layer == "builtInVariable"
-                    else "No active export-visible execution root reaches this variable or "
-                    "its dependency chain."
+                    else "No active or paused export-visible execution root reaches this variable."
                 ),
                 (
-                    "Disable the unused built-in after confirming no active tag, trigger, or "
-                    "reachable variable references it."
+                    "Disable only after removing or remapping every remaining reference, "
+                    "including references within unreachable chains."
                     if layer == "builtInVariable"
                     else "Delete candidate only after configuration and architecture review "
-                    "confirm no export-visible dependency or intentional staged role."
+                    "confirm no intentional staged role and every remaining consumer is "
+                    "removed or remapped in dependency order."
                 ),
             )
 
     builder.add_module("unused_triggers", len(triggers))
     for trigger in triggers:
         key = f"trigger:{object_id(trigger, 'trigger')}"
-        if lifecycle_by_key.get(key, {}).get("usage_state") != "unreferenced":
+        if lifecycle_by_key.get(key, {}).get("usage_state") not in unreachable_states:
             continue
         builder.add_finding(
             "unused_triggers",
@@ -2248,8 +2253,8 @@ def add_unused_findings(
             "trigger",
             [object_summary(trigger, "trigger")],
             f"trigger:{object_id(trigger, 'trigger')}",
-            "No active tag, Zone, or reachable trigger group reaches this trigger ID.",
-            "Delete candidate after architecture review confirms it is not a future or staged trigger.",
+            "No active or paused export-visible execution root reaches this trigger ID; unreachable consumers may still reference it.",
+            "Delete candidate only after architecture review confirms no staged role and every remaining consumer is removed or remapped in dependency order.",
         )
 
     builder.add_module("tags_without_firing_triggers", len(tags))
@@ -2268,19 +2273,10 @@ def add_unused_findings(
         )
 
     builder.add_module("unused_custom_templates", len(templates))
-    template_type_index = custom_template_type_index(templates)
-    used_template_ids = {
-        template_id
-        for item in tags + variables + gtag_configs
-        for template_id in custom_template_ids(item, template_type_index)
-    }
     for template in templates:
         template_id = str(template.get("templateId"))
         key = f"customTemplate:{template_id}"
-        if (
-            template_id in used_template_ids
-            and lifecycle_by_key.get(key, {}).get("usage_state") != "unreferenced"
-        ):
+        if lifecycle_by_key.get(key, {}).get("usage_state") not in unreachable_states:
             continue
         builder.add_finding(
             "unused_custom_templates",
@@ -2288,23 +2284,15 @@ def add_unused_findings(
             "customTemplate",
             [object_summary(template, "customTemplate")],
             f"template:{template_id}",
-            "No active export-visible execution root reaches this custom template ID.",
-            "Delete candidate only after confirming no workspace/template dependency remains.",
+            "No active or paused export-visible execution root reaches this custom template ID; unreachable instances may still reference it.",
+            "Delete candidate only after removing or remapping remaining instances in dependency order and confirming no workspace/template dependency remains.",
         )
 
     builder.add_module("unused_folders", len(folders))
-    used_folder_ids = {
-        str(item.get("parentFolderId"))
-        for item in tags + triggers + variables
-        if item.get("parentFolderId")
-    }
     for folder in folders:
         folder_id = str(folder.get("folderId"))
         key = f"folder:{folder_id}"
-        if (
-            folder_id in used_folder_ids
-            and lifecycle_by_key.get(key, {}).get("usage_state") != "unreferenced"
-        ):
+        if lifecycle_by_key.get(key, {}).get("usage_state") not in unreachable_states:
             continue
         builder.add_finding(
             "unused_folders",
@@ -2312,8 +2300,8 @@ def add_unused_findings(
             "folder",
             [object_summary(folder, "folder")],
             f"folder:{folder_id}",
-            "No active export-visible object is assigned to this folder.",
-            "Delete or repurpose after owner confirms folder is not needed for organization.",
+            "No folder member is reachable from an active or paused export-visible execution root; the folder may still contain unreachable objects.",
+            "Delete or repurpose only after reviewing its organizational role and removing or reassigning all remaining members.",
         )
 
 

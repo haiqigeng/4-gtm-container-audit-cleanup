@@ -113,6 +113,12 @@ downstream server-container enforcement is outside this audit.”
 
 ### 4. Lifecycle, Reachability, And Usage
 
+- Reserve `unreferenced` for objects with no incoming consumers and no active or
+  paused execution-root reachability. Use `referenced_unreachable` when consumers
+  exist but neither root set reaches the object (or any folder member). Both
+  remain unused-chain review candidates, including intermediate dependencies;
+  neither label authorizes deletion. Remove or remap all remaining consumers,
+  including unreachable ones, in dependency order before retirement.
 - Scan active, paused, unused, paused-only, sequence-only, unscheduled, scheduled,
   environment-limited, rollback, and suspicious remnants.
 - Do not delete from age, pause, or disuse alone; prove need, owner, rollback value,

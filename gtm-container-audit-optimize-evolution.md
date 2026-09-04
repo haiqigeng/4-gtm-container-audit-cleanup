@@ -2475,3 +2475,134 @@ in-memory dependency-ordered application (230 operations). No package or target
 artifact was written. This eliminates an immediate write/dependency conflict as
 the reason for rejection; it is not a new sealed reconciliation decision, full
 target assurance, or authorization to modify the workbook's semantic result.
+
+Saved the tested delivery fixes and scoped-settings guidance locally as commit
+`87e586ac5bfda370f0d5f80094c1ab08c616a51a`. No push occurred. A clean local clone
+of that commit produced `skill-87e586a` (candidate 2.2.1, 55 runtime files), tree
+`0cbd854710d483b69f515d94764dd16030084b20665d9e66a0f655f0cccbe4ff`.
+Declared identity and bundled workbook preflight passed. It is a prepared local
+development candidate, not a published/installed or fully qualified release.
+Unrelated `%SystemDrive%` cache files remain untracked and were not included.
+
+A fresh independent development comparator was assigned the exact NVR default,
+cleaned and current target exports plus supporting sealed judgments and candidate
+contract. It receives no earlier comparison conclusions or delivery reviews.
+Its scope is all applicable audit areas, including preserved distinctions and
+material gaps, with no presumption that cleaned is truth or target is superior.
+Output: `nvr-current-target-independent-comparison.md` in the existing fresh
+evaluation directory. This does not advance PR4MQ6J or qualify the old audit as
+a fresh run of the latest candidate. Delivery editor and fidelity remain active.
+
+Development delivery build-001 now has its own review bundles. Overview, Full
+Audit and Custom Code previews are byte-identical to the inspected build-000
+previews; Recommendations and Decisions Needed changed with the editorial repair.
+A fresh workbook-only reader (Euclid, 01a06d1b-66a2-7453-bbf7-9b96dd0b040a)
+was assigned only build-001's locked reader bundle, without prior findings or
+canonical/source evidence. Build-000 fidelity and the independent NVR comparator
+were polled on their existing handles and remained active. Build-001 fidelity is
+still pending; predecessor review results will not be presented as its approval.
+The preceding user-confirmation turn made no engineering progress; this turn
+verified current artifacts and advanced the required reader review. All fixes
+and commits remain local until full release readiness, as explicitly requested.
+
+Coordinator inspected build-001's changed Recommendations and Decisions Needed
+previews: visible rows are wrapped within their cells, and the implementation
+payload prerequisite is now visible in the critical recommendation's handoff.
+This is a preview/layout observation, not whole-workbook semantic approval.
+All three review/comparison handles were polled and remained live. Linnaeus was
+given a queued continuation to qualify build-001 after completing build-000,
+using only the new fidelity bundle and verifying exact unchanged row inputs
+before retaining prior reading. Changed rows require renewed assessment, and
+build-001 must receive its own bound review; no blanket approval transfer or
+peer reader findings were supplied. This follows the documented presentation
+repair instruction to repeat affected delivery checks without discarding valid
+independent work. The previous turn advanced the fresh reader assignment;
+current work adds visual evidence and the scoped fidelity continuation.
+
+Build-001 reader review completed (Euclid): one material inconsistency and five
+minor issues; delivery remains unsealed. RR-M01 concerns lifecycle decision
+CD-E53130C5B2338038 / OBL-04-30E9B4A145795332 for trigger 2154. Direct source
+inspection confirms trigger group 2155 contains TRIGGER_REFERENCE 2154 and 1031.
+No tag firing/blocking reference to 2155, or trigger parameter reference to 2155,
+was found in that bounded source check. Thus lack of active-root reachability
+and lack of any references are different facts; they must not be conflated.
+Canonical B wording calls 2154 unreferenced, while the reconciliation rationale
+explicitly acknowledges its surviving group dependency. The reader therefore
+exposed an upstream semantic inconsistency, not merely editorial grammar.
+Repair must preserve the dependency or assess the entire unused chain; it must
+not offer isolated retirement of a required member. Exact owning-stage review
+is required before changing the canonical record or workbook. Neither the live
+fidelity reviewer nor independent comparator received this reader finding.
+
+Reader minor issues: Recommendations F127 describes utm_source storage instead
+of its row's URL-component encoding/global-variable repair; repeated Full Audit
+sentences at F739/F743; internal family vocabulary in Custom Code; technical
+overview emphasis; manual cross-sheet ID navigation. These are evidence to
+triage, not automatic authorization for a new delivery design. The previous
+turns were verified waits; this turn completed reader review intake and traced
+its material finding to raw source and the canonical decision.
+
+Root-cause tracing found a scanner fact-label defect in build_lifecycle_matrix:
+trigger/variable/template/folder rows fall through to `unreferenced` when absent
+from active and paused-root reachability, even if their consumer list is nonempty.
+The unused-trigger candidate text itself says no active root reaches the trigger,
+which is narrower than that state label. Both candidate coverage and incoming
+dependency identity must survive the correction. A scoped local worker
+(Chandrasekhar, 01a06d22-1da8-7683-802c-fab5a39606e9) is inspecting direct state
+consumers and implementing the simplest general fix with behavioral regression
+tests; no compatibility path, new stage, sealed-artifact edit or publication is
+authorized. Its output must identify effects on existing source evidence.
+Fidelity and NVR comparison remained active when polled. Do not silently change
+an in-flight locked scan or validate old decisions against changed scan facts.
+
+Darwin completed the independent 27-area comparison. Current target does not
+qualify; three actionable gaps remain: G1 variable 1646's Bing consent substring
+predicate still accepts malformed/contradictory grants despite a type guard
+(CD-E6AF185FA4E6B25B); G2 AB Tasty tag 1827's homogeneous exclusive trigger
+subgroups were rejected with the heterogeneous whole (CD-9D8C0BD02344BBB2);
+G3 scoped TikTok transport fields remain inline on 1668/1669/1725, despite a
+compatible five-field cohort. The report independently confirms the previously
+identified G3 concern. Full report is nvr-current-target-independent-comparison.md
+in the fresh evaluation directory; inputs were unchanged and no workbook was
+reviewed by that comparator. It also documents concrete preserved advantages
+over cleaned and legitimate unresolved owner/evidence limits.
+
+Existing consent and scoped-settings guidance already covers G1/G3; adding
+another rule would duplicate the contract. Trigger-union guidance now explicitly
+assesses homogeneous subgroups within heterogeneous families, retaining other
+consumers and separating unrelated lifecycle questions. This is a short general
+decision criterion, not an AB Tasty rule or automatic consolidation mechanism.
+git diff --check passed. Behavior remains to be demonstrated by the next valid
+candidate evaluation; neither this edit nor the comparison qualifies a release.
+
+Lifecycle correction completed locally and coordinator reviewed the diff. It
+introduces the factual `referenced_unreachable` state while both unreachable
+states retain unused-chain candidate coverage; actual built-in aliases also
+contribute consumer identities. Root reachability, rather than direct consumer
+pause flags, now owns paused-only classification. Redundant template/folder
+membership computations were removed in favor of the existing lifecycle facts.
+Coordinator reran five new lifecycle tests and 21 scan/optimization/assurance
+tests: all 26 passed. Scoped Ruff and whitespace checks passed. An in-memory
+check against the exact NVR default now reports 2154 referenced_unreachable with
+consumer trigger:2155, and 2155 unreferenced with no consumers. No source or
+sealed package was written. Direct-consumer active/paused counts remain direct
+object-status counts, not execution-root reachability claims.
+
+The fix changes canonical scan facts. Existing sealed scan evidence must remain
+historical; final-candidate qualification requires regenerated scan/assurance and
+judgments against those corrected inputs. This is a development reevaluation,
+not permission to add production optimization cycles or overwrite old evidence.
+
+Post-lifecycle full regression discovery completed: 249 tests in 124.689 seconds,
+246 passed and three bundled-workbook tests skipped because runtime environment
+values were not supplied to that invocation. These skips are not passes. After
+loading the workspace runtime and spreadsheet instructions, the same three tests
+were started with explicit bundled Node/modules (terminal 91466); custom-code
+workbook labels passed, remaining integration/localisation checks are pending.
+Terminal 89233 is finished. Linnaeus fidelity remained live on its existing handle.
+
+The three bundled workbook integration/localisation tests completed successfully
+in 29.857 seconds (terminal 91466 finished). All 249 discovered tests have now
+executed successfully across the broad and targeted invocations. Repo-wide Ruff
+and git diff --check passed. This qualifies the local code batch for a new
+development candidate, not the full skill release or NVR utility comparison.

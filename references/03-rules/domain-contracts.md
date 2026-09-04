@@ -80,7 +80,10 @@ must not be interpreted as zero. The Tag resource schema above was checked on
 2026-09-03.
 
 For a proposed union of literal trigger alternatives, inspect the actual operator
-semantics and all shared conditions and consumers. Preserve case, exact-string
+semantics and all shared conditions and consumers. Assess homogeneous subgroups
+within a heterogeneous family: an unsafe whole-family union does not rule out a
+smaller useful union. Preserve independently shared triggers for their other
+consumers and keep unrelated lifecycle questions separate. Preserve case, exact-string
 boundaries (including line terminators), input types and listener options. The
 availability of a regex operator does not prove that a proposed regex is equivalent
 or that consolidation is appropriate. Source: Google Tag Manager's regex operator
