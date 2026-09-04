@@ -36,13 +36,16 @@ are known, so remaining objects receive stable final names.
 7. If the local convention is missing, weak, or harmful, recommend
    `default-standardized` and use the integrated default patterns below.
 
-Assess naming benefit in terms of navigation and operational clarity, not a change
-in firing behaviour. A technically valid name can still obscure the actual event,
-source, positive/blocking role or lifecycle. Prefer an exact source-supported
-label when it resolves that ambiguity while preserving the local convention.
-Retain an already clear label when the alternative only changes style. In
-particular, distinguish a trigger's matched occurrence from what its consumers
-do; a consent-update purpose alone does not identify the event it listens for.
+Assess each name against the object's configured event, condition scope, value
+source/composition and positive or blocking role before grouping naming decisions.
+A usable local convention does not establish that every member describes its
+configuration accurately. Distinguish a trigger's matched occurrence from its
+consumers' purpose, and a scope enforced by conditions from one merely suggested
+by the label. Correct misleading descriptions with exact behavior-preserving
+renames; retain clear names when the alternative only changes style. The benefit
+is navigation and operational clarity, not changed firing behaviour. When
+retirement makes a rename unnecessary, tie that conclusion to the exact proposed
+retirement of this object, so reconciliation can reassess naming if it stays.
 
 ## Canonical Audit And Delivery
 

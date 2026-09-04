@@ -28,6 +28,12 @@ as specified below. GTM mutation remains outside this authorization. This latest
 approval also supersedes the older local-installation exclusion in the saved
 Goal Mode objective and historical entries below.
 
+Keep development fixes and commits local until the release-readiness criteria
+and final candidate evaluation pass. Only then push the qualified changes to
+GitHub and publish the release. This boundary also applies to corrections after
+the installed-release acceptance test: qualify them locally before publishing
+the next version. Remote inspection is read-only during development.
+
 After completing the existing improvement, four-pair evaluation, correction and
 regression work, perform one final independent release-candidate evaluation:
 
@@ -2102,3 +2108,48 @@ allowlist. At that update, 315 draft reviews were complete. Adopt the existing
 reading capability; no new implementation or instruction is needed for it.
 Repeated patch-and-reread verification remains a reported friction point, not yet
 a demonstrated reason to change validation or introduce another mechanism.
+
+### Reconciler provenance edit: environment issue resolved
+
+The current reconciler could edit unit rows, but the patch wrapper rejected
+`audit-package-22e9b01-consent-repair/reconciliation-completion.json` with
+“path contains a reparse point.” Read-only checks showed an ordinary file and
+ordinary ancestors through the drive root. The file ACL owner was
+`CodexSandboxOffline`, matching the normal execution account. An explicitly
+approved elevated invocation of the installed patch engine returned access
+denied; the same engine under normal execution succeeded.
+
+Only the reconciler's explicitly supplied agent/context labels were saved and
+read back. Status remained `pending`. No permissions, semantic decisions, skill
+runtime, artifact schema or completion gates changed. The reviewer was informed
+of the working patch invocation for its eventual completion edit. This resolves
+the observed editing problem, not the unfinished reconciliation or final
+installed-release production acceptance requirement.
+
+### Naming accuracy repair after completed neutral review
+
+The independent reconciler completed 1,281 of 1,295 reviews and left 14 naming
+rows pending because neither sealed source decision offered a usable correction.
+Its selected-set checks reported 215 unique operations with consistent shared
+meanings and resolved acyclic dependencies; this is not a sealed reconciliation
+or a target-validation pass. The naming defects concern descriptions inconsistent
+with configured event, scope, value source/composition or blocking role, rather
+than cosmetic prefix preferences.
+
+The maintained repair helper created `audit-package-22e9b01-naming-repair`,
+retaining source evidence and audit histories and reopening only the 14 exact
+Audit B decisions listed in receipt
+`repair-receipts/159cdf355c6d07fba7930e985dc783f6781fcabaee865a9fe690ef0fc04c006c.json`.
+Fresh owner `nvr-naming-repair-b` is assigned the isolated amendment. The predecessor
+and its 1,281 completed reviews remain available for eligible reuse after exact
+comparison/evidence checks; they are not automatically transferred or final.
+
+Replaced the existing naming-benefit paragraph in
+`references/03-rules/naming-standardization.md` with positive guidance to compare
+each name with actual configuration before grouping naming decisions. A usable
+local convention is not evidence that every member is accurately described;
+retirement-based naming dispositions identify the exact object's proposed
+retirement. This is a focused instruction correction, not another mechanism or
+workflow redesign. Quick skill validation and whitespace checks pass; amendment,
+independent reconciliation and real-container outcome verification remain pending.
+All changes remain local.
