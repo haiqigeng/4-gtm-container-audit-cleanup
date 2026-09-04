@@ -1803,3 +1803,21 @@ seconds with the bundled workbook runtime. This completes the clean-export
 engineering check for this batch. The two independent NVRJ4J source audits and
 the preserved older-runtime reconciliation remain unfinished; their results,
 comparison and workbook gates are still required.
+
+### 2026-09-04 — Consolidate entrypoint repair guidance
+
+Replaced the entrypoint's repeated snapshot, reconstruction, closed-schema and
+path-safety detail with concise positive repair guidance and an explicit route
+to the existing complete workflow reference. That reference and the acceptance
+criteria already preserve these requirements; no validator, schema, independence
+boundary, repair scope or product workflow changed. The entrypoint still states
+fresh amendment ownership, prior-seal binding, immutable source checkpoints,
+preserved predecessors, exact-input reconciliation reuse, working successors and
+presentation-only rebuilds. This removes duplicated instructions rather than
+removing safeguards. Skill validation and Git whitespace checks pass.
+
+Existing NVR audit and reconciliation agents were polled on their original
+handles and remain unfinished. Their locked runtimes were not changed by this
+documentation edit. The final qualified package must include and evaluate the
+final instruction version; earlier runtime evidence is not relabelled as that
+qualification.

@@ -452,30 +452,19 @@ identity before writes and projects provenance into the generated audit. Author
 the isolated plan, not the large generated audit JSON; validate and seal with
 that same parent hash using the documented commands.
 
-Sealed semantic artifacts are immutable. An amendment uses a fresh agent context
-bound to the prior seal in the audit artifact, preserves
-the immutable source checkpoint, seals an exact immutable snapshot of every
-work-unit input used by that audit version, and writes append-only history before
-canonical sealing in that working package. Every current or historical audit is revalidated against its
-own self-contained regular-file snapshot, never against later live shard edits.
-Recompute each unit's explicit immutable audit, source, ledger, family, and
-membership identity, and deterministically reconstruct the audit decisions and
-discoveries from those units; do not trust embedded digests or self-rehashed
-merged-audit claims. Reconstruct the workload estimate from the locked scan,
-assurance, and audit, and reject undeclared fields in workload, manifest, record,
-unit, decision, discovery, operation proposal, or structured action rows. Do not
-filter malformed or duplicate nested evidence: the completion proof must equal
-one deterministically reconstructed closed object. Before any public workflow
-command reads or writes package data, enumerate the complete package tree without
-traversing redirects and reject every symlink, junction, or reparse point at the
-root or any descendant. Apply the same fail-closed rule to generated workbook
-outputs. After
-canonical sealing, a semantic or fidelity defect reopens exact owning records in
-a working successor using the repair command above. Preserve completed decisions;
-retain prior reconciliation conclusions only when their full comparison inputs
-and neutral evidence still match and validate. A fresh reconciler owns changed
-rows. No broad discovery pass is repeated. Presentation-only defects create a
-new editorial artifact and rebuild.
+Preserve sealed predecessors and repair the exact owning records. Source
+amendments use a fresh agent context, explicit prior-seal binding, the unchanged
+source checkpoint, and the maintained immutable snapshot/history protocol.
+After canonical sealing, make semantic or fidelity repairs in a working successor
+using the repair command above. Reuse prior reconciliation conclusions only when
+their full comparison inputs and neutral evidence still match and validate; a
+fresh reconciler owns changed rows. Presentation-only repairs use a new editorial
+artifact and rebuild.
+
+Follow `references/03-rules/workflow-and-assurance.md` for the complete amendment,
+artifact-integrity, path-safety, recovery, and focused-repair requirements. Use the
+maintained commands to enforce those requirements and preserve unaffected work;
+repair does not repeat broad discovery or bypass a validation gate.
 
 Use `references/02-commands/validation-commands.md` for exact commands and
 `references/02-commands/forward-test-prompts.md` for release proof. Deliver only
