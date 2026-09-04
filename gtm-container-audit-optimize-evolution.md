@@ -2208,3 +2208,56 @@ changed among 1,295; Audit A remains byte-identical. Reconciliation scaffold
 passed with 1,295 comparisons and 44 units. Fresh reconciler
 `nvr-trigger-type-reconciler` owns eligible review reuse, the changed topology,
 dependent naming selection and finalization. Target validation remains pending.
+
+Focused reconciliation completed successfully: 1,293 judgments retained after
+complete input/evidence equality, two freshly reviewed, 1,295 total decisions.
+Seal: `1f5f83b7bacdcca77e43e0f3b5d53672713ed0e598efdd887f52060ba9a52d8a`.
+Synthesis passed with 229 operations and 312 blocked decisions. Combined-target
+validation passed with proof
+`b15cc43b501411d88ffcdd787923f36fffe6a011c36d74e7d8d1419b8e15d917`.
+This proves the implemented static checks, not runtime behavior, release
+readiness, or superiority to the cleaned comparator. Canonical sealing and
+workbook delivery are the next steps; the other three pair evaluations and
+final installed-release acceptance remain outstanding.
+
+Canonical sealing subsequently passed: record
+`d24e3b1a7bd8e92d0e9574cf12614c762fdef0735393225add8d8beae4893a2b`,
+seal `0b7e16e20a513d951de27993fd8ade693463b81429e6107416fc066f8ddd404a`.
+The maintained delivery mapper produced 1,524 rows across all five agreed
+sheets, map `b29843fded72a88d98f1d74310b9d30b94b7ed4b465567ee985694dd0eea065a`.
+The delegated editorial pass owns declared human-facing prose and navigation
+categories only. Workbook build, independent fidelity/reader checks, visual
+inspection and the cleaned comparison are still pending.
+
+### Remove duplicated target-evidence construction
+
+Inspection of the delivery validation call chain found that each target
+reconstruction built and assured the projected evidence twice after separately
+proving the replayed graph equal. The development implementation now builds
+that evidence once. Exact action replay, graph-regression checks, scan assurance,
+unchanged-input checking and independently reconstructed saved-artifact checks
+remain. Equivalent-package tests continue to verify byte-identical evidence.
+There is no cache, trust bypass, additional stage or compatibility path.
+
+All 20 existing target-validation tests passed (47.916 seconds); the amended
+exact-target test separately passed, verifying one evidence build on validation
+and a fresh build on saved-evidence verification. Ruff and whitespace checks
+passed. Independent scoped review is pending, so this is not yet a qualified
+release change. The locked `skill-22e9b01` workbook run is unchanged.
+
+Independent scoped review found no actionable regression or contract mismatch
+and judged the two-file change consistent with all seven AGENTS rules. Its own
+20 focused tests passed. It explicitly distinguished the removed immediate
+scanner/serialization repeatability probe from the retained equivalent-package
+test and actual saved-artifact reconstruction: graph equality alone does not
+prove scanner determinism. No compatibility path, new dependency, abstraction or
+deferred implementation was introduced. The broader regression suite is running;
+this scoped verdict does not establish whole-skill release readiness.
+
+The full suite completed: 238 tests discovered, 235 passed and three workbook
+integration tests skipped only because the runtime environment was unset
+(118.929 seconds). Those exact three tests were then run with the bundled Node
+and artifact dependencies and all passed (31.111 seconds), covering custom-code
+decision labels, workbook build/verification/delivery sealing, and French display
+binding/reimport. Thus all 238 tests executed successfully across the two runs.
+No runtime speedup percentage is claimed from these differently configured runs.

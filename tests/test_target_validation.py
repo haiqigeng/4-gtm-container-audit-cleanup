@@ -171,7 +171,14 @@ class TargetValidationTests(unittest.TestCase):
         source = read_json(self.package / "locked-source.json")
         expected = copy.deepcopy(source)
         expected["containerVersion"]["tag"][0].pop("priority")
-        self.validate()
+        with mock.patch.object(
+            target_validation, "_build_target_evidence",
+            wraps=target_validation._build_target_evidence,
+        ) as evidence_build:
+            self.assertEqual("pass", target_validation.validate_target(self.package)["status"])
+            self.assertEqual(1, evidence_build.call_count)
+            self.assertEqual([], target_validation.target_validation_seal_errors(self.package))
+            self.assertEqual(2, evidence_build.call_count)
         self.assertEqual(expected, read_json(self.target / "projected-container.json"))
         self.assertEqual(source, read_json(self.package / "locked-source.json"))
 

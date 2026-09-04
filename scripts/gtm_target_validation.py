@@ -179,13 +179,9 @@ def _reconstruct(package_dir: Path, staging: Path) -> dict[str, Any]:
         replay = apply_operations(source, operations)
         if replay != projected:
             raise ValueError("target replay differs from source-reconciled projection")
-        replay_dir = staging / "replay"
-        replay_scan, replay_assurance = _build_target_evidence(package_dir, replay_dir, replay)
-        if replay_scan != scan or replay_assurance != assurance:
-            raise ValueError("target scan or assurance differs from exact replay")
-        for name in EVIDENCE_FILES:
-            if file_sha256(output / name) != file_sha256(replay_dir / name):
-                raise ValueError(f"target artifact differs from exact replay: {name}")
+        # Equality establishes the same scan input. Scan/serialization determinism
+        # is covered by equivalent-package tests; saved evidence is reconstructed
+        # independently by target_validation_seal_errors at each consuming gate.
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise ValueError("; ".join(operation_error_context(operations, [str(exc)]))) from exc
     if _input_hashes(package_dir) != inputs:
