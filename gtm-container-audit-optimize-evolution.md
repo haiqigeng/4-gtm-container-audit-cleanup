@@ -2010,3 +2010,24 @@ source-local repair runs separately. The defective row stays pending and
 finalization stays closed; a fresh successor reconciler must still prove exact
 input equality before retaining any completed review. This preserves parallel
 progress and collects further exact defects without serial full-stage restarts.
+
+The source-local consent amendment subsequently passed apply, validate and seal
+at sequence 1, new seal
+`d335d95c7d8573c3c731cdf77b8bfb1b08798aaaa3fa853554e723a791e0b463`.
+Coordinator comparison confirms only the requested Audit B decision changed.
+Its two complete-input regex replacements retain existing native lookup flags,
+cookie decoding, denied defaults and blocker actions. Independent JavaScript
+expression checks passed 30 initial examples and 2,076 generated/boundary cases:
+valid grants, valid denials, category permutations, duplicate/contradictory states,
+malformed siblings, repeated groups fields and line terminators. This verifies
+those static cases, not runtime cookie behaviour or universal parser correctness.
+
+The successor reconciliation scaffold validates both source histories and passed
+for 1,295 comparisons in 44 units. Original reconciler stopped safely with its
+11 completed reviews in unit 001 and no additional saved reviews. Fresh agent
+`01a06a85-a1c9-7831-8f4e-0b7bc335ea9a` now owns the repaired package with labels
+`nvr-consent-repair-reconciler` / `nvr-consent-repair-reconciler-context`. It may
+retain those 11 only after complete input equality; the changed consent record
+and all remaining work require its own review. No reconciliation seal or current
+workbook is yet complete. The earlier word-count failure belongs solely to the
+preserved older runtime, not this repaired package.
