@@ -2065,3 +2065,13 @@ release-content findings. No local files were removed and no checker exemption
 was added. Repeating the same check on a clean Git export of `f14eaa2` passed:
 55 referenced resources and a 476-line entrypoint. Export location:
 `C:/Users/guillaume/AppData/Local/Temp/gtm-release-docs-f14eaa2-119470bb5d8f4d94acb60dd41dae99a9`.
+
+Built a clean instruction-corrected runtime from commit
+`0ab2e7161ffe52f2af7e51c09eb12305ea61778e` at the existing evaluation root's
+`skill-predicate-checks` directory: 55 files, version 2.2.1, runtime tree
+`74acf0380bfcc23a98a40d76608c317c5a4c3ae09547b939b1a411decff9cfdc`.
+Bundled workbook preflight passes. Git comparison confirms no changes to
+`scripts`, `tests` or `pyproject.toml` since the 238-test `22e9b01` code candidate;
+the new instruction behavior has the separate focused evaluation above. This
+package is prepared for subsequent evaluation, not installed or released, and
+does not replace the active reconciler's locked runtime.
