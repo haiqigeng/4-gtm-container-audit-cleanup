@@ -123,6 +123,16 @@ claim; otherwise correct the owning assessment. Distinguish proposed-operation
 references from source names and historical quotations. This source-local closure
 preserves peer independence; reconciliation still checks the combined selected set.
 
+Give each necessary create, write, remap or deletion one operation owner across
+the complete audit. When several obligations expose a shared target, use
+meaningful, disjoint action sets and existing `depends_on` links: for example,
+creation of a shared settings owner and adoption by its consumers, or consumer
+remapping followed by retirement. Each finding describes its own contribution,
+dependencies, verification and rollback while preserving the complete combined
+target. Check the whole operation set before application. Repeating the complete
+action packet under different IDs is not separate ownership; neither filler
+actions nor downgraded findings resolve an ownership conflict.
+
 An absent authored operation is unfinished agent work. It does not turn a known
 static repair into an external owner decision. Separate independently actionable
 defects from unrelated ownership questions within the same object or family;

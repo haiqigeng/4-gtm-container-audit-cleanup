@@ -1846,3 +1846,19 @@ validation. A new shared-operation schema has not been added. The repair remains
 unproven until the owner completes application, validation and sealing. No peer
 findings were supplied and no locked runtime was changed. The older-runtime
 reconciliation also remains active and was observed saving unit 24.
+
+The audit owner subsequently confirmed that the four records can use the existing
+contract: one navigation operation creates the shared variable and the other
+adopts it; one variable operation remaps the consumer and the other retires the
+redundant producer. It withdrew the claimed schema blocker. Application then
+exposed further duplicate proposals, including another owner of variable 900004
+and two deletions of variable 1719. The same agent is authorized to close all
+concrete action-ownership conflicts in its complete proposal set, preserving
+unaffected work and every supported finding, before applying and sealing.
+
+Added concise positive guidance to the authoritative workflow reference for
+unique action ownership, meaningful disjoint operations and existing dependencies,
+with complete target/prose consistency. No schema, validator or workflow stage
+was added, and no in-flight runtime changed. Skill validation and whitespace
+checks pass. The complete repaired Audit B remains pending; the local guidance
+change does not itself prove that repair or qualify a release.
