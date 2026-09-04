@@ -1702,3 +1702,34 @@ and audit-history reconstruction pass with 1,283 comparisons in 43 units. A fres
 reconciler is now assigned the full repaired result; prior reviews may be reused
 only after their complete inputs match. This completes the focused source repair,
 not reconciliation, target validation or workbook qualification.
+
+### 2026-09-04 — Verify release wording and optional dependency configuration
+
+Live GitHub release inspection still reports v2.1.1 as latest (2026-09-01).
+Corrected the development README's premature claim that v2.2.1 was released;
+it now distinguishes the candidate from the actual published release. This is
+repository documentation only and does not alter the locked audit runtimes.
+
+The 221-test clean-export result above used the supported parser-unavailable
+environment. CI installs the already-declared optional `esprima==4.0.1`, so an
+additional full-suite check is running with that dependency in an isolated
+temporary import path. No global parser installation or in-flight audit
+environment change was made. Its result is not yet known.
+
+The optional-parser clean-export run passed all 221 tests in 136.552 seconds.
+An importlib metadata deprecation warning was emitted; no test failed. Both
+declared parser configurations now have complete local suite evidence.
+
+The fresh reconciler reproduced the completion-file patch failure before reviewing
+neutral rows. Coordinator checks found no reparse/link attributes in the file or
+any ancestor. Tool-host apply_patch failed for both absolute and relative paths;
+the installed Codex apply_patch engine succeeded when invoked directly through
+subprocess argument passing, avoiding the Windows batch wrapper. Only the two
+reconciler identity labels were set; completion remains pending. The retained
+reconciler received this local tool recovery and continues its semantic reviews.
+No production skill rule or package safety check was weakened.
+
+Latest-candidate Audit A sealed its source checkpoint, then returned with 10
+drafted decisions and no concrete blocker. It was resumed in the same context
+under the existing continuation instruction. Its full semantic audit remains
+unfinished; this does not establish unassisted production completion.
