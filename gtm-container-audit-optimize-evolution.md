@@ -1655,3 +1655,50 @@ complete coverage gate passes all 37 modules at 75.35% aggregate line/branch
 coverage, with 4,458 of 6,480 branches covered. Ruff, skill validation and whitespace
 checks pass. These are engineering and scoped-review results, not completion of
 the four container comparisons, final release review or installed-release test.
+
+### 2026-09-04 — Complete source-local reference diagnosis
+
+Two separate source-local reviewers checked the complete final operation sets
+without peer findings. Audit A identified 38 affected decisions: stale operation
+IDs and retirement prose that describes remaps absent from the actual deletion
+operations. Audit B identified three affected assessments: attribution to two
+timer operations instead of one, reversed settings/remap ordering, and unsupported
+campaign-sharing wording. The reviewers found existing operations support the
+intended cleanup without adding actions; the owning assessments must be corrected,
+not merely have their identifiers replaced. One focused successor is being
+prepared for all 41 records, preserving the sealed predecessors and unaffected
+judgments. These are findings from the older locked evaluation, not defects
+demonstrated in a completed run of the latest candidate.
+
+Fresh independent assurance of clean candidate `bd824da` passed all 19 checks.
+Its new NVRJ4J package was built successfully with 558 objects and 1,295 semantic
+obligations, runtime tree `014ab6c01ca1d20c31eac88ac1f741b23d70ef5801bad27187e70917a55c63e2`.
+Both source checkpoints remain pending. This prepares latest-candidate evaluation;
+it does not transfer previous judgments, qualify NVRJ4J, or authorize advancing
+to the next container pair.
+
+The successor `audit-package-repair-operation-refs` was created successfully for
+all 41 exact records. Audit B's three assessment corrections passed plan
+application, exact decision-field comparison, validation and sequence-3 sealing
+(`730b67af100ce9321e05f901294e70f0b56788089be3200d9fbcb898a349dcac`).
+All structured actions and other decision fields were unchanged. One validation
+invocation used a mistyped package path and failed; rerunning against the exact
+successor passed. The old locked runtime again required the previously documented
+mechanical provenance projection; this is not a latest-candidate requirement.
+Audit A's focused amendments remain in progress.
+
+The clean exported `bd824da` repository passed all 221 tests in 137.696 seconds
+using the bundled workbook runtime. Fresh latest-candidate Audit A and Audit B
+are now running in separate contexts over their own locked bundles, without
+cleaned exports or previous findings. No latest-candidate semantic result is yet
+sealed, and no release qualification is claimed.
+
+Audit A's 38-record amendment now passes application, validation and sequence-3
+sealing (`3546adefe8bf6f3c116a88cf0b7b8ec066d42b3fcc4b4aa377b4d8ec24c59f21`).
+The exact predecessor/successor comparison confirms the changed decision set is
+precisely the 41 IDs in the repair receipt across both owners; operation IDs,
+structured actions and dependencies remain unchanged. Reconciliation scaffold
+and audit-history reconstruction pass with 1,283 comparisons in 43 units. A fresh
+reconciler is now assigned the full repaired result; prior reviews may be reused
+only after their complete inputs match. This completes the focused source repair,
+not reconciliation, target validation or workbook qualification.
