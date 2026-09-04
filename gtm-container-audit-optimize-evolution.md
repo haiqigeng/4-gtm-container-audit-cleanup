@@ -2058,3 +2058,10 @@ Skill validation and whitespace checks pass. These are scoped instruction and
 behavior results, not final product qualification. In-flight reconciliation
 continues on its unchanged locked runtime; the final candidate's fresh execution
 must use and qualify the corrected instructions.
+
+Release-layout check initially inspected the development worktree's unrelated
+evaluation artifacts and linked `.reader-runtime/node_modules`, producing false
+release-content findings. No local files were removed and no checker exemption
+was added. Repeating the same check on a clean Git export of `f14eaa2` passed:
+55 referenced resources and a 476-line entrypoint. Export location:
+`C:/Users/guillaume/AppData/Local/Temp/gtm-release-docs-f14eaa2-119470bb5d8f4d94acb60dd41dae99a9`.
