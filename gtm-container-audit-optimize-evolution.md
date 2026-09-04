@@ -1788,3 +1788,18 @@ structure check in the development checkout also scanned local `.reader-runtime`
 dependencies and older artifacts, so that invocation failed its link/blocklist
 checks. Those local files are preserved; release structure must be checked against
 the clean Git export before this batch's packaging validation is claimed.
+
+Clean Git export `9b3fa6b` passes the full release structure and release-complete
+coverage checks (55 referenced resources, 482-line SKILL.md). The corresponding
+clean runtime package was built successfully with 55 files, source commit
+`9b3fa6b3b948560bcd952ceae848410173bf15bf` and runtime tree
+`f58547adce38ff493ef73b4f51480b9f454a2eb2c43b1b8bf007f02ec2610a3b`.
+Its bundled-workbook preflight passes. No running audit package was modified to
+use this runtime, and no release, local installation or container qualification
+is implied by these engineering checks.
+
+The clean exported `9b3fa6b` repository also passed all 232 tests in 143.327
+seconds with the bundled workbook runtime. This completes the clean-export
+engineering check for this batch. The two independent NVRJ4J source audits and
+the preserved older-runtime reconciliation remain unfinished; their results,
+comparison and workbook gates are still required.
