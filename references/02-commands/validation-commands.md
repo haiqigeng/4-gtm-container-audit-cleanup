@@ -77,8 +77,8 @@ copy its supplied `inventory_sha256` into `reviewed_inventory_sha256`, and
 directly complete the provenance, source-only conclusion, and any discoveries.
 Write optional checkpoint `open_discoveries` as concise non-blank strings, not
 semantic decision objects.
-Do not generate or execute an audit-local helper and do not inspect the peer
-audit. Before checkpoint sealing, do not read `work-units`: that directory does
+Complete the checkpoint directly; keep the peer audit inaccessible. Before
+checkpoint sealing, do not read `work-units`: that directory does
 not yet exist. The checkpoint command creates it. After release, read each
 work unit at
 `audit-package/audit-bundles/<audit-id>/work-units/<filename>`, using the
@@ -95,6 +95,10 @@ no filesystem read tool exists, PowerShell `Get-Content -LiteralPath` with line
 ranges or in-memory JSON property/array selection is allowed. Resume unread
 content after truncation. Do not enumerate directories or infer a path from
 command output.
+
+For bounded static-predicate checks during source or neutral review, follow
+`workflow-and-assurance.md`. Those checks neither replace a maintained gate nor
+create another audit stage or helper program.
 
 The pre-checkpoint manifest is exactly `bundle-manifest.json`, never
 `input-manifest.json`; copy its `bundle_manifest_sha256` value into checkpoint

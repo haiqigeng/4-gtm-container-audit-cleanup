@@ -2031,3 +2031,30 @@ retain those 11 only after complete input equality; the changed consent record
 and all remaining work require its own review. No reconciliation seal or current
 workbook is yet complete. The earlier word-count failure belongs solely to the
 preserved older runtime, not this repaired package.
+
+### 2026-09-04 — Enable source-local static predicate verification
+
+The consent amendment owner could reason about expressions but could not execute
+even isolated literal checks under the blanket closed-command instruction. The
+coordinator therefore had to supply a check unavailable to a normal source
+auditor. Replaced that restriction with a narrow in-memory predicate permission
+inside the existing source and neutral review stages, using an already available
+compatible engine, synthetic cases and a bounded timeout. Results belong in
+existing verification/rationale fields. Exported code, network requests, file
+writes and substitute package transitions remain excluded; no new helper,
+dependency, artifact schema or stage was added.
+
+Fresh scoped reviewer `01a06a88-6a24-7853-8b36-267005bb5cf2` exercised the
+permission without audit-package or cleaned evidence. Its 15-case literal test
+independently detected malformed and contradictory grants using the existing
+Node/V8 engine with a two-second child timeout. It found no blocking instruction
+contradiction and assessed all seven AGENTS principles as satisfied for this
+change. Clarified its minor helper ambiguity by explicitly permitting an inline
+engine invocation and excluding saved helpers. A focused follow-up verified
+actual LF and literal backslash+n as distinct inputs using code points, both
+denied by the tested original expression; no unverified escaping claim remains.
+
+Skill validation and whitespace checks pass. These are scoped instruction and
+behavior results, not final product qualification. In-flight reconciliation
+continues on its unchanged locked runtime; the final candidate's fresh execution
+must use and qualify the corrected instructions.

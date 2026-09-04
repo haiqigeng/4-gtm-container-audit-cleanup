@@ -176,8 +176,8 @@ compact checkpoint by binding `reviewed_inventory_sha256` to the supplied
 source-only conclusion. The checkpoint does not duplicate per-object prose,
 families, relationships, or candidates already owned by the assured scan and
 later transversal obligations. Record each optional source-only discovery as one
-concise non-blank string; these notes are not semantic decisions. Do not create
-or execute an audit-local helper.
+concise non-blank string; these notes are not semantic decisions. Complete the
+checkpoint directly in its scaffold.
 
 Before checkpoint sealing, an audit bundle has no `work-units` directory. The
 checkpoint command creates `work-units/work-unit-manifest.json`; only then may
@@ -187,8 +187,8 @@ record's exact `filename` under
 `audit-scratch/<audit-id>` contains only `audit-plan.json`; it never contains
 locked evidence or work units.
 
-Semantic-audit execution is closed-command. Read only the exact assigned bundle
-files, the locked shared rules, and the declared work-unit filenames. The audit
+Keep semantic-audit execution within the assigned evidence. Read only the exact
+assigned bundle files, the locked shared rules, and the declared work-unit filenames. The audit
 contract and JSON scaffolds are the complete schema. Read large evidence files
 in bounded portions using line ranges or selected JSON properties/array slices
 from those exact files. Review each distinct source fact and its relationships;
@@ -198,9 +198,11 @@ reads and in-memory selection, such as PowerShell `Get-Content -LiteralPath`
 with `Select-Object` or `ConvertFrom-Json`, are allowed when no filesystem tool
 is available. Do not search implementation source with `rg`, `grep`, or
 another discovery command, enumerate unknown paths, or run exploratory shell
-commands. Other than exact-path reads and structured edits confined to the isolated
-declarative audit plan, the only executable commands are the documented
-checkpoint, plan scaffold/apply, validate, and seal gates. Reconciliation's
+commands. Use the documented checkpoint, plan scaffold/apply, validate and seal
+commands for package transitions, with structured edits confined to the isolated
+declarative audit plan. Source audits and neutral reconciliation may also perform
+the bounded static-predicate checks in `references/03-rules/workflow-and-assurance.md`.
+Reconciliation's
 scaffold command performs the subsequent sealed-audit and history check.
 
 After checkpoint release, read `release-manifest.json` and its declared evidence.

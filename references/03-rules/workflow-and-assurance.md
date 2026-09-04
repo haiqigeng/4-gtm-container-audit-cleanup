@@ -115,6 +115,18 @@ loader/destination families, custom-code behaviour, and final naming before
 sealing. Generated candidates are neutral prompts, not verdicts or limits on
 source-based discovery; preserve justified variants and true owner decisions.
 
+Source auditors and neutral reviewers may check a material literal predicate
+in memory through an inline invocation of an already available engine with
+matching language semantics.
+For regex proposals, evaluate the exact pattern and flags against a small set of
+synthetic inputs covering the claimed grant/match and denial/non-match boundary.
+Use a bounded tool timeout and summarize cases, observed results and limits in
+the existing verification/rationale fields. This is static configuration reasoning,
+not evidence of browser behaviour. Keep checks within the reviewer's assigned
+evidence; execute no exported JavaScript, template code or saved audit helper,
+make no network requests or file writes, and leave all package transitions to
+the maintained commands. No new test artifact or workflow stage is required.
+
 Before sealing, check references to proposed operations in decision prose,
 discovery decisions, operation explanations and global conclusions against the
 audit's complete final operation set. After consolidating operations, update an
