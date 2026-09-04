@@ -32,6 +32,7 @@ schemas or filenames.
   overrides, repeated inline values, configuration/event field ownership, loader
   and page-view ownership;
 - consent/routing: Didomi, OneTrust, direct blockers, positive-trigger consent,
+  valid grants and denials versus malformed or contradictory serialized consent,
   confirmed and unconfirmed Advanced Mode, pure transporter inheritance, mixed
   direct/server branches, inconsistent client-side handoffs, and the explicit
   downstream server-container evidence boundary;

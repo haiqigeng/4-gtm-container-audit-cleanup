@@ -1959,3 +1959,34 @@ combined operation validation from Stage 5's dependency-ordered target simulatio
 This documents actual responsibilities instead of adding a duplicate simulation
 stage. Skill validation and whitespace checks pass; no running runtime was
 modified by the wording correction.
+
+### 2026-09-04 — Reconciliation exposes a consent-predicate repair
+
+Current reconciler Carson identified an exact source-operation defect in
+`AUDIT-B-OBL-09-2FDBCEFBEF5E5798`, operation
+`OP-CONSENT-CATEGORY-DENIAL-OWNERS`: the proposed C0004/C0002 expressions accept
+malformed or contradictory groups despite promising fail-closed verification.
+An isolated JavaScript RegExp check reproduced acceptance of malformed prefixes,
+malformed suffixes, contradictory category tokens and repeated groups fields.
+This is static expression evidence, not observed browser consent behaviour.
+
+The maintained repair command created `audit-package-22e9b01-consent-repair`
+under the existing fresh NVR evaluation root, preserving the predecessor and
+both sealed audits. Receipt SHA:
+`c4f2e982ff8fcd02ea862c7e5fddae23ce85d6bc65a6719c4cdfc1ef91dd3f14`.
+Fresh source-local amendment agent `01a06a7f-f9b4-7640-ba7c-20f47855ff38`
+owns only that Audit B record, with no Audit A or cleaned findings. Its repair
+and subsequent reconciliation remain pending. Carson preserved 11 completed
+neutral reviews; these are reusable only under the existing exact-input rule.
+
+Added concise complete-predicate guidance to the existing consent domain and
+its existing development fixture family. This adds no stage, parser, generic
+verification framework or production optimisation cycle. Locked runtimes remain
+unchanged; final candidate qualification must include the documentation change.
+
+The separately preserved older-runtime reconciliation completed all 1,283
+reviews across 43 units, seal
+`b61c2aee93a03d9b940107842f9af055f2cf370f21f011ee015d8d51f307464b`.
+Its target synthesis passed with 145 operations and 350 blocked decisions;
+combined target validation is running. These older-runtime results do not
+qualify the current candidate or satisfy the four-pair release requirement.

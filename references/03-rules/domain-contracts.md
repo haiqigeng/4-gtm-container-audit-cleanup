@@ -126,6 +126,15 @@ granted-state condition. Use a CMP readiness/lifecycle event for page-load timin
 or the real business event for later actions, plus one reusable denial blocker
 per vendor/purpose/category. Unknown and absent state fail closed.
 
+Assess the complete consent predicate against its claimed input contract, not
+only an isolated granted token. Trace decoding, field extraction, lookup options
+and defaults; check valid grants and denials alongside absent, malformed and
+contradictory values, including repeated fields or category tokens where the
+format permits them. Exact token boundaries alone do not establish fail-closed
+behaviour. Keep verification claims within what the proposed configuration
+actually establishes; resolve ambiguous input as denied or an explicit evidence
+boundary, rather than silently accepting whichever token matches first.
+
 For each page-load route, resolve from locked configuration and current CMP
 documentation whether a lifecycle/update event gives the tag another eligible
 firing opportunity after a later grant, or whether an approved reload dependency
