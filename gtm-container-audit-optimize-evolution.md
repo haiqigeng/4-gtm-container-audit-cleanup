@@ -1733,3 +1733,58 @@ Latest-candidate Audit A sealed its source checkpoint, then returned with 10
 drafted decisions and no concrete blocker. It was resumed in the same context
 under the existing continuation instruction. Its full semantic audit remains
 unfinished; this does not establish unassisted production completion.
+
+Read-only release preparation confirmed that remote `main` is the sole branch
+and the About description already describes static web-container audit and an
+analyst workbook. The homepage still uses the old `gtm-container-audit-cleanup`
+slug; GitHub resolves that slug to `4-gtm-container-audit-cleanup`. Normalize the
+homepage to the canonical repository's release URL during the authorized release
+update, then verify it again. No remote field was changed. A fresh interim
+product-engineering review is examining code/instruction coherence independently
+of all container findings; it does not replace final candidate qualification.
+
+### 2026-09-04 — Interim engineering review finds three real defects
+
+Independent review reproduced unsafe generic string substitution during custom-
+template remaps, missed parent/child write conflicts with additions overwriting
+existing projected fields, and an editorial language option unable to translate
+workbook headings. These require corrections, not optional polish. The operation
+model draft now resolves exact template type identities, rejects unsupported
+remap layers, shares token-based overlap detection across validation callers, and
+requires additions to target absent named properties at application time. The
+18 existing operation tests and six focused new regressions pass; independent
+diff review and broader validation remain pending. A separate worker owns the
+existing editorial/builder localisation correction. Running container audits
+retain their locked runtimes; these draft fixes are not yet a qualified candidate.
+
+Independent operation-diff review caught a capability regression in the first
+strict template implementation: same-gallery duplicate retirement was rejected
+even when the unchanged token would uniquely resolve to the intended survivor.
+The correction uses the existing type index and declared same-operation deletions
+to preserve that valid consolidation; unresolved ambiguity still fails. Re-review
+reports no remaining scoped finding, including created targets and deleted-target
+checks. Eight persistent regressions now cover reference precision, gallery
+retirement, created targets, overlap/token boundaries and strict additions; all
+pass with the 18 existing operation tests. The 20 target-validation tests also
+passed during this batch. Full combined validation awaits the localisation patch.
+
+The localisation patch now uses one English display-copy definition in the
+existing editorial artifact, consumed by the existing workbook builder. It
+supports translated titles, subtitles, headings, navigation, overview labels and
+empty states without changing canonical sheet names, row IDs or technical fields.
+The existing fidelity input includes English display meanings and the delivered
+translations; no new review stage or translation framework was added. Localisation
+schema, binding and French runtime tests pass, including rejection of changed
+editorial text against a previous build. Both the worker and coordinator inspected
+all five reimported French example renders. This synthetic heading example is not
+a fully translated client audit or evidence of upstream audit qualification.
+Full combined tests with coverage are running; lint, high-confidence dead-code
+scan, skill validation and whitespace checks pass.
+
+The combined suite passed all 232 tests in 184.299 seconds. The release-complete
+coverage gate passes all 37 required Python modules at 75.4409% aggregate
+line/branch coverage (4,482 of 6,500 branches covered). Running the broader release
+structure check in the development checkout also scanned local `.reader-runtime`
+dependencies and older artifacts, so that invocation failed its link/blocklist
+checks. Those local files are preserved; release structure must be checked against
+the clean Git export before this batch's packaging validation is claimed.

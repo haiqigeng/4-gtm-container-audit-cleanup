@@ -147,10 +147,10 @@ function styleData(range) {
   };
 }
 
-function addNavigation(sheet, sheetNames, width) {
+function addNavigation(sheet, sheetNames, width, display) {
   if (!sheetNames.length || width < 1) return "";
-  const navigationText = `Sections — use workbook tabs: ${sheetNames
-    .map((name) => (name === sheet.name ? `${name} (current)` : name))
+  const navigationText = `${display.navigation_prefix} ${sheetNames
+    .map((name) => (name === sheet.name ? `${name} (${display.navigation_current})` : name))
     .join("  |  ")}`;
   const range = sheet.getRangeByIndexes(3, 0, 1, width);
   range.merge();
@@ -314,6 +314,7 @@ function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
 function buildOverview(workbook, deliveryMap, editorial, model) {
   const sheet = workbook.worksheets.getItem("01 Overview");
   const overview = { ...deliveryMap.overview, ...editorial.overview_prose };
+  const display = editorial.display_prose;
   const cellCoordinates = [[0, 0], [1, 0], [3, 0], [5, 0], [7, 0]];
   const trackCells = (row, column, rowCount, columnCount) => {
     for (let r = row; r < row + rowCount; r += 1) {
@@ -322,9 +323,9 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
       }
     }
   };
-  styleTitle(sheet, sheet.getRange("A1:H1"), "GTM container audit and optimisation");
+  styleTitle(sheet, sheet.getRange("A1:H1"), display.sheets["01 Overview"].title);
   styleSubtitle(sheet.getRange("A2:H2"), overview.container_label);
-  const nav = addNavigation(sheet, deliveryMap.visible_sheets, 8);
+  const nav = addNavigation(sheet, deliveryMap.visible_sheets, 8, display);
   sheet.getRange("A6:H6").merge();
   sheet.getRange("A6:H6").values = [[safeText(overview.audit_status)]];
   sheet.getRange("A6:H6").format = {
@@ -349,7 +350,7 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
   );
   trackCells(10, 0, decisionRows.length + 1, 3);
   trackCells(10, 4, priorityRows.length + 1, 3);
-  sheet.getRange("A11:C11").values = [["Decision type", "Count", "Interpretation"]];
+  sheet.getRange("A11:C11").values = matrix([display.overview.decision_headers]);
   styleHeaders(sheet.getRange("A11:C11"));
   if (decisionRows.length) {
     const values = decisionRows.map(([key, value]) => [
@@ -360,7 +361,7 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     sheet.getRangeByIndexes(11, 0, values.length, 3).values = matrix(values);
     styleData(sheet.getRangeByIndexes(11, 0, values.length, 3));
   }
-  sheet.getRange("E11:G11").values = [["Priority", "Count", "Reading order"]];
+  sheet.getRange("E11:G11").values = matrix([display.overview.priority_headers]);
   styleHeaders(sheet.getRange("E11:G11"));
   if (priorityRows.length) {
     const values = priorityRows.map(([key, value], index) => [key, value, index + 1]);
@@ -379,30 +380,15 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
       if (!prose) return `${index + 1}. ${value}`;
       return `${index + 1}. ${prose.action_operation_id}\n${firstSentence(prose.why_it_matters)}`;
     })
-    .join("\n") || "None";
-  const counts = Object.fromEntries(
-    deliveryMap.visible_sheets.map((name) => [name, mappedRows(deliveryMap, name).length]),
-  );
-  const findingCount =
-    counts["04 Full Audit"] + counts["03 Decisions Needed"] + (counts["05 Custom Code"] || 0);
-  const findingSheets = [
-    `04 Full Audit (${counts["04 Full Audit"].toLocaleString()})`,
-    `03 Decisions Needed (${counts["03 Decisions Needed"].toLocaleString()})`,
-  ];
-  if (deliveryMap.visible_sheets.includes("05 Custom Code")) {
-    findingSheets.push(`05 Custom Code (${counts["05 Custom Code"].toLocaleString()})`);
-  }
-  const coverageSummary = [
-    `${findingCount.toLocaleString()} findings are partitioned across ${findingSheets.join("; ")}. `,
-    `02 Recommendations lists ${counts["02 Recommendations"].toLocaleString()} consolidated operations; it does not add findings.`,
-  ].join("");
+    .join("\n") || display.overview.no_actions;
+  const coverageSummary = display.overview.coverage_summary;
   const summaryBlocks = [
-    ["Highest-value actions", actionSummary, 12],
-    ["Workbook coverage", coverageSummary, 2],
-    ["Target architecture", overview.target_architecture_summary, 9],
-    ["Important retained setup", overview.important_retained_summary, 3],
-    ["Open decisions and evidence limits", overview.blocking_summary, 4],
-    ["Next step", overview.next_step, 2],
+    [display.overview.summary_labels[0], actionSummary, 12],
+    [display.overview.summary_labels[1], coverageSummary, 2],
+    [display.overview.summary_labels[2], overview.target_architecture_summary, 9],
+    [display.overview.summary_labels[3], overview.important_retained_summary, 3],
+    [display.overview.summary_labels[4], overview.blocking_summary, 4],
+    [display.overview.summary_labels[5], overview.next_step, 2],
   ];
   let summaryCursor = summaryStart;
   summaryBlocks.forEach(([label, value, valueRows], index) => {
@@ -427,9 +413,7 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
   });
   const deltaStart = summaryCursor;
   trackCells(deltaStart - 1, 0, 1, 4);
-  sheet.getRangeByIndexes(deltaStart - 1, 0, 1, 4).values = [
-    ["Material object-count changes", "Source", "Target", "Change"],
-  ];
+  sheet.getRangeByIndexes(deltaStart - 1, 0, 1, 4).values = matrix([display.overview.delta_headers]);
   styleHeaders(sheet.getRangeByIndexes(deltaStart - 1, 0, 1, 4));
   const deltas = overview.material_count_deltas || [];
   if (deltas.length) {
@@ -442,7 +426,7 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     cellCoordinates.push([deltaStart, 0]);
     sheet.getRangeByIndexes(deltaStart, 0, 1, 4).merge();
     sheet.getRangeByIndexes(deltaStart, 0, 1, 4).values = [[
-      "No material object-count change; configuration changes may still be proposed.",
+      safeText(display.overview.empty_deltas),
     ]];
   }
   sheet.getRange("A:A").format.columnWidth = 24;
@@ -467,15 +451,16 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
 }
 
 function buildDataSheet(workbook, deliveryMap, editorialIndex, config, model) {
+  config = { ...config, ...model.display_prose.sheets[config.name] };
   const sheet = workbook.worksheets.getItem(config.name);
   const rows = mappedRows(deliveryMap, config.name);
   styleTitle(sheet, sheet.getRangeByIndexes(0, 0, 1, config.headers.length), config.title);
   styleSubtitle(
     sheet.getRangeByIndexes(1, 0, 1, config.headers.length),
-    typeof config.subtitle === "function" ? config.subtitle(rows) : config.subtitle,
+    config.subtitle,
   );
-  const nav = addNavigation(sheet, deliveryMap.visible_sheets, config.headers.length);
-  sheet.getRangeByIndexes(4, 0, 1, config.headers.length).values = [config.headers];
+  const nav = addNavigation(sheet, deliveryMap.visible_sheets, config.headers.length, model.display_prose);
+  sheet.getRangeByIndexes(4, 0, 1, config.headers.length).values = matrix([config.headers]);
   styleHeaders(sheet.getRangeByIndexes(4, 0, 1, config.headers.length));
   const values = rows.map((mapped) => {
     const editorial = editorialIndex.get(mapped.row_id);
@@ -499,7 +484,7 @@ function buildDataSheet(workbook, deliveryMap, editorialIndex, config, model) {
   } else {
     sheet.getRangeByIndexes(5, 0, 1, config.headers.length).merge();
     sheet.getRangeByIndexes(5, 0, 1, config.headers.length).values = [[
-      safeText(config.emptyMessage),
+      safeText(config.empty_message),
     ]];
     sheet.getRangeByIndexes(5, 0, 1, config.headers.length).format = {
       fill: PALETTE.paleGreen,
@@ -513,7 +498,10 @@ function buildDataSheet(workbook, deliveryMap, editorialIndex, config, model) {
   sheet.showGridLines = false;
   model.sheets.push({
     name: sheet.name,
-    headers: config.headers,
+    title: safeText(config.title),
+    subtitle: safeText(config.subtitle),
+    empty_message: safeText(config.empty_message),
+    headers: config.headers.map(safeText),
     rows: rows.map((row, index) => ({
       row_id: row.row_id,
       row_number: 6 + index,
@@ -535,6 +523,7 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
     schema_version: 1,
     visible_sheets: deliveryMap.visible_sheets,
     delivery_map_sha256: deliveryMap.delivery_map_sha256,
+    display_prose: editorial.display_prose,
     sheets: [],
     comments: [],
   };
@@ -548,19 +537,6 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
     editorialIndex,
     {
       name: "02 Recommendations",
-      title: "Recommendations",
-      subtitle: "Every decision-ready operation appears once. A cell note on the action contains its structured technical detail.",
-      headers: [
-        "Action + operation ID",
-        "Audit area",
-        "Finding type + priority",
-        "Affected scope",
-        "Current setup",
-        "Why it matters",
-        "Recommended target",
-        "Analyst decision / implementation handoff",
-        "Static verification / rollback",
-      ],
       values: (row, prose) => [
         prose.action_operation_id,
         prose.audit_area,
@@ -573,7 +549,6 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         prose.verification_rollback,
       ],
       widths: [28, 26, 22, 34, 42, 40, 42, 40, 42],
-      emptyMessage: "No decision-ready operation is proposed.",
     },
     model,
   );
@@ -583,18 +558,6 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
     editorialIndex,
     {
       name: "03 Decisions Needed",
-      title: "Decisions needed",
-      subtitle: (rows) => `${rows.length.toLocaleString()} owner questions, ordered by priority. Each row explains what the answer unlocks.`,
-      headers: [
-        "Decision ID",
-        "Audit area",
-        "Priority",
-        "Question",
-        "Why this is needed",
-        "Recommendation",
-        "Affected scope",
-        "What the answer unlocks",
-      ],
       values: (row, prose) => [
         row.locked.decision_id,
         prose.audit_area,
@@ -606,7 +569,6 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         prose.answer_unlocks,
       ],
       widths: [22, 26, 14, 40, 38, 38, 34, 38],
-      emptyMessage: "No owner decision is currently required.",
     },
     model,
   );
@@ -616,23 +578,10 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
     editorialIndex,
     {
       name: "04 Full Audit",
-      title: "Full audit",
-      subtitle: (rows) => `${rows.length.toLocaleString()} general audit findings. Owner questions are in 03 Decisions Needed.${deliveryMap.visible_sheets.includes("05 Custom Code") ? " Custom-code conclusions are in 05 Custom Code." : ""}`,
-      headers: [
-        "Audit ID",
-        "Audit area",
-        "Detailed audit focus",
-        "Affected scope",
-        "Decision",
-        "Plain-language finding",
-        "Outcome / linked action",
-        "Priority",
-        "Evidence confidence",
-      ],
       values: (row, prose) => [
         row.locked.decision_id,
         prose.audit_area,
-        `${row.locked.area_id} — ${row.locked.area_title}\nFocus: ${prose.audit_focus}`,
+        `${row.locked.area_id} — ${row.locked.area_title}\n${editorial.display_prose.focus_label}: ${prose.audit_focus}`,
         prose.affected_scope,
         row.locked.human_decision_label,
         prose.plain_finding,
@@ -641,7 +590,6 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
         row.locked.confidence,
       ],
       widths: [22, 26, 34, 34, 28, 52, 42, 14, 20],
-      emptyMessage: "No semantic audit decision was produced; this indicates an invalid delivery map.",
     },
     model,
   );
@@ -652,20 +600,6 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
       editorialIndex,
       {
         name: "05 Custom Code",
-        title: "Custom code review",
-        subtitle: (rows) => `${rows.length.toLocaleString()} custom-code conclusions. Confidence describes the static conclusion or evidence limit, not vendor runtime validity.`,
-        headers: [
-          "Audit ID",
-          "Audit area",
-          "Affected code scope",
-          "Current behavior",
-          "Decision",
-          "Finding",
-          "Safest target",
-          "Linked action",
-          "Priority",
-          "Confidence in static conclusion",
-        ],
         values: (row, prose) => [
           row.locked.decision_id,
           prose.audit_area,
@@ -679,7 +613,6 @@ async function buildWorkbook(deliveryMap, editorial, commentAuthor = "User") {
           row.locked.confidence,
         ],
         widths: [22, 26, 34, 46, 26, 42, 44, 38, 14, 24],
-        emptyMessage: "No custom-code conclusion applies.",
       },
       model,
     );

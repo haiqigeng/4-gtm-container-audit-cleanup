@@ -9,7 +9,7 @@ from collections import defaultdict, deque
 from typing import Any
 
 from gtm_audit_contract import OPERATION_ACTION_FIELDS
-from gtm_lib import ID_KEYS, as_list, container_version, stable_hash
+from gtm_lib import ID_KEYS, as_list, container_version, custom_template_type_index, stable_hash
 
 JSON_PATH_TOKEN_RE = re.compile(r"\.([^.[\]]+)|\[(\d+)\]")
 
@@ -83,6 +83,8 @@ def set_json_path(target: Any, path: str, value: Any, *, allow_create: bool = Fa
             current = current[token]
     final = tokens[-1]
     if isinstance(final, int):
+        if allow_create:
+            raise ValueError("addition must target an absent named property")
         if not isinstance(current, list) or final >= len(current):
             raise KeyError(path)
         current[final] = copy.deepcopy(value)
@@ -91,6 +93,8 @@ def set_json_path(target: Any, path: str, value: Any, *, allow_create: bool = Fa
             raise KeyError(path)
         if not allow_create and final not in current:
             raise KeyError(path)
+        if allow_create and final in current:
+            raise ValueError(f"addition target already exists: {path}")
         current[final] = copy.deepcopy(value)
 
 
@@ -136,6 +140,7 @@ def _remap_consumer(
     from_key: str,
     to_key: str,
     catalog: dict[str, dict[str, Any]],
+    deleted_keys: set[str],
 ) -> None:
     from_id = from_key.split(":", 1)[1]
     to_id = to_key.split(":", 1)[1]
@@ -171,7 +176,31 @@ def _remap_consumer(
         if str(consumer.get("parentFolderId") or "") == from_id:
             consumer["parentFolderId"] = to_id
         return
-    consumer.update(_replace_reference(consumer, from_id, to_id))
+    if layer == "customTemplate":
+        templates = [row["object"] for row in catalog.values() if row["layer"] == layer]
+        index = custom_template_type_index(templates)
+        surviving_index = custom_template_type_index([
+            template for template in templates
+            if f"customTemplate:{template.get('templateId')}" not in deleted_keys
+        ])
+        current_token = str(consumer.get("type") or "")
+        source_ids = index.get(current_token, [])
+        if from_id in source_ids and surviving_index.get(current_token) == [to_id]:
+            return
+        if source_ids != [from_id]:
+            raise ValueError("template remap consumer has no unique source template reference")
+        target = catalog[to_key]["object"]
+        gallery = target.get("galleryReference") or {}
+        gallery_id = gallery.get("galleryTemplateId") if isinstance(gallery, dict) else None
+        token = (
+            f"cvt_{gallery_id}" if gallery_id
+            else f"cvt_{target.get('accountId')}_{to_id}"
+        )
+        if surviving_index.get(token) != [to_id]:
+            raise ValueError("template remap target has no unique exported type identity")
+        consumer["type"] = token
+        return
+    raise ValueError(f"unsupported remap layer: {layer}")
 
 
 def dependency_order(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -299,6 +328,25 @@ def operation_write_conflicts(operations: list[dict[str, Any]]) -> list[str]:
     writes: dict[tuple[str, str], tuple[str, str, Any]] = {}
     deleted: dict[str, str] = {}
     errors: list[str] = []
+
+    def record_write(key: tuple[str, str], operation_id: str, field: str, value: Any) -> None:
+        try:
+            tokens = _path_tokens(key[1])
+        except ValueError as exc:
+            errors.append(f"{operation_id}: {exc}")
+            return
+        for (object_key, path), previous in writes.items():
+            if object_key != key[0]:
+                continue
+            other = _path_tokens(path)
+            common = min(len(tokens), len(other))
+            if tokens[:common] == other[:common]:
+                errors.append(
+                    f"{operation_id}: conflicting writes to {key[0]} {key[1]} "
+                    f"with {previous[0]} at {path}"
+                )
+        writes[key] = (operation_id, field, value)
+
     for operation in operations:
         operation_id = str(operation.get("operation_id") or "")
         for field in ("additions", "changes", "removals"):
@@ -316,12 +364,7 @@ def operation_write_conflicts(operations: list[dict[str, Any]]) -> list[str]:
                     if field == "changes"
                     else None
                 )
-                previous = writes.get(key)
-                if previous:
-                    errors.append(
-                        f"{operation_id} and {previous[0]} both write {key}"
-                    )
-                writes[key] = (operation_id, field, value)
+                record_write(key, operation_id, field, value)
         for field, json_path, value_field in (
             ("renames", "$.name", "after"),
             ("pauses", "$.paused", "after"),
@@ -330,12 +373,7 @@ def operation_write_conflicts(operations: list[dict[str, Any]]) -> list[str]:
                 if not isinstance(action, dict):
                     continue
                 key = (str(action.get("object_key") or ""), json_path)
-                previous = writes.get(key)
-                if previous:
-                    errors.append(
-                        f"{operation_id} and {previous[0]} both write {key}"
-                    )
-                writes[key] = (operation_id, field, action.get(value_field))
+                record_write(key, operation_id, field, action.get(value_field))
         for action in as_list(operation.get("deletions")):
             if isinstance(action, dict):
                 deleted[str(action.get("object_key") or "")] = operation_id
@@ -359,6 +397,7 @@ def validate_operations(
         ordered = dependency_order(operations)
     except ValueError as exc:
         return [str(exc)]
+    errors.extend(operation_write_conflicts(ordered))
     catalog = object_catalog(data)
     valid_keys = set(catalog)
     protected_keys = set(do_not_touch or set())
@@ -366,7 +405,6 @@ def validate_operations(
         errors.append(f"do_not_touch identifies unknown source object {unknown_key}")
     planned_creations: set[str] = set()
     deleted: dict[str, str] = {}
-    writes: dict[tuple[str, str], tuple[str, str, Any]] = {}
     for operation in ordered:
         operation_id = str(operation.get("operation_id") or "")
         if _action_targets(operation) & protected_keys:
@@ -398,14 +436,6 @@ def validate_operations(
                 if key not in valid_keys and key not in planned_creations:
                     errors.append(f"{operation_id}: {field} targets unknown {key}")
                     continue
-                write_key = (key, path)
-                value = action.get("value") if field == "additions" else action.get("after")
-                previous = writes.get(write_key)
-                if previous:
-                    errors.append(
-                        f"{operation_id}: conflicting writes to {key} {path} with {previous[0]}"
-                    )
-                writes[write_key] = (operation_id, field, value)
                 if key in catalog:
                     obj = catalog[key]["object"]
                     try:
@@ -429,13 +459,6 @@ def validate_operations(
             if key not in catalog:
                 errors.append(f"{operation_id}: removal targets unknown {key}")
                 continue
-            write_key = (key, path)
-            previous = writes.get(write_key)
-            if previous:
-                errors.append(
-                    f"{operation_id}: conflicting writes to {key} {path} with {previous[0]}"
-                )
-            writes[write_key] = (operation_id, "removals", None)
             record = catalog[key]
             try:
                 tokens = _path_tokens(path)
@@ -464,13 +487,6 @@ def validate_operations(
                 errors.append(f"{operation_id}: rename target is blank")
             if str(action.get("before") or "") == str(action.get("after") or ""):
                 errors.append(f"{operation_id}: rename is a no-op")
-            write_key = (key, "$.name")
-            previous = writes.get(write_key)
-            if previous:
-                errors.append(
-                    f"{operation_id}: conflicting writes to {key} $.name with {previous[0]}"
-                )
-            writes[write_key] = (operation_id, "renames", action.get("after"))
         for action in as_list(operation.get("pauses")):
             if not isinstance(action, dict):
                 errors.append(f"{operation_id}: pause is malformed")
@@ -484,13 +500,6 @@ def validate_operations(
                 errors.append(f"{operation_id}: pause after must be Boolean")
             if isinstance(action.get("before"), bool) and action.get("before") == action.get("after"):
                 errors.append(f"{operation_id}: pause is a no-op")
-            write_key = (key, "$.paused")
-            previous = writes.get(write_key)
-            if previous:
-                errors.append(
-                    f"{operation_id}: conflicting writes to {key} $.paused with {previous[0]}"
-                )
-            writes[write_key] = (operation_id, "pauses", action.get("after"))
         for action in as_list(operation.get("remaps")):
             if not isinstance(action, dict):
                 errors.append(f"{operation_id}: remap is malformed")
@@ -501,6 +510,8 @@ def validate_operations(
                 errors.append(f"{operation_id}: remap source or target is unknown")
             elif source.split(":", 1)[0] != target.split(":", 1)[0]:
                 errors.append(f"{operation_id}: remap crosses incompatible layers")
+            elif source.split(":", 1)[0] not in {"trigger", "variable", "tag", "folder", "customTemplate"}:
+                errors.append(f"{operation_id}: unsupported remap layer")
             for consumer in as_list(action.get("consumer_object_keys")):
                 if str(consumer) not in catalog:
                     errors.append(f"{operation_id}: remap consumer is unknown: {consumer}")
@@ -514,11 +525,6 @@ def validate_operations(
             if key in deleted:
                 errors.append(f"{operation_id}: deletion duplicates {deleted[key]} for {key}")
             deleted[key] = operation_id
-    for (key, _path), (operation_id, _field, _value) in writes.items():
-        if key in deleted:
-            errors.append(
-                f"{operation_id}: writes {key}, which is also deleted by {deleted[key]}"
-            )
     if not errors:
         try:
             projected_catalog = object_catalog(apply_operations(data, ordered))
@@ -547,6 +553,10 @@ def apply_operations(
     cv = container_version(projected)
     for operation in dependency_order(operations):
         catalog = object_catalog(projected)
+        deletion_keys = {
+            str(action.get("object_key") or "")
+            for action in as_list(operation.get("deletions"))
+        }
         for action in as_list(operation.get("creations")):
             layer = str(action["layer"])
             cv.setdefault(layer, []).append(copy.deepcopy(action["object"]))
@@ -580,7 +590,7 @@ def apply_operations(
             layer = source.split(":", 1)[0]
             for consumer_key in as_list(action.get("consumer_object_keys")):
                 consumer = catalog[str(consumer_key)]["object"]
-                _remap_consumer(consumer, layer, source, target, catalog)
+                _remap_consumer(consumer, layer, source, target, catalog, deletion_keys)
         for action in as_list(operation.get("renames")):
             key = str(action["object_key"])
             target = catalog[key]["object"]
@@ -607,10 +617,6 @@ def apply_operations(
             target["name"] = after
         for action in as_list(operation.get("pauses")):
             catalog[str(action["object_key"])]["object"]["paused"] = bool(action["after"])
-        deletion_keys = {
-            str(action.get("object_key") or "")
-            for action in as_list(operation.get("deletions"))
-        }
         if deletion_keys:
             for layer, id_key in ID_KEYS.items():
                 if layer not in cv:

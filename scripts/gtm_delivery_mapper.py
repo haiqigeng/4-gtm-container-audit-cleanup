@@ -686,6 +686,86 @@ def delivery_map_from_record(
     return map_payload
 
 
+def display_prose_defaults(delivery_map: dict[str, Any]) -> dict[str, Any]:
+    """English display copy; keys and column positions are workbook identities."""
+    counts = {
+        sheet: sum(row["primary_sheet"] == sheet for row in delivery_map["rows"])
+        for sheet in delivery_map["visible_sheets"]
+    }
+    sheets = {
+        "01 Overview": {"title": "GTM container audit and optimisation"},
+        "02 Recommendations": {
+            "title": "Recommendations",
+            "subtitle": "Every decision-ready operation appears once. A cell note on the action contains its structured technical detail.",
+            "headers": ["Action + operation ID", "Audit area", "Finding type + priority", "Affected scope", "Current setup", "Why it matters", "Recommended target", "Analyst decision / implementation handoff", "Static verification / rollback"],
+            "empty_message": "No decision-ready operation is proposed.",
+        },
+        "03 Decisions Needed": {
+            "title": "Decisions needed",
+            "subtitle": f"{counts.get('03 Decisions Needed', 0):,} owner questions, ordered by priority. Each row explains what the answer unlocks.",
+            "headers": ["Decision ID", "Audit area", "Priority", "Question", "Why this is needed", "Recommendation", "Affected scope", "What the answer unlocks"],
+            "empty_message": "No owner decision is currently required.",
+        },
+        "04 Full Audit": {
+            "title": "Full audit",
+            "subtitle": f"{counts.get('04 Full Audit', 0):,} general audit findings. Owner questions are in 03 Decisions Needed."
+                + (" Custom-code conclusions are in 05 Custom Code." if CUSTOM_CODE_SHEET in counts else ""),
+            "headers": ["Audit ID", "Audit area", "Detailed audit focus", "Affected scope", "Decision", "Plain-language finding", "Outcome / linked action", "Priority", "Evidence confidence"],
+            "empty_message": "No semantic audit decision was produced; this indicates an invalid delivery map.",
+        },
+        CUSTOM_CODE_SHEET: {
+            "title": "Custom code review",
+            "subtitle": f"{counts.get(CUSTOM_CODE_SHEET, 0):,} custom-code conclusions. Confidence describes the static conclusion or evidence limit, not vendor runtime validity.",
+            "headers": ["Audit ID", "Audit area", "Affected code scope", "Current behavior", "Decision", "Finding", "Safest target", "Linked action", "Priority", "Confidence in static conclusion"],
+            "empty_message": "No custom-code conclusion applies.",
+        },
+    }
+    finding_sheets = [sheet for sheet in ("04 Full Audit", "03 Decisions Needed", CUSTOM_CODE_SHEET)
+                      if sheet in counts]
+    coverage = "; ".join(f"{sheet} ({counts[sheet]:,})" for sheet in finding_sheets)
+    return {
+        "navigation_prefix": "Sections — use workbook tabs:",
+        "navigation_current": "current",
+        "focus_label": "Focus",
+        "sheets": {sheet: sheets[sheet] for sheet in delivery_map["visible_sheets"]},
+        "overview": {
+            "coverage_summary": (
+                f"{sum(counts[sheet] for sheet in finding_sheets):,} findings are partitioned across {coverage}. "
+                f"02 Recommendations lists {counts.get('02 Recommendations', 0):,} consolidated operations; it does not add findings."
+            ),
+            "no_actions": "None",
+            "decision_headers": ["Decision type", "Count", "Interpretation"],
+            "priority_headers": ["Priority", "Count", "Reading order"],
+            "summary_labels": ["Highest-value actions", "Workbook coverage", "Target architecture", "Important retained setup", "Open decisions and evidence limits", "Next step"],
+            "delta_headers": ["Material object-count changes", "Source", "Target", "Change"],
+            "empty_deltas": "No material object-count change; configuration changes may still be proposed.",
+        },
+    }
+
+
+def display_prose_errors(value: Any, expected: Any, label: str = "display_prose") -> list[str]:
+    """Allow translated text only, preserving the declared keys and column count."""
+    if isinstance(expected, dict):
+        if not isinstance(value, dict) or set(value) != set(expected):
+            return [f"{label}: display field set changed"]
+        return [error for key in expected
+                for error in display_prose_errors(value[key], expected[key], f"{label}.{key}")]
+    if isinstance(expected, list):
+        if not isinstance(value, list) or len(value) != len(expected):
+            return [f"{label}: display column/label count changed"]
+        errors = [error for index, item in enumerate(expected)
+                  for error in display_prose_errors(value[index], item, f"{label}[{index}]")]
+        if all(isinstance(item, str) for item in value) and len(set(value)) != len(value):
+            errors.append(f"{label}: display labels must be unique")
+        return errors
+    if not isinstance(value, str) or not value.strip():
+        return [f"{label}: display text must be a non-blank string"]
+    errors = [f"{label}: display text contains {finding}" for finding in privacy_findings(value)]
+    if PROHIBITED_VISIBLE_JARGON.search(value) or UNSUPPORTED_CLAIM_RE.search(value):
+        errors.append(f"{label}: display text exposes internal jargon or overstates static evidence")
+    return errors
+
+
 def audience_brief_payload(language: str) -> dict[str, Any]:
     brief = {
         "kind": "gtm_workbook_audience_brief",
@@ -776,6 +856,7 @@ def create_delivery_map(
                 "next_step",
             }
         },
+        "display_prose": display_prose_defaults(map_payload),
         "completion_attestation": {
             "semantic_fields_changed": False,
             "technical_identifiers_preserved": False,
@@ -853,6 +934,11 @@ def validate_editorial(package_dir: Path) -> list[str]:
     if not path.is_file():
         return [*errors, "editorial artifact is missing"]
     editorial = _load(path)
+    if editorial.get("language") != delivery_map.get("language"):
+        errors.append("editorial language differs from the delivery map")
+    errors.extend(display_prose_errors(
+        editorial.get("display_prose"), display_prose_defaults(delivery_map)
+    ))
     if editorial.get("status") != "complete":
         errors.append("editorial artifact status must be complete")
     if editorial.get("delivery_map_sha256") != delivery_map.get(

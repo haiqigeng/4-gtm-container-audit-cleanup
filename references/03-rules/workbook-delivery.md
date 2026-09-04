@@ -161,8 +161,17 @@ validator, parser trace, or source hash. Never use vague instructions such as
 “review configuration”, “optimise tag”, or “fix consent”. Do not invent scores,
 savings, implementation time, runtime behaviour, vendor receipt, or legal claims.
 
-Use the requested language, default English. Localisation changes headings and
-prose only, never identifiers. Use textual status labels plus accessible colours,
+Use the requested language, default English. Complete the existing editorial
+artifact's `display_prose` in that language: sheet titles, subtitles, column
+headings, navigation wording, overview labels and empty-state messages. Its
+English scaffold is the default, not an automatic translation service. Preserve
+the exact sheet-name keys, column order and meaning, counts, and any technical
+references in subtitles or coverage prose. Sheet tabs keep their canonical names;
+navigation inserts those names mechanically. Localisation changes display prose
+only, never identifiers or locked decision fields. Fidelity review includes the
+meaning and alignment of translated headings; technical reimport checks titles,
+subtitles, headings, navigation and empty states against the bound build model.
+Use textual status labels plus accessible colours,
 filters, frozen headers, wrapped top-aligned cells, stable widths, outline groups,
 and a clear section-navigation row that points readers to the workbook tabs. Do
 not merge data cells, clip content, truncate silently, or use colour as the only

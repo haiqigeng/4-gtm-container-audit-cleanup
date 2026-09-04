@@ -183,6 +183,12 @@ async function main() {
   if (manifest.normalized_workbook_sha256 !== manifest.recovery_normalized_workbook_sha256) {
     errors.push("recovery rebuild did not reproduce normalized workbook content");
   }
+  const editorialPath = path.join(deliveryDir, "editorial.json");
+  const editorial = JSON.parse(await fs.readFile(editorialPath, "utf8"));
+  if (await fileHash(editorialPath) !== manifest.editorial_file_sha256
+      || stableHash(editorial.display_prose) !== stableHash(manifest.normalized_model.display_prose)) {
+    errors.push("workbook display prose differs from its bound editorial artifact");
+  }
   const workbookPath = containedRelativePath(
     packageDir,
     manifest.workbook_path,
@@ -261,6 +267,14 @@ async function main() {
       errors.push(`${sheetModel.name}: navigation text differs from the build manifest`);
     }
     if (sheetModel.headers) {
+      for (const [address, expected] of [["A1", sheetModel.title], ["A2", sheetModel.subtitle]]) {
+        if (sheet.getRange(address).values[0][0] !== expected) {
+          errors.push(`${sheetModel.name}: display text at ${address} differs from the build manifest`);
+        }
+      }
+      if (!sheetModel.rows.length && sheet.getRange("A6").values[0][0] !== sheetModel.empty_message) {
+        errors.push(`${sheetModel.name}: empty-state text differs from the build manifest`);
+      }
       const headerRange = sheet.getRangeByIndexes(4, 0, 1, sheetModel.headers.length);
       if (!equal(headerRange.values[0], sheetModel.headers)) {
         errors.push(`${sheetModel.name}: table headers differ from the build manifest`);

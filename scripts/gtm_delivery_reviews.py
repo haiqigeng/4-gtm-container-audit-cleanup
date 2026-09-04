@@ -13,6 +13,7 @@ from gtm_delivery_mapper import (
     DELIVERY_ROOT,
     audience_brief_payload,
     delivery_map_from_record,
+    display_prose_defaults,
     editorial_seal_errors,
 )
 from gtm_lib import (
@@ -295,9 +296,15 @@ def _expected_fidelity_input(
         "rows": rows,
         "overview_canonical": delivery_map.get("overview", {}),
         "overview_delivered": editorial.get("overview_prose", {}),
+        "display_prose_canonical": display_prose_defaults(delivery_map),
+        "display_prose_delivered": editorial.get("display_prose", {}),
         "review_contract": (
             "Reject changed meaning, missing caveats, overstated consequences, "
-            "mismatched actions, or any visible row that no longer preserves its lock."
+            "mismatched actions, or any visible row that no longer preserves its lock. "
+            "Compare translated titles, headings and column meanings with the English "
+            "display reference, preserving column order and alignment with the bound rows. "
+            "Check translated subtitles, navigation and overview display prose preserve "
+            "counts, technical references and canonical sheet identities."
         ),
     }
     payload["fidelity_input_sha256"] = stable_hash(payload, 64)
