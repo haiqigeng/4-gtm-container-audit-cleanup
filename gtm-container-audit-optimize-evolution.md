@@ -2075,3 +2075,30 @@ Bundled workbook preflight passes. Git comparison confirms no changes to
 the new instruction behavior has the separate focused evaluation above. This
 package is prepared for subsequent evaluation, not installed or released, and
 does not replace the active reconciler's locked runtime.
+
+### Reconciliation reading overhead observed during live evaluation
+
+The current fresh reconciler reported repeated large reads and patch verification
+alongside substantive review. A read-only measurement of repaired-package
+`reconciliation-units/unit-011.json`, verification
+`NV-0BFA70B12923BC06`, found 299,646 compact JSON characters, including 1,400
+entries each in `allowed_evidence_citations` and `source_coordinates`. Selecting
+the remaining fields reduces the display to 151,838 characters; substantive
+neutral evidence still requires bounded reading. This is an observed serialization
+cost, not proof that evidence or obligations can be removed.
+
+First test the already permitted exact-file JSON property and array selection,
+reading distinct substantive facts and citation slices separately. The live
+reviewer has been asked to assess residual friction while continuing unchanged.
+Prefer this existing capability to a new reader command if it solves the problem.
+No runtime, schema, stored evidence, coverage requirement or review judgment was
+changed. The simplification remains under evaluation, not a validated fix.
+
+The same live reviewer subsequently confirmed that existing `Get-Content` /
+`ConvertFrom-Json` property and array selection handles this without a new reader
+command and withdrew its earlier command recommendation. It continues to read
+substantive evidence in bounded slices and bind authored citations to the exact
+allowlist. At that update, 315 draft reviews were complete. Adopt the existing
+reading capability; no new implementation or instruction is needed for it.
+Repeated patch-and-reread verification remains a reported friction point, not yet
+a demonstrated reason to change validation or introduce another mechanism.
