@@ -1990,3 +1990,23 @@ reviews across 43 units, seal
 Its target synthesis passed with 145 operations and 350 blocked decisions;
 combined target validation is running. These older-runtime results do not
 qualify the current candidate or satisfy the four-pair release requirement.
+
+The older combined target validation subsequently passed, proof
+`53d79696b92a663b1e35aa5c8ed7b62f88e0427a47168c1fca5d72160896097a`.
+Canonical sealing then rejected rollback `Restore locked HTML.` for
+`OP-CODE-1089-LITERAL-REPAIR` and `OP-CODE-1986-LITERAL-REPAIR` solely because
+that runtime requires four words. Direct code inspection confirms the current
+candidate already replaces that quota with a non-blank-string check; semantic
+specificity remains the independent review's responsibility. Preserve this
+older-runtime failure as regression evidence, without padding source prose or
+patching its locked runtime. It produced no sealed canonical record or workbook.
+Current-run consent repair remains the next required semantic correction.
+
+The existing concise-operation regression test passes in the current checkout,
+covering short meaningful text and rejection of empty/non-text fields. No new
+word-count workaround was added. Carson was resumed on the original current-run
+package to finish all independently reviewable unaffected rows while the fresh
+source-local repair runs separately. The defective row stays pending and
+finalization stays closed; a fresh successor reconciler must still prove exact
+input equality before retaining any completed review. This preserves parallel
+progress and collects further exact defects without serial full-stage restarts.
