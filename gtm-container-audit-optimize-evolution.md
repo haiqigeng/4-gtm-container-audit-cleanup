@@ -1821,3 +1821,28 @@ handles and remain unfinished. Their locked runtimes were not changed by this
 documentation edit. The final qualified package must include and evaluate the
 final instruction version; earlier runtime evidence is not relabelled as that
 qualification.
+
+### 2026-09-04 — Current NVR Audit A sealed; Audit B action ownership repair
+
+The independent `bd824da` Audit A completed 1,295 decisions across 126 work
+units and sealed as
+`73cb34db7794df41839897ceb4c6540bc8081472f8e9b9c1939d012e71ff64d7`.
+Coordinator validation using that same locked runtime returned PASS with no
+errors; the completed agent was closed. This qualifies that source audit only,
+not reconciliation, the workbook, the cleaned comparison or the final candidate.
+
+Audit B completed its draft coverage and global conclusions, but application
+rejected two pairs of duplicated actions: navigation proposals both create
+variable 900004 and rewrite the same two consumers; the duplicate-variable and
+custom-code proposals both remap variable 1488 and delete it. The navigation
+payloads compare exactly equal apart from operation ID. The agent identified
+four owning obligations and preserved its plan without downgrading findings.
+
+The coordinator inspected the contract and returned these exact records to the
+same independent audit owner to assess meaningful, disjoint action ownership
+using the existing dependency mechanism. The combined target must stay intact;
+no filler action, forced reclassification or arbitrary split may be used to pass
+validation. A new shared-operation schema has not been added. The repair remains
+unproven until the owner completes application, validation and sealing. No peer
+findings were supplied and no locked runtime was changed. The older-runtime
+reconciliation also remains active and was observed saving unit 24.
