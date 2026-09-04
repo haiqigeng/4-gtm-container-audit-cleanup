@@ -1900,3 +1900,36 @@ also passed in the worker's seven-test focused run. Ruff, skill validation and
 Git whitespace checks pass. Runtime qualification, real-container comparisons,
 final reviews, publication, installation and installed-release acceptance remain
 unfinished.
+
+### 2026-09-04 — Clean shared-operation package and focused continuation
+
+Clean Git export `22e9b01702657aa7cfba4f928c1fae0e59ce3f48` passed all
+238 tests in 169.259 seconds with the bundled workbook runtime and branch-aware
+coverage. The release-complete gate passes all 37 modules at 75.4952% aggregate
+line/branch coverage, with 4,487 of 6,498 branches covered. Clean-export release
+checks pass. Coverage evidence is
+`C:/Users/guillaume/AppData/Local/Temp/gtm-shared-operation-22e9b01-coverage.json`.
+The 55-file clean runtime at the existing fresh-run root's `skill-22e9b01`
+has tree identity
+`4ea1cf675c93bf1cb05118bc21056a1bc5d7c149482e8b3e263b2a62093e28bc`;
+its workbook preflight passes.
+
+Recomputed NVR source and canonical-scan identities exactly match `bd824da`.
+The new `audit-package-22e9b01` accepted the existing independently produced
+assurance after reconstructing it. Both audit-bundle manifests and all 12
+immutable bundle inputs compare byte-identical. Therefore the development run
+can retain source work instead of repeating the audits: 412 checkpoint, audit,
+snapshot and plan artifacts were copied and verified identical, leaving the old
+package untouched and retaining the new package's declared runtime identity.
+Only the two mutable plan authoring-contract headers were then refreshed to the
+maintained current contract; all authored judgments and actions compared unchanged.
+
+Audit A's existing seal validates under the updated runtime in the new package.
+Its 294 operations also pass the updated safety checks and an in-memory
+dependency-ordered simulation, without writing a target or mutating GTM. Audit B
+resumed its retained independent context on its own new-package bundle/plan to
+repair shared ownership and complete application, validation and sealing. No
+peer or cleaned findings were supplied, and the original source-only checkpoints
+remain unchanged. This is explicitly a resumed development evaluation, not a
+claim of an unassisted fresh production run. The installed-release test remains
+mandatory. The separately preserved older-runtime reconciliation continues.
