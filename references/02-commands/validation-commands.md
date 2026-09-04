@@ -127,8 +127,11 @@ Author compact
 Review every obligation. The applicator expands profiles and proves exact-once
 coverage. Share one
 decision only when the criteria assessment, target, preserved distinctions,
-next step, and evidence meaning are genuinely identical. Put each actionable
-operation in a one-obligation profile or override because its target is unique.
+next step, and evidence meaning are genuinely identical. A shared actionable
+profile or override may cover several obligations under the workflow's exact
+shared-operation rule. The same OP-* ID must preserve complete operation meaning,
+decision class, priority and confidence; every member still passes its own
+evidence and obligation-alignment checks.
 Every obligation ID must appear exactly once. Do not group obligations where the
 evidence, target, preserved distinctions, or next action differs.
 Each profile has exactly this nesting:

@@ -48,6 +48,11 @@
   B is also generated-candidate-blind before its checkpoint.
 - Each audit completes every applicable semantic obligation and its global
   shared-infrastructure/target closure.
+- Multiple findings may share an operation ID only when complete operation
+  meaning, decision class, priority and confidence agree. Each finding's evidence
+  and obligation alignment remain independently validated. The shared operation
+  is validated and delivered once with every contributing decision retained;
+  conflicting metadata or actions cannot be silently merged.
 - Each initial audit identifies source-supported consequential cleanup, consumer
   remaps, and a coherent complete target. A candidate is not a verdict. Missing
   authored operations remain unfinished agent work, and independently actionable

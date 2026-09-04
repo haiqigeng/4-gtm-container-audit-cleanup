@@ -124,14 +124,21 @@ references from source names and historical quotations. This source-local closur
 preserves peer independence; reconciliation still checks the combined selected set.
 
 Give each necessary create, write, remap or deletion one operation owner across
-the complete audit. When several obligations expose a shared target, use
-meaningful, disjoint action sets and existing `depends_on` links: for example,
-creation of a shared settings owner and adoption by its consumers, or consumer
-remapping followed by retirement. Each finding describes its own contribution,
-dependencies, verification and rollback while preserving the complete combined
-target. Check the whole operation set before application. Repeating the complete
-action packet under different IDs is not separate ownership; neither filler
-actions nor downgraded findings resolve an ownership conflict.
+the complete audit. Several obligations may share one OP-* ID when the complete
+operation content, decision class, priority and confidence are identical. This
+includes actions such as retiring one unused duplicate, which cannot meaningfully
+be split. Author the shared profile or override once when the assessment fits all
+members; each expanded finding retains its exact evidence, source identity and
+coverage check. Application and synthesis validate the shared action once and
+preserve every contributing decision in its provenance. Differences in operation
+meaning require resolution, not a first-record preference.
+
+Where a target has genuinely distinct parts, use disjoint action sets and existing
+`depends_on` links, such as creation of a settings owner followed by consumer
+adoption. Each finding describes its contribution, dependencies, verification and
+rollback. Check the whole operation set before application. Repeating the complete
+action packet under different IDs, filler actions or downgraded findings do not
+resolve an ownership conflict.
 
 An absent authored operation is unfinished agent work. It does not turn a known
 static repair into an external owner decision. Separate independently actionable
@@ -171,8 +178,8 @@ Before reconciliation:
   assign whole candidates, while exact obligation overrides split candidates.
   A profile may share one decision only when
   its criteria assessment, target, preserved distinctions, next step, and
-  evidence meaning are genuinely identical. Each actionable operation resolves
-  to one obligation because its operation and target are unique. Case-sensitive
+  evidence meaning are genuinely identical. Shared actionable operations follow
+  the exact-identity rule above without merging obligation coverage. Case-sensitive
   vocabulary and complete actionable operation proposals come from the locked
   authoring contract. Runtime
   uncertainty bounds runtime claims but does not defer a static verdict.

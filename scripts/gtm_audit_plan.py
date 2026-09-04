@@ -41,7 +41,7 @@ from gtm_cleanroom_audit import (
     operation_proposal_errors,
 )
 from gtm_lib import as_list, require_safe_package_root, write_json
-from gtm_operation_model import validate_operations
+from gtm_operation_model import merge_exact_operation_ids, normalize_operation, validate_operations
 
 PLAN_FIELDS = {
     "kind",
@@ -90,7 +90,13 @@ def _authoring_contract() -> dict[str, Any]:
             "obligation_ids": ["one or more exact obligation IDs"],
         },
         "every_obligation_id_exactly_once": True,
-        "actionable_groups_require_one_obligation": True,
+        "shared_operation_rule": (
+            "Multiple obligations may share one OP-* ID only with identical complete "
+            "operation content, decision class, priority and confidence. Author a shared "
+            "profile or override once when its assessment fits every member; otherwise "
+            "retain individual decisions and their exact evidence citations. Shared "
+            "operations are simulated once and retain all source decision identities."
+        ),
         "decision_classes": list(DECISION_CLASSES),
         "priorities_case_sensitive": list(PRIORITIES),
         "confidence_levels_case_sensitive": list(CONFIDENCE_LEVELS),
@@ -333,7 +339,6 @@ def _author_decisions(
     for profile in as_list(plan.get("decision_profiles")):
         if not isinstance(profile, dict) or not isinstance(profile.get("decision"), dict):
             continue
-        profile_expanded_ids: list[str] = []
         for candidate_id in as_list(profile.get("candidate_group_ids")):
             candidate_id = str(candidate_id)
             if candidate_id in assigned_candidates:
@@ -349,16 +354,8 @@ def _author_decisions(
                 for value in as_list(candidate.get("obligation_ids"))
                 if str(value) not in selected_by_obligation
             ]
-            profile_expanded_ids.extend(expanded_ids)
             for obligation_id in expanded_ids:
                 selected_by_obligation[obligation_id] = profile["decision"]
-        if (
-            profile["decision"].get("decision_class") in ACTIONABLE_DECISION_CLASSES
-            and len(profile_expanded_ids) != 1
-        ):
-            errors.append(
-                f"actionable decision profile must resolve to one obligation: {profile.get('profile_id')}"
-            )
     if duplicated_ids:
         errors.append(
             "semantic plan assigns obligations more than once: "
@@ -375,7 +372,7 @@ def _author_decisions(
             "semantic plan leaves obligations unassigned: " + ", ".join(missing_ids)
         )
     authored: dict[str, dict[str, Any]] = {}
-    operation_ids: set[str] = set()
+    operation_ids: dict[str, str] = {}
     for obligation_id, locked in locked_by_obligation.items():
         selected = selected_by_obligation.get(obligation_id)
         if not isinstance(selected, dict):
@@ -513,11 +510,12 @@ def apply_plan(
                 )
             )
     operations = [
-        row["operation_proposal"]
+        normalize_operation(row["operation_proposal"], str(row["decision_id"]), row)
         for row in authored.values()
         if row.get("decision_class") in ACTIONABLE_DECISION_CLASSES
     ]
     if not authored_errors:
+        operations = merge_exact_operation_ids(operations)
         source = _read_json(bundle / "locked-source.json")
         context = _read_json(bundle / "context.json")
         do_not_touch = {

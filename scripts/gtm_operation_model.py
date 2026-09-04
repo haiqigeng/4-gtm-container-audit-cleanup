@@ -289,10 +289,25 @@ def normalize_operation(
     return operation
 
 
+def operation_semantic_identity(operation: dict[str, Any]) -> str:
+    """Identify complete operation meaning, excluding provenance and derived hashes."""
+
+    return stable_hash(
+        {
+            key: value
+            for key, value in operation.items()
+            if key not in {
+                "source_decision_id", "source_reconciled_decision_ids", "action_payload_sha256"
+            }
+        },
+        64,
+    )
+
+
 def merge_exact_operation_ids(
     operations: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Merge repeated IDs only when their executable payloads are identical."""
+    """Merge shared IDs only when their complete operation meanings are identical."""
 
     by_id: dict[str, dict[str, Any]] = {}
     for operation in operations:
@@ -300,23 +315,16 @@ def merge_exact_operation_ids(
         previous = by_id.get(operation_id)
         if previous is None:
             by_id[operation_id] = copy.deepcopy(operation)
+            by_id[operation_id]["action_payload_sha256"] = operation_action_identity(operation)
             continue
-        if previous.get("action_payload_sha256") != operation.get(
-            "action_payload_sha256"
-        ):
+        if operation_semantic_identity(previous) != operation_semantic_identity(operation):
             raise ValueError(
-                f"operation ID {operation_id} carries contradictory action payloads"
+                f"operation ID {operation_id} carries contradictory operation semantics"
             )
         previous["source_reconciled_decision_ids"] = sorted(
             {
                 *as_list(previous.get("source_reconciled_decision_ids")),
                 *as_list(operation.get("source_reconciled_decision_ids")),
-            }
-        )
-        previous["depends_on"] = sorted(
-            {
-                *as_list(previous.get("depends_on")),
-                *as_list(operation.get("depends_on")),
             }
         )
     return list(by_id.values())

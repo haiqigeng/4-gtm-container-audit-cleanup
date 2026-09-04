@@ -91,6 +91,10 @@ Measure:
 - exact operation validity, dependency safety, combined target consistency, and
   rejection of conflicting writes, protected-object changes, invalid references,
   and consent/routing violations covered by the implemented static checks;
+- one indivisible operation shared by multiple evidenced obligations, preserving
+  each finding and its citations through one simulated action and one workbook
+  recommendation; reject contradictory shared-operation meaning and duplicate
+  actions hidden under different IDs;
 - no semantic target-review queue, new recommendation, or convergence gate
   created by deterministic validation;
 - canonical-field completeness and focused repair ownership: exact user-authorized

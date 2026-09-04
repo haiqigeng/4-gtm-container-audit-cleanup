@@ -44,6 +44,8 @@ from gtm_lib import (  # noqa: E402
 from gtm_operation_model import (  # noqa: E402
     apply_operations,
     dependency_order,
+    merge_exact_operation_ids,
+    normalize_operation,
     operation_action_identity,
     operation_packet_sha256,
     operation_write_conflicts,
@@ -457,18 +459,18 @@ class V2OperationSafetyTests(unittest.TestCase):
                  "before": {"type": "INTEGER", "value": "7"}}
             ],
         }
-        self.assertEqual([], operation_proposal_errors(proposal, decision, set(), "decision"))
+        self.assertEqual([], operation_proposal_errors(proposal, decision, {}, "decision"))
         for invalid in ("", " ", None, [], 123):
             proposal["operation_family"] = invalid
             with self.subTest(invalid=invalid):
                 self.assertIn(
                     "decision: operation operation_family must be a non-blank string",
-                    operation_proposal_errors(proposal, decision, set(), "decision"),
+                    operation_proposal_errors(proposal, decision, {}, "decision"),
                 )
 
         proposal["operation_family"] = "Remove priority"
         proposal["preconditions"] = []
-        errors = operation_proposal_errors(proposal, decision, set(), "decision")
+        errors = operation_proposal_errors(proposal, decision, {}, "decision")
         self.assertIn(
             "decision: operation preconditions must be a non-blank string",
             errors,
@@ -477,12 +479,82 @@ class V2OperationSafetyTests(unittest.TestCase):
         proposal["preconditions"] = "tag:1.priority=7."
         proposal["static_verification"] = "Assert tag:1.priority absent."
         proposal["rollback"] = "Restore tag:1.priority=7."
-        self.assertEqual([], operation_proposal_errors(proposal, decision, set(), "decision"))
+        self.assertEqual([], operation_proposal_errors(proposal, decision, {}, "decision"))
         for field in ("exact_target_state", "preconditions", "static_verification", "rollback"):
             for missing in (None, [], "", " \n "):
                 invalid = {**proposal, field: missing}
                 self.assertIn(f"decision: operation {field} must be a non-blank string",
-                              operation_proposal_errors(invalid, decision, set(), "decision"))
+                              operation_proposal_errors(invalid, decision, {}, "decision"))
+
+    def test_shared_operation_registry_validates_each_owner_and_full_proposal(self) -> None:
+        first = operation("OP-DELETE-UNUSED", deletions=[{"object_key": "variable:21"}])
+        first.update({
+            "source_decision_id": "DEC-1", "operation_family": "Remove unused variable",
+            "exact_target_state": "variable:21 is absent.",
+            "preconditions": "variable:21 has no consumers.",
+            "static_verification": "Confirm variable:21 is absent and references resolve.",
+            "rollback": "Restore variable:21 from the locked source.",
+        })
+        registry = {}
+        self.assertEqual([], operation_proposal_errors(first, {"decision_id": "DEC-1"}, registry, "first"))
+        second = {**copy.deepcopy(first), "source_decision_id": "DEC-2"}
+        self.assertEqual([], operation_proposal_errors(second, {"decision_id": "DEC-2"}, registry, "second"))
+        self.assertEqual({"OP-DELETE-UNUSED"}, set(registry))
+        self.assertIsInstance(registry["OP-DELETE-UNUSED"], str)
+        self.assertTrue(operation_proposal_errors(first, {"decision_id": "DEC-2"}, registry, "second"))
+        for field, value in {
+            "deletions": [{"object_key": "variable:20"}],
+            "depends_on": ["OP-PREPARE"],
+            "operation_family": "Another family",
+            "exact_target_state": "Another target",
+            "preconditions": "Another precondition",
+            "static_verification": "Another verification",
+            "rollback": "Another rollback",
+        }.items():
+            with self.subTest(field=field):
+                changed = {**copy.deepcopy(second), field: value}
+                self.assertTrue(operation_proposal_errors(changed, {"decision_id": "DEC-2"}, copy.deepcopy(registry), "second"))
+
+    def test_shared_operation_merge_requires_full_semantics_despite_cached_hash(self) -> None:
+        proposal = operation("OP-DELETE-UNUSED", deletions=[{"object_key": "variable:21"}])
+        proposal.update({
+            "operation_family": "Unused variable cleanup",
+            "exact_target_state": "variable:21 absent", "preconditions": "No consumers",
+            "static_verification": "Check references", "rollback": "Restore locked variable",
+        })
+        decision = {"decision_class": "correct_but_materially_non_optimal", "priority": "Low", "confidence": "High"}
+        first = normalize_operation(proposal, "CD-1", decision)
+        second = normalize_operation(proposal, "CD-2", decision)
+        original = copy.deepcopy([first, second])
+        merged = merge_exact_operation_ids([second, first])
+        self.assertEqual(1, len(merged))
+        self.assertEqual(["CD-1", "CD-2"], merged[0]["source_reconciled_decision_ids"])
+        self.assertEqual([], validate_operations(operation_fixture(), merged))
+        projected = apply_operations(operation_fixture(), merged)
+        self.assertEqual(["20"], [row["variableId"] for row in projected["containerVersion"]["variable"]])
+        self.assertEqual(original, [first, second])
+        stale_first = {**copy.deepcopy(first), "action_payload_sha256": "stale-first"}
+        stale_second = {**copy.deepcopy(second), "action_payload_sha256": "stale-second"}
+        refreshed = merge_exact_operation_ids([stale_first, stale_second])
+        self.assertEqual(merged, refreshed)
+        self.assertEqual(operation_action_identity(refreshed[0]), refreshed[0]["action_payload_sha256"])
+        for field, value in {
+            "deletions": [{"object_key": "variable:20"}],
+            "depends_on": ["OP-PREPARE"], "operation_family": "Different family",
+            "exact_target_state": "Different target", "preconditions": "Different precondition",
+            "static_verification": "Different verification", "rollback": "Different rollback",
+            "priority": "High", "confidence": "Medium", "decision_class": "defect",
+        }.items():
+            with self.subTest(field=field):
+                changed = {**copy.deepcopy(second), field: value}
+                # Keep the cached action hash identical, including when actual actions differ.
+                self.assertEqual(first["action_payload_sha256"], changed["action_payload_sha256"])
+                with self.assertRaisesRegex(ValueError, "contradictory operation semantics"):
+                    merge_exact_operation_ids([first, changed])
+        distinct = {**copy.deepcopy(second), "operation_id": "OP-OTHER-DELETE"}
+        separate = merge_exact_operation_ids([first, distinct])
+        self.assertEqual(2, len(separate))
+        self.assertTrue(validate_operations(operation_fixture(), separate))
 
     def test_recursive_work_unit_schema_type_failures_are_explicit(self) -> None:
         self.assertTrue(workload_estimate_schema_errors(None))

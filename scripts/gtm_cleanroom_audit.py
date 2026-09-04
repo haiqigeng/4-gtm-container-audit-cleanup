@@ -41,6 +41,7 @@ from gtm_lib import (
     stable_hash,
     write_json,
 )
+from gtm_operation_model import normalize_operation, operation_semantic_identity
 
 OPERATION_ID_PATTERN = r"OP-[A-Z0-9][A-Z0-9_-]{5,80}"
 OPERATION_TEXT_FIELDS = (
@@ -682,17 +683,21 @@ def checkpoint_audit(
 def operation_proposal_errors(
     proposal: dict[str, Any],
     decision: dict[str, Any],
-    operation_ids: set[str],
+    operation_ids: dict[str, str],
     label: str,
 ) -> list[str]:
     errors: list[str] = []
     operation_id = str(proposal.get("operation_id") or "")
     if not re.fullmatch(OPERATION_ID_PATTERN, operation_id):
         errors.append(f"{label}: operation_id must use the stable OP-* form")
-    elif operation_id in operation_ids:
-        errors.append(f"{label}: operation_id is duplicated")
     else:
-        operation_ids.add(operation_id)
+        identity = operation_semantic_identity(
+            normalize_operation(proposal, str(decision.get("decision_id") or ""), decision)
+        )
+        if operation_id in operation_ids and operation_ids[operation_id] != identity:
+            errors.append(f"{label}: shared operation_id has contradictory operation semantics")
+        else:
+            operation_ids[operation_id] = identity
     if proposal.get("source_decision_id") != decision.get("decision_id"):
         errors.append(f"{label}: operation source_decision_id is not exact")
     action_count = 0
@@ -1307,7 +1312,7 @@ def validate_audit(
         errors.append("audit decisions contain blank or duplicate obligation IDs")
     if set(decisions) != set(obligations):
         errors.append("audit decisions must cover every obligation exactly once")
-    operation_ids: set[str] = set()
+    operation_ids: dict[str, str] = {}
     for obligation_id, obligation in obligations.items():
         decision = decisions.get(obligation_id)
         if not decision:

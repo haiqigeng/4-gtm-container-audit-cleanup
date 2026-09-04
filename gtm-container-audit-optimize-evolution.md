@@ -1862,3 +1862,41 @@ with complete target/prose consistency. No schema, validator or workflow stage
 was added, and no in-flight runtime changed. Skill validation and whitespace
 checks pass. The complete repaired Audit B remains pending; the local guidance
 change does not itself prove that repair or qualify a release.
+
+### 2026-09-04 — Indivisible shared-operation ownership fix
+
+Audit B repaired 64 more records using distinct action ownership, then identified
+a genuine indivisible case: obligations `OBL-05-10AB9C0805B2DF7C` and
+`OBL-05-23591F70D7FE1CFE` both require deletion of unused variable 1719. There
+are no consumers to remap, and moving an unrelated folder action into either
+finding would manufacture ownership. The singleton actionable-profile rule was
+therefore insufficient. The old locked package and its authored work are retained;
+it is not declared validated or silently rebound to a different runtime.
+
+Reused the existing operation IDs and compact profiles/overrides to support one
+exact operation shared by multiple separately validated obligations. Removed the
+singleton restriction. The complete normalized operation meaning must match,
+including actions, dependencies, target/explanation, decision class, priority
+and confidence; only source provenance and the recomputed action digest differ.
+Source application validates the shared operation once. Existing synthesis keeps
+all contributing canonical decision IDs and produces one operation. Its former
+action-hash-only merge now compares complete meaning and no longer silently
+unions dependencies or keeps the first conflicting metadata. Different IDs do
+not excuse duplicated actions. No new stage, compatibility path, dependency or
+production repair framework was introduced.
+
+Updated entrypoint, workflow, command guidance, acceptance and forward-test
+references coherently. Focused regressions cover profile/override sharing,
+individual citations and semantic completeness, conflicting source metadata,
+indivisible deletion, stale action hashes, different-ID duplicates, target
+validation, canonical sealing and delivery mapping. Both findings remain visible
+with one recommendation and a primary Audit area filter. An independent product-
+engineering review found no actionable issue within this fix and assessed it as
+consistent with all seven AGENTS rules; it did not certify the whole release.
+
+The full suite passed 237 tests in 154.657 seconds with the bundled workbook
+runtime. The final additional source-metadata and canonical/delivery assertions
+also passed in the worker's seven-test focused run. Ruff, skill validation and
+Git whitespace checks pass. Runtime qualification, real-container comparisons,
+final reviews, publication, installation and installed-release acceptance remain
+unfinished.

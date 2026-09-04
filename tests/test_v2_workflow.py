@@ -846,7 +846,7 @@ class V2WorkflowTests(unittest.TestCase):
                     apply_plan(audit_path.parent, plan_path)
                 self.assertEqual(before, audit_path.read_bytes())
 
-    def test_audit_plan_requires_exact_complete_groups_and_singleton_actions(self) -> None:
+    def test_audit_plan_requires_exact_complete_groups(self) -> None:
         self.export.write_text(
             json.dumps(actionable_priority_export()), encoding="utf-8"
         )
@@ -855,20 +855,9 @@ class V2WorkflowTests(unittest.TestCase):
         plan_path = write_fixture_audit_plan(self.package, "audit-a")
         audit_bundle = self.package / "audit-bundles" / "audit-a"
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        removed_candidate_id = plan["decision_profiles"][0]["candidate_group_ids"].pop()
+        plan["decision_profiles"][0]["candidate_group_ids"].pop()
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "leaves obligations unassigned"):
-            apply_plan(audit_bundle, plan_path)
-
-        plan["decision_profiles"][0]["candidate_group_ids"].append(removed_candidate_id)
-        multi_obligation_profile = max(
-            plan["decision_profiles"], key=lambda row: len(row["candidate_group_ids"])
-        )
-        multi_obligation_profile["decision"]["decision_class"] = (
-            "correct_but_materially_non_optimal"
-        )
-        plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "actionable decision profile must resolve to one"):
             apply_plan(audit_bundle, plan_path)
 
     def test_audit_plan_rejects_changed_authoring_contract(self) -> None:

@@ -220,9 +220,11 @@ must split from a candidate. The applicator expands profiles and proves every
 obligation is assigned exactly once. Every candidate names its exact obligation
 IDs and may share one decision only when the criteria assessment, target,
 preserved distinctions, next step, and evidence meaning are genuinely identical.
-Put each actionable operation in a profile or override that resolves to exactly
-one obligation because its operation and target are unique. Candidate membership
-is locked; profiles and overrides contain the nested decision. Use the
+An exact shared operation may use one OP-* ID across multiple obligations under
+the workflow's shared-operation rule; each obligation keeps its own evidence and
+coverage validation. Author a shared profile or override once when its assessment
+fits all members. Candidate membership is locked; profiles and overrides contain
+the nested decision. Use the
 case-sensitive priority and confidence values in `authoring_contract`. An
 actionable decision includes the declared authored `operation_proposal`. This
 includes an uppercase `operation_id` matching the exact pattern and example in
