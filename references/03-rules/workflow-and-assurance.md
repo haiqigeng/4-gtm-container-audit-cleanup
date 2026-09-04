@@ -115,6 +115,14 @@ loader/destination families, custom-code behaviour, and final naming before
 sealing. Generated candidates are neutral prompts, not verdicts or limits on
 source-based discovery; preserve justified variants and true owner decisions.
 
+Before sealing, check references to proposed operations in decision prose,
+discovery decisions, operation explanations and global conclusions against the
+audit's complete final operation set. After consolidating operations, update an
+affected reference to the surviving operation only when its scope supports the
+claim; otherwise correct the owning assessment. Distinguish proposed-operation
+references from source names and historical quotations. This source-local closure
+preserves peer independence; reconciliation still checks the combined selected set.
+
 An absent authored operation is unfinished agent work. It does not turn a known
 static repair into an external owner decision. Separate independently actionable
 defects from unrelated ownership questions within the same object or family;
@@ -176,6 +184,9 @@ agent context bound to the prior seal and archives the previous
 artifact and seal in append-only history.
 Its audit artifact cites the current prior audit-seal hash while retaining the
 immutable source checkpoint and bundle identity. A
+maintained plan application projects the explicit amendment parent and fresh
+agent/context labels after validating them before writes; generated audit JSON
+is not a manual provenance-editing surface. A
 seal also binds an exact immutable snapshot of the work-unit manifest and every
 completed family-shard file used for that audit version. Current and historical
 audits are always revalidated against their own sequence-addressed snapshots, so
@@ -266,6 +277,18 @@ and the neutral check's allowed citations in its own verification fields. A
 required neutral review may instead reject or narrow a proposal to a supported
 non-actionable decision. Never retain an inadequate claim just to pass the gate;
 report the exact owning decision that requires repair.
+
+In an authored neutral unit row, explicitly select the present `audit-a` or
+`audit-b` decision with `selected_audit_id`; the finalizer copies that exact
+comparison's complete sealed payload. Leave `non_actionable_decision` empty.
+For supported non-actionable narrowing/rejection, leave the selector empty and
+author `non_actionable_decision` with canonical semantic fields and allowed
+`evidence_citations` only. Operations and extra fields are not accepted there.
+Exactly one alternative is required. Verification rationale and citations remain
+separate from the chosen decision. Unit rows do not accept manually authored
+`canonical_decision`. Finalization and sealed-result reconstruction resolve the
+same explicit choice and verify the expanded payload against it. This replaces
+copying, not evidence review, disagreement resolution or cross-record checks.
 
 When directly editing source reconciliation JSON, use bounded
 patches anchored to exact row IDs. After each batch, check JSON parsing, complete

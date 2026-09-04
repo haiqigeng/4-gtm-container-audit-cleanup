@@ -71,6 +71,13 @@ after that sentence is left to the agent.
 Follow one workflow only. There is no three-run, one-audit, reduced-depth,
 same-context, legacy-workbook, or alternate-XLSX fallback.
 
+A delegated stage is complete only when its required output passes the applicable
+validation and sealing gates. If an assigned agent returns with unfinished work
+and no concrete blocker, the coordinator resumes that agent's retained context
+from the last valid step, preserving completed work and the stage's input and
+independence boundaries. Report a genuine capability, evidence, or authorization
+blocker when it prevents the next required step.
+
 One normal execution has one comprehensive source-audit pass. The two independent
 audits are complementary safeguards within that pass, not successive optimisation
 cycles. Do not re-audit simulated targets for further opportunities. Repeated runs
@@ -258,11 +265,8 @@ Record lightweight provenance for each audit: an agent label, a context label,
 the locked input-bundle hash, and the sealed output hash. Audit A and Audit B
 must use distinct agent and context labels.
 
-Each audit assignment ends at its validated seal. Use the existing checkpoint,
-manifest and isolated plan to continue across work units and context boundaries.
-An unfinished unit or large remaining queue means continue from the last valid
-step; report a blocker only when a concrete missing capability, evidence or
-authorization actually prevents that next step. Keep partial work for resumption.
+Use the existing checkpoint, manifest and isolated plan to continue across audit
+work units and context boundaries.
 
 Use deterministic whole-family work units when the bundle requires sharding.
 Partition transversal shared-infrastructure obligations by audit area into
@@ -325,7 +329,15 @@ and completes every declared neutral-verification row sequentially in the same
 context, then records its identity and `complete` status in the completion file.
 It does not edit comparison rows: non-neutral agreements are deterministically
 prefilled from sealed audit decisions, and each neutral comparison is projected
-from its completed verification. Finalisation reconstructs the manifest and unit
+from its completed verification. In each neutral row, select `audit-a` or `audit-b`
+in `selected_audit_id` to retain that row's complete sealed source decision, leaving
+`non_actionable_decision` empty. For a supported non-actionable narrowing or
+rejection, leave the selection empty and author `non_actionable_decision` using
+canonical semantic fields and exact allowed `evidence_citations`, with no operation
+or extra fields. Populate exactly one alternative. Write the verification's own
+citations and rationale separately. The finalizer expands the selected payload;
+do not copy or edit `canonical_decision` in authored unit rows.
+Finalisation reconstructs the manifest and unit
 membership, merges every row exactly once, validates the complete semantic
 result, and only then writes and seals the canonical reconciliation files.
 
@@ -433,6 +445,12 @@ candidate only; type, shape, source, timing, consent, route, destination, consum
 and ownership compatibility determine the verdict.
 
 ## Repair And Completion
+
+For a source amendment, pass `--amendment-of`, `--agent-id` and `--context-id`
+to the existing plan `apply` command. It checks the current parent and fresh
+identity before writes and projects provenance into the generated audit. Author
+the isolated plan, not the large generated audit JSON; validate and seal with
+that same parent hash using the documented commands.
 
 Sealed semantic artifacts are immutable. An amendment uses a fresh agent context
 bound to the prior seal in the audit artifact, preserves

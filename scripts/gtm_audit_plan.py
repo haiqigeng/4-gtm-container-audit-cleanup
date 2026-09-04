@@ -32,8 +32,11 @@ from gtm_audit_work_units import (
     work_unit_identity_hash,
 )
 from gtm_cleanroom_audit import (
+    AUDIT_IDS,
     OPERATION_ID_PATTERN,
     OPERATION_TEXT_FIELDS,
+    _agent_context_errors,
+    _sealed_audit_record_errors,
     decision_obligation_alignment_errors,
     operation_proposal_errors,
 )
@@ -399,12 +402,69 @@ def _author_decisions(
     return authored, len(as_list(plan.get("decision_profiles"))) + len(as_list(plan.get("obligation_overrides"))), errors
 
 
-def apply_plan(bundle: Path, plan_path: Path) -> dict[str, Any]:
+def _amendment_provenance(
+    bundle: Path,
+    audit: dict[str, Any],
+    amendment_of: str | None,
+    agent_id: str | None,
+    context_id: str | None,
+) -> dict[str, str]:
+    package = bundle.parent.parent
+    audit_id = str(audit.get("audit_id") or "")
+    seal_path = package / "audit-seals" / f"{audit_id}.json"
+    values = (amendment_of, agent_id, context_id)
+    if all(value is None for value in values) and not seal_path.exists():
+        return {}
+    if any(not isinstance(value, str) or not value.strip() for value in values):
+        raise ValueError("amendment apply requires --amendment-of, --agent-id and --context-id")
+    if audit_id not in AUDIT_IDS or bundle != package / "audit-bundles" / audit_id:
+        raise ValueError("amendment must use its exact audit bundle")
+    if not seal_path.is_file():
+        raise ValueError("amendment requires a current prior audit seal")
+    if (package / "canonical-record-seal.json").exists():
+        raise ValueError("source-audit amendment is closed after canonical sealing")
+    previous = _read_json(seal_path)
+    if amendment_of != previous.get("audit_seal_sha256"):
+        raise ValueError("amendment must cite the current audit seal")
+    errors = _sealed_audit_record_errors(package, audit_id)
+    provenance = {
+        "amendment_parent_seal_sha256": amendment_of,
+        "independent_agent_id": agent_id.strip(),
+        "independent_context_id": context_id.strip(),
+    }
+    manifest = _read_json(bundle / "bundle-manifest.json")
+    errors.extend(_agent_context_errors(
+        {**audit, **provenance},
+        str(manifest.get("bundle_manifest_sha256") or ""),
+        "audit amendment",
+    ))
+    identities = [previous, _read_json(package / "scan-assurance.json")]
+    for peer in AUDIT_IDS:
+        peer_seal = package / "audit-seals" / f"{peer}.json"
+        if peer != audit_id and peer_seal.is_file():
+            identities.append(_read_json(peer_seal))
+    for field in ("independent_agent_id", "independent_context_id"):
+        if any(provenance[field] == str(row.get(field) or "").strip() for row in identities):
+            errors.append(f"audit amendment requires a fresh {field}")
+    if errors:
+        raise ValueError("amendment provenance gate failed: " + "; ".join(errors))
+    return provenance
+
+
+def apply_plan(
+    bundle: Path,
+    plan_path: Path,
+    *,
+    amendment_of: str | None = None,
+    agent_id: str | None = None,
+    context_id: str | None = None,
+) -> dict[str, Any]:
     bundle = bundle.resolve()
     package = bundle.parent.parent
     require_safe_package_root(package)
     audit = _read_json(bundle / "audit.json")
     audit_id = str(audit.get("audit_id") or "")
+    provenance = _amendment_provenance(bundle, audit, amendment_of, agent_id, context_id)
     plan_path = _audit_plan_path(package, audit_id, plan_path)
     plan = _read_json(plan_path)
     errors = _plan_errors(
@@ -523,6 +583,7 @@ def apply_plan(bundle: Path, plan_path: Path) -> dict[str, Any]:
         "decision_authoring_method": "independent_agent_review",
         "peer_findings_received_before_completion": False,
     }
+    audit.update(provenance)
     write_json(bundle / "audit.json", audit)
     return {
         "status": "pass",
@@ -543,11 +604,19 @@ def main() -> int:
     apply = subparsers.add_parser("apply")
     apply.add_argument("bundle", type=Path)
     apply.add_argument("plan", type=Path)
+    apply.add_argument("--amendment-of")
+    apply.add_argument("--agent-id")
+    apply.add_argument("--context-id")
     args = parser.parse_args()
     if args.command == "scaffold":
         result = scaffold_plan(args.bundle, args.output)
     else:
-        result = apply_plan(args.bundle, args.plan)
+        result = apply_plan(
+            args.bundle, args.plan,
+            amendment_of=args.amendment_of,
+            agent_id=args.agent_id,
+            context_id=args.context_id,
+        )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

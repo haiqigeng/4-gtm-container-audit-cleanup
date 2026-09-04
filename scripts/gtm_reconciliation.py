@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,8 @@ MAX_RECONCILIATION_UNIT_COMPARISONS = 30
 NEUTRAL_MUTABLE_FIELDS = {
     "status",
     "canonical_decision",
+    "selected_audit_id",
+    "non_actionable_decision",
     "evidence_citations",
     "verification_rationale",
     "neutral_bundle_manifest_sha256",
@@ -88,7 +91,14 @@ def _reconciliation_unit_payloads(
             "comparison_ids": comparison_ids,
             "verification_ids": verification_ids,
             "comparisons": rows,
-            "verifications": [verification_by_id[value] for value in verification_ids],
+            "verifications": [
+                {
+                    key: value
+                    for key, value in verification_by_id[identity].items()
+                    if key != "canonical_decision"
+                }
+                for identity in verification_ids
+            ],
         }
         units.append(unit)
         records.append(
@@ -268,19 +278,20 @@ def _comparison_row(
         )
     else:
         classification = comparison_classification(left, right)
-        reasons = material_verification_reasons(
-            obligation, left, right, classification
-        )
+        reasons = material_verification_reasons(obligation, left, right, classification)
         present = left
-    verification_id = "NV-" + stable_hash(
-        {
-            "obligation_id": obligation_id,
-            "classification": classification,
-            "reasons": reasons,
-            "obligation_sha256": obligation.get("obligation_sha256"),
-        },
-        16,
-    ).upper()
+    verification_id = (
+        "NV-"
+        + stable_hash(
+            {
+                "obligation_id": obligation_id,
+                "classification": classification,
+                "reasons": reasons,
+                "obligation_sha256": obligation.get("obligation_sha256"),
+            },
+            16,
+        ).upper()
+    )
     requires_neutral = bool(reasons)
     comparison = {
         "comparison_id": "REC-" + stable_hash(obligation_id, 16).upper(),
@@ -291,9 +302,11 @@ def _comparison_row(
         "audit_mechanism": obligation.get("audit_mechanism")
         or present.get("audit_mechanism"),
         "fact_kind": obligation.get("fact_kind") or present.get("fact_kind"),
-        "subject_keys": obligation.get("subject_keys") or present.get("subject_keys", []),
+        "subject_keys": obligation.get("subject_keys")
+        or present.get("subject_keys", []),
         "family_ids": obligation.get("family_ids") or present.get("family_ids", []),
-        "candidate_id": obligation.get("candidate_id") or present.get("candidate_id", ""),
+        "candidate_id": obligation.get("candidate_id")
+        or present.get("candidate_id", ""),
         "applicability": obligation.get("applicability")
         or present.get("applicability", "applicable"),
         "source_coordinates": obligation.get("source_coordinates")
@@ -316,9 +329,7 @@ def _comparison_row(
         ]
         canonical = min(
             candidates,
-            key=lambda decision: stable_hash(
-                canonical_semantic_payload(decision), 64
-            ),
+            key=lambda decision: stable_hash(canonical_semantic_payload(decision), 64),
         )
         comparison.update(
             {
@@ -358,6 +369,8 @@ def _comparison_row(
         "canonical_decision": {},
         "evidence_citations": [],
         "verification_rationale": "",
+        "selected_audit_id": "",
+        "non_actionable_decision": {},
     }
     queue["neutral_bundle_manifest_sha256"] = neutral_bundle_manifest_sha256(queue)
     return comparison, queue
@@ -553,6 +566,68 @@ def scaffold_reconciliation(package_dir: Path) -> dict[str, Any]:
     }
 
 
+def _resolve_neutral_decision(
+    row: dict[str, Any], comparison: dict[str, Any]
+) -> dict[str, Any]:
+    """Resolve an explicit row-local choice without authoring semantic content."""
+    selected = row.get("selected_audit_id")
+    narrowed = row.get("non_actionable_decision")
+    if not isinstance(selected, str) or not isinstance(narrowed, dict):
+        raise ValueError("neutral selection requires a string and a decision object")
+    if bool(selected) == bool(narrowed):
+        raise ValueError(
+            "neutral result requires exactly one selected audit or non-actionable decision"
+        )
+    if selected:
+        candidate = comparison["audit_decisions"].get(selected)
+        if (
+            selected not in AUDIT_IDS
+            or not isinstance(candidate, dict)
+            or not candidate
+        ):
+            raise ValueError(
+                "neutral selection must name a present audit decision in this comparison"
+            )
+        return copy.deepcopy(candidate)
+    if set(narrowed) - {*CANONICAL_DECISION_FIELDS, "evidence_citations"}:
+        raise ValueError(
+            "non-actionable decision contains undeclared fields or operations"
+        )
+    if narrowed.get("decision_class") not in (
+        "justified_as_is",
+        "owner_decision",
+        "container_evidence_limit",
+        "not_applicable",
+    ):
+        raise ValueError("neutral narrowing must be non-actionable")
+    if any(
+        not isinstance(value, str)
+        for key, value in narrowed.items()
+        if key in CANONICAL_DECISION_FIELDS
+    ):
+        raise ValueError(
+            "non-actionable decision prose and classifications must be strings"
+        )
+    citations = narrowed.get("evidence_citations")
+    if (
+        not isinstance(citations, list)
+        or any(not isinstance(value, str) or not value.strip() for value in citations)
+        or len(citations) != len(set(citations))
+    ):
+        raise ValueError(
+            "non-actionable decision citations must be a list of distinct non-blank strings"
+        )
+    allowed = set(row.get("allowed_evidence_citations") or [])
+    if set(citations) - allowed or (allowed and not citations):
+        raise ValueError(
+            "non-actionable decision citations must use allowed_evidence_citations"
+        )
+    errors = semantic_contract_errors(narrowed, "neutral narrowing")
+    if errors:
+        raise ValueError("; ".join(errors))
+    return copy.deepcopy(narrowed)
+
+
 def _merge_reconciliation_units(
     package_dir: Path,
     expected_reconciliation: dict[str, Any],
@@ -590,7 +665,9 @@ def _merge_reconciliation_units(
         unit = _read_json(unit_root / str(record["filename"]))
         if set(unit) != set(expected_unit):
             raise ValueError(f"{record['unit_id']}: work-unit schema changed")
-        if any(unit.get(field) != expected_unit.get(field) for field in identity_fields):
+        if any(
+            unit.get(field) != expected_unit.get(field) for field in identity_fields
+        ):
             raise ValueError(f"{record['unit_id']}: work-unit identity changed")
         unit_comparisons = as_list(unit.get("comparisons"))
         unit_verifications = as_list(unit.get("verifications"))
@@ -611,7 +688,23 @@ def _merge_reconciliation_units(
                 f"{record['unit_id']}: deterministic comparison rows changed"
             )
         comparisons.extend(unit_comparisons)
-        verifications.extend(unit_verifications)
+        comparison_by_verification = {
+            row["neutral_verification_id"]: row
+            for row in expected_unit["comparisons"]
+            if row["neutral_verification_required"]
+        }
+        for authored, expected in zip(
+            unit_verifications, expected_unit["verifications"], strict=True
+        ):
+            if not isinstance(authored, dict) or set(authored) != set(expected):
+                raise ValueError(
+                    f"{record['unit_id']}: neutral authoring schema changed"
+                )
+            expanded = dict(authored)
+            expanded["canonical_decision"] = _resolve_neutral_decision(
+                authored, comparison_by_verification[expected["verification_id"]]
+            )
+            verifications.append(expanded)
     completion = _read_json(package_dir / RECONCILIATION_COMPLETION_FILE)
     if set(completion) != {
         "kind",
@@ -621,9 +714,10 @@ def _merge_reconciliation_units(
         "status",
     }:
         raise ValueError("reconciliation completion schema changed")
-    if completion.get("kind") != "gtm_reconciliation_completion" or completion.get(
-        "schema_version"
-    ) != 1:
+    if (
+        completion.get("kind") != "gtm_reconciliation_completion"
+        or completion.get("schema_version") != 1
+    ):
         raise ValueError("reconciliation completion identity changed")
     verification_by_id = {
         str(row.get("verification_id") or ""): row
@@ -641,9 +735,7 @@ def _merge_reconciliation_units(
                 projected.update(
                     {
                         "status": verification.get("status"),
-                        "canonical_decision": verification.get(
-                            "canonical_decision"
-                        ),
+                        "canonical_decision": verification.get("canonical_decision"),
                         "reconciliation_rationale": verification.get(
                             "verification_rationale"
                         ),
@@ -861,9 +953,7 @@ def finalize_reconciliation(
         for row in as_list(reconciliation.get("comparisons"))
         if isinstance(row, dict)
     ]
-    supplied = {
-        str(row.get("comparison_id") or ""): row for row in supplied_rows
-    }
+    supplied = {str(row.get("comparison_id") or ""): row for row in supplied_rows}
     if set(supplied) != set(expected_rows) or len(supplied) != len(supplied_rows):
         errors.append("reconciliation must cover the exact comparison set")
     neutral_by_id = {
@@ -934,18 +1024,37 @@ def finalize_reconciliation(
             if not verification:
                 errors.append(f"{label}: required neutral verification is missing")
             elif canonical != verification.get("canonical_decision"):
-                errors.append(f"{label}: canonical decision differs from neutral result")
+                errors.append(
+                    f"{label}: canonical decision differs from neutral result"
+                )
+            if verification:
+                try:
+                    selected_decision = _resolve_neutral_decision(
+                        verification, expected
+                    )
+                    if canonical != selected_decision:
+                        errors.append(
+                            f"{label}: canonical decision differs from explicit neutral selection"
+                        )
+                except ValueError as exc:
+                    errors.append(f"{label}: {exc}")
         elif not canonical_matches_allowed(canonical, source_decisions):
-            errors.append(f"{label}: canonical decision introduces a new semantic choice")
+            errors.append(
+                f"{label}: canonical decision introduces a new semantic choice"
+            )
         if not canonical_matches_allowed(
             canonical,
             source_decisions,
             allow_neutral_rejection=bool(row.get("neutral_verification_required")),
         ):
-            errors.append(f"{label}: actionable target was not proposed by either audit")
+            errors.append(
+                f"{label}: actionable target was not proposed by either audit"
+            )
         rationale = row.get("reconciliation_rationale")
         if not isinstance(rationale, str) or not rationale.strip():
-            errors.append(f"{label}: reconciliation rationale must be a non-blank string")
+            errors.append(
+                f"{label}: reconciliation rationale must be a non-blank string"
+            )
         canonical_rows.append(
             {
                 "canonical_decision_id": "CD-" + comparison_id.removeprefix("REC-"),
@@ -984,9 +1093,7 @@ def finalize_reconciliation(
         "kind": "gtm_reconciled_semantic_record",
         "schema_version": 1,
         "source_sha256": expected_reconciliation.get("source_sha256"),
-        "canonical_scan_sha256": expected_reconciliation.get(
-            "canonical_scan_sha256"
-        ),
+        "canonical_scan_sha256": expected_reconciliation.get("canonical_scan_sha256"),
         "obligation_ledger_sha256": expected_reconciliation.get(
             "obligation_ledger_sha256"
         ),
@@ -1026,9 +1133,7 @@ def finalize_reconciliation(
         "reconciliation_file_sha256": file_sha256(
             reconciliation_path or package_dir / RECONCILIATION_FILE
         ),
-        "neutral_file_sha256": file_sha256(
-            neutral_path or package_dir / NEUTRAL_FILE
-        ),
+        "neutral_file_sha256": file_sha256(neutral_path or package_dir / NEUTRAL_FILE),
         "independent_agent_id": record.get("independent_agent_id"),
         "independent_context_id": record.get("independent_context_id"),
         "input_manifest_sha256": record.get("input_manifest_sha256"),

@@ -64,6 +64,12 @@
   conflicts, and evidence-boundary differences without voting.
 - That fresh reconciliation agent performs neutral review for every mandatory
   material class and records its labels plus exact locked input/output hashes.
+- Each neutral review explicitly selects one present source audit decision or
+  authors one supported non-actionable narrowing, never both. The selected full
+  payload is mechanically expanded and checked against its sealed row-local source
+  during finalization and sealed-result reconstruction. Narrowing has a closed
+  semantic-field/citation schema with no operations; applicability and source-known
+  repairs remain enforced. This removes copying, not semantic review or coverage.
 
 ## Target Validation
 

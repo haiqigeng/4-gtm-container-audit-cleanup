@@ -221,15 +221,15 @@ downstream outputs must be invalidated, use the focused repair procedure below
 and apply these amendment commands in its working copy. Never edit a sealed
 result in place or expose the other audit to the amendment owner.
 
-For an amendment, apply the corrected plan first. Then edit only the candidate
-`audit-package/audit-bundles/<audit-id>/audit.json`: set
-`audit.amendment_parent_seal_sha256` to the current seal hash and supply fresh
-agent/context labels bound to the unchanged audit bundle. Do not hand-edit
-`audit-package/audits/<audit-id>.json`, seals, or snapshots: they retain the sealed
-predecessor until the maintained seal command archives it and installs the
-validated candidate. Validate and seal with the same parent hash:
+For an amendment, author only the corrected isolated plan. Apply it with the
+current parent seal and fresh agent/context labels; the maintained applicator
+validates provenance before writes and projects those fields into its generated
+candidate. The generated audit JSON needs no manual edit. Sealed audits, seals
+and snapshots retain the predecessor until the seal command archives it and
+installs the validated candidate. Validate and seal with the same parent hash:
 
 ```powershell
+python -B scripts/gtm_audit_plan.py apply audit-package/audit-bundles/audit-a audit-package/audit-scratch/audit-a/audit-plan.json --amendment-of <current-seal-hash> --agent-id <fresh-agent-label> --context-id <fresh-context-label>
 python -B scripts/gtm_cleanroom_audit.py validate audit-package audit-a --amendment-of <current-seal-hash>
 python -B scripts/gtm_cleanroom_audit.py seal audit-package audit-a --amendment-of <current-seal-hash>
 ```
@@ -293,6 +293,21 @@ bounded deterministic comparison rows and matching neutral-verification rows.
 Edit only the neutral-verification rows. Non-neutral comparison decisions are
 prefilled from the sealed audits, and finalisation projects each completed neutral
 decision into its owning comparison so the same judgment is never authored twice.
+For each neutral row, author exactly one outcome:
+
+- `selected_audit_id`: `audit-a` or `audit-b`, naming a present decision in this
+  exact comparison; leave `non_actionable_decision` as `{}`. Its entire sealed
+  payload is copied mechanically, including identity, prose, citations and actions.
+- `non_actionable_decision`: a supported narrowing/rejection using only canonical
+  semantic fields and `evidence_citations`; leave `selected_audit_id` as `""`.
+  Use the class-required fields and exact allowed citations. No operation or extra
+  fields are allowed. Applicability and source-known repair requirements still apply.
+
+Complete the row's verification citations, rationale and status independently of
+that choice. Do not author `canonical_decision` in units; it is an expanded output
+verified again when the sealed result is reconstructed. All queued reviews remain
+required, including differences in prose and all material-risk cases.
+
 Complete
 `reconciliation-completion.json` with the fresh agent/context labels and status
 `complete`. Every neutral row includes the complete locked

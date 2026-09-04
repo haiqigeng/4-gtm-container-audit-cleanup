@@ -491,17 +491,11 @@ def complete_base_reconciliation(
         unit_path = unit_root / record["filename"]
         unit = json.loads(unit_path.read_text(encoding="utf-8"))
         for row in unit["verifications"]:
-            comparison = next(
-                item
-                for item in unit["comparisons"]
-                if item["neutral_verification_id"] == row["verification_id"]
-            )
-            decision = copy.deepcopy(comparison["audit_decisions"]["audit-a"])
             allowed = list(row.get("allowed_evidence_citations") or [])
             row.update(
                 {
                     "status": "complete",
-                    "canonical_decision": decision,
+                    "selected_audit_id": "audit-a",
                     "evidence_citations": allowed[:1],
                     "verification_rationale": (
                         "The locked record directly supports this bounded conclusion."
@@ -1311,7 +1305,6 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(canonical_matches_allowed(copy.deepcopy(source), [source]))
         self.assertFalse(canonical_matches_allowed(invented, [source]))
 
-
     def run_to_editorial(self) -> None:
         build_package(self.export, self.package)
         complete_checkpoint(self.package, "audit-a", "fixture-a-context-001")
@@ -2028,7 +2021,6 @@ class V2WorkflowTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, expected):
                     complete_base_reconciliation(package, **kwargs)
 
-
     def test_source_neutral_citations_respect_empty_and_nonempty_allowlists(self) -> None:
         coordinate = "$.containerVersion.tag[0]"
         invented = "invented:$.not_evidence"
@@ -2116,7 +2108,6 @@ class V2WorkflowTests(unittest.TestCase):
                 row["allowed_evidence_citations"],
             )
 
-
     def test_editorial_artifact_has_no_agent_context_identity(self) -> None:
         self.run_actionable_to_editorial()
         editorial_path = self.package / "delivery" / "editorial.json"
@@ -2134,7 +2125,6 @@ class V2WorkflowTests(unittest.TestCase):
                     validate_editorial(self.package),
                 )
         editorial_path.write_bytes(original)
-
 
     def test_complete_static_workflow_reaches_sealed_canonical_record(self) -> None:
         self.run_to_editorial()
@@ -2286,7 +2276,9 @@ class V2WorkflowTests(unittest.TestCase):
     def test_reconciliation_projects_neutral_result_without_duplicate_authoring(
         self,
     ) -> None:
-        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        self.export.write_text(
+            json.dumps(actionable_priority_export()), encoding="utf-8"
+        )
         build_package(self.export, self.package)
         complete_checkpoint(self.package, "audit-a", "neutral-projection-a")
         complete_checkpoint(self.package, "audit-b", "neutral-projection-b")
@@ -2309,9 +2301,314 @@ class V2WorkflowTests(unittest.TestCase):
                     verification["canonical_decision"], row["canonical_decision"]
                 )
                 self.assertEqual(
+                    row["audit_decisions"][verification["selected_audit_id"]],
+                    row["canonical_decision"],
+                )
+                self.assertEqual(
                     verification["verification_rationale"],
                     row["reconciliation_rationale"],
                 )
+
+    def test_neutral_selection_resolves_exact_present_source_decision(self) -> None:
+        candidates = {
+            "audit-a": {
+                "decision_id": "A",
+                "criteria_assessment": "Keep A",
+                "operation_proposal": {"operation_id": "OP-A"},
+            },
+            "audit-b": {
+                "decision_id": "B",
+                "criteria_assessment": "Keep B",
+                "evidence_citations": ["$.B"],
+            },
+        }
+        for selected in candidates:
+            result = reconciliation_module._resolve_neutral_decision(
+                {"selected_audit_id": selected, "non_actionable_decision": {}},
+                {"audit_decisions": candidates},
+            )
+            self.assertEqual(candidates[selected], result)
+            self.assertIsNot(candidates[selected], result)
+        one_sided = {
+            "audit_decisions": {"audit-a": {}, "audit-b": candidates["audit-b"]}
+        }
+        self.assertEqual(
+            candidates["audit-b"],
+            reconciliation_module._resolve_neutral_decision(
+                {"selected_audit_id": "audit-b", "non_actionable_decision": {}},
+                one_sided,
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "present audit decision"):
+            reconciliation_module._resolve_neutral_decision(
+                {"selected_audit_id": "audit-a", "non_actionable_decision": {}},
+                one_sided,
+            )
+
+    def test_neutral_selection_and_narrowing_have_one_closed_authored_choice(
+        self,
+    ) -> None:
+        narrowed = {
+            "decision_class": "justified_as_is",
+            "criteria_assessment": "Distinct scope.",
+            "priority": "None",
+            "confidence": "High",
+            "evidence_citations": ["$.scope"],
+        }
+        comparison = {"audit_decisions": {"audit-a": narrowed, "audit-b": narrowed}}
+        row = {
+            "selected_audit_id": "",
+            "non_actionable_decision": narrowed,
+            "allowed_evidence_citations": ["$.scope"],
+        }
+        self.assertEqual(
+            narrowed, reconciliation_module._resolve_neutral_decision(row, comparison)
+        )
+        invalid_rows = [
+            {**row, "selected_audit_id": "audit-a"},
+            {**row, "non_actionable_decision": {}},
+            {**row, "selected_audit_id": None},
+            {**row, "non_actionable_decision": []},
+            {**row, "selected_audit_id": "audit-c", "non_actionable_decision": {}},
+        ]
+        for field, value in (
+            ("decision_class", "defect"),
+            ("operation_proposal", {}),
+            ("unexpected", "injected"),
+            ("criteria_assessment", []),
+            ("evidence_citations", "$.scope"),
+            ("evidence_citations", [None]),
+            ("evidence_citations", ["$.scope", "$.scope"]),
+            ("evidence_citations", ["$.invented"]),
+            ("evidence_citations", []),
+            ("confidence", "invented"),
+            ("criteria_assessment", ""),
+        ):
+            invalid_rows.append(
+                {**row, "non_actionable_decision": {**narrowed, field: value}}
+            )
+        for invalid in invalid_rows:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                reconciliation_module._resolve_neutral_decision(invalid, comparison)
+
+    def test_neutral_selection_rejects_manual_copy_and_sealed_payload_substitution(
+        self,
+    ) -> None:
+        self.export.write_text(
+            json.dumps(actionable_priority_export()), encoding="utf-8"
+        )
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "selection-a")
+        complete_checkpoint(self.package, "audit-b", "selection-b")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(self.package)
+        self.assertEqual([], reconciliation_seal_errors(self.package))
+        unit_root = self.package / "reconciliation-units"
+        manifest = json.loads((unit_root / "manifest.json").read_text(encoding="utf-8"))
+        for item in manifest["units"]:
+            path = unit_root / item["filename"]
+            unit = json.loads(path.read_text(encoding="utf-8"))
+            if unit["verifications"]:
+                break
+        original = path.read_bytes()
+        unit["verifications"][0]["canonical_decision"] = {}
+        path.write_text(json.dumps(unit), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "neutral authoring schema"):
+            finalize_reconciliation(self.package)
+        path.write_bytes(original)
+        reconciliation_path = self.package / "reconciliation.json"
+        neutral_path = self.package / "neutral-verification.json"
+        reconciliation = json.loads(reconciliation_path.read_text(encoding="utf-8"))
+        neutral = json.loads(neutral_path.read_text(encoding="utf-8"))
+        verification = neutral["verifications"][0]
+        verification["canonical_decision"]["criteria_assessment"] = (
+            "Substituted retained claim."
+        )
+        comparison = next(
+            row
+            for row in reconciliation["comparisons"]
+            if row["neutral_verification_id"] == verification["verification_id"]
+        )
+        comparison["canonical_decision"] = copy.deepcopy(
+            verification["canonical_decision"]
+        )
+        neutral_path.write_text(json.dumps(neutral), encoding="utf-8")
+        reconciliation_path.write_text(json.dumps(reconciliation), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "explicit neutral selection"):
+            finalize_reconciliation(self.package, reconciliation_path, neutral_path)
+        self.assertTrue(
+            any(
+                "explicit neutral selection" in error
+                for error in reconciliation_seal_errors(self.package)
+            )
+        )
+
+    def test_reconciliation_narrowing_survives_sealing_and_enforces_class_fields(self) -> None:
+        self.export.write_text(json.dumps(actionable_priority_export()), encoding="utf-8")
+        build_package(self.export, self.package)
+        complete_checkpoint(self.package, "audit-a", "narrow-a")
+        complete_checkpoint(self.package, "audit-b", "narrow-b")
+        complete_audit(self.package, "audit-a", actionable_priority=True)
+        complete_audit(self.package, "audit-b", actionable_priority=True)
+        complete_base_reconciliation(self.package)
+        unit_root = self.package / "reconciliation-units"
+        manifest = json.loads((unit_root / "manifest.json").read_text(encoding="utf-8"))
+        found = None
+        for item in manifest["units"]:
+            path = unit_root / item["filename"]
+            unit = json.loads(path.read_text(encoding="utf-8"))
+            for row in unit["verifications"]:
+                if row["fact_kind"] == "explicit_firing_priority":
+                    found = (path, unit, row)
+                    break
+            if found:
+                break
+        self.assertIsNotNone(found)
+        path, unit, row = found
+        for decision_class in ("justified_as_is", "owner_decision", "container_evidence_limit"):
+            narrowed = {
+                "decision_class": decision_class,
+                "criteria_assessment": "The fixture retains its configured ordering pending confirmation.",
+                "priority": "None", "confidence": "High",
+                "current_behavior": "The fixture exports explicit priority 10.",
+                "consequence_or_benefit": "Confirm whether this ordering has an owner-approved purpose.",
+                "owner_question": "Is this explicit start order required?",
+                "evidence_boundary": "The fixture does not establish an owner-approved start order.",
+                "next_step": "Confirm the ordering requirement with its owner.",
+                "evidence_citations": row["allowed_evidence_citations"][:1],
+            }
+            row.update(selected_audit_id="", non_actionable_decision=narrowed)
+            path.write_text(json.dumps(unit), encoding="utf-8")
+            finalize_reconciliation(self.package)
+            self.assertEqual([], reconciliation_seal_errors(self.package))
+            saved = json.loads((self.package / "neutral-verification.json").read_text(encoding="utf-8"))
+            result = next(item for item in saved["verifications"]
+                          if item["verification_id"] == row["verification_id"])
+            self.assertEqual(narrowed, result["canonical_decision"])
+            self.assertEqual(row["verification_rationale"], result["verification_rationale"])
+            self.assertEqual(row["evidence_citations"], result["evidence_citations"])
+            required = {"owner_decision": "owner_question", "container_evidence_limit": "evidence_boundary"}.get(decision_class)
+            if required:
+                original = narrowed[required]
+                narrowed[required] = ""
+                path.write_text(json.dumps(unit), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, required):
+                    finalize_reconciliation(self.package)
+                narrowed[required] = original
+        narrowed["decision_class"] = "not_applicable"
+        path.write_text(json.dumps(unit), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "applicable obligation cannot be Not applicable"):
+            finalize_reconciliation(self.package)
+
+    def test_reconciliation_narrowing_cannot_suppress_source_known_repair(self) -> None:
+        payload = minimal_export()
+        payload["containerVersion"]["tag"] = [{
+            "tagId": "1", "name": "Custom HTML fixture", "type": "html",
+            "parameter": [
+                {"type": "TEMPLATE", "key": "html", "value": "<script>window.fixture=1;</script>"},
+                {"type": "BOOLEAN", "key": "supportDocumentWrite", "value": "true"},
+            ],
+        }]
+        self.export.write_text(json.dumps(payload), encoding="utf-8")
+        build_package(self.export, self.package)
+        ledger = json.loads((self.package / "obligation-ledger.json").read_text(encoding="utf-8"))
+        required = [row for row in ledger["obligations"] if
+                    row.get("evidence", {}).get("configuration_obligation", {}).get("source_known_repair")]
+        self.assertEqual(1, len(required))
+        obligation_id = required[0]["obligation_id"]
+        original_complete = complete_semantic_decision
+
+        def complete_known_repair(row):
+            original_complete(row)
+            if row["obligation_id"] != obligation_id:
+                return
+            row.update({field: "Disable unused document.write support." for field in CANONICAL_DECISION_FIELDS})
+            row.update(decision_class="correct_but_materially_non_optimal", priority="Low", confidence="High")
+            row["operation_proposal"] = {
+                "operation_id": "OP-DISABLE-DOCUMENT-WRITE",
+                "source_decision_id": row["decision_id"],
+                "operation_family": "Disable unused document.write support",
+                "exact_target_state": "Keep the HTML and disable unused document.write support.",
+                "preconditions": "Support is true and the HTML has no document.write call.",
+                "static_verification": "Only the support flag changes to false.",
+                "rollback": "Restore the support flag to true.", "depends_on": [],
+                **{field: [] for field in OPERATION_ACTION_FIELDS},
+                "changes": [{"object_key": "tag:1", "json_path": "$.parameter[1].value", "before": "true", "after": "false"}],
+            }
+
+        for audit_id in ("audit-a", "audit-b"):
+            complete_checkpoint(self.package, audit_id, "known-repair-" + audit_id)
+            with mock.patch(__name__ + ".complete_semantic_decision", side_effect=complete_known_repair):
+                complete_audit(self.package, audit_id)
+        complete_base_reconciliation(self.package)
+        self.assertEqual([], reconciliation_seal_errors(self.package))
+        unit_root = self.package / "reconciliation-units"
+        manifest = json.loads((unit_root / "manifest.json").read_text(encoding="utf-8"))
+        found = False
+        for item in manifest["units"]:
+            path = unit_root / item["filename"]
+            unit = json.loads(path.read_text(encoding="utf-8"))
+            for row in unit["verifications"]:
+                if row["obligation_id"] == obligation_id:
+                    row["selected_audit_id"] = ""
+                    row["non_actionable_decision"] = {
+                        "decision_class": "justified_as_is", "priority": "None", "confidence": "High",
+                        "criteria_assessment": "Unsupported retention of the known unused flag.",
+                        "evidence_citations": row["allowed_evidence_citations"][:1],
+                    }
+                    found = True
+                    path.write_text(json.dumps(unit), encoding="utf-8")
+            if found:
+                break
+        self.assertTrue(found)
+        with self.assertRaisesRegex(ValueError, "source-known configuration repair must be actionable"):
+            finalize_reconciliation(self.package)
+
+    def test_reconciliation_narrowing_preserves_source_counted_zero(self) -> None:
+        build_package(self.export, self.package)
+        original_complete = complete_semantic_decision
+
+        def distinguish_zero(row):
+            original_complete(row)
+            if row["applicability"] == "source_counted_zero":
+                row["criteria_assessment"] += " Independently confirmed empty inventory."
+
+        complete_checkpoint(self.package, "audit-a", "zero-narrow-a")
+        with mock.patch(__name__ + ".complete_semantic_decision", side_effect=distinguish_zero):
+            complete_audit(self.package, "audit-a")
+        complete_checkpoint(self.package, "audit-b", "zero-narrow-b")
+        complete_audit(self.package, "audit-b")
+        complete_base_reconciliation(self.package)
+        unit_root = self.package / "reconciliation-units"
+        manifest = json.loads((unit_root / "manifest.json").read_text(encoding="utf-8"))
+        found = None
+        for item in manifest["units"]:
+            path = unit_root / item["filename"]
+            unit = json.loads(path.read_text(encoding="utf-8"))
+            empty_ids = {row["neutral_verification_id"] for row in unit["comparisons"]
+                         if row["applicability"] == "source_counted_zero"}
+            for row in unit["verifications"]:
+                if row["verification_id"] in empty_ids:
+                    found = path, unit, row
+                    break
+            if found:
+                break
+        self.assertIsNotNone(found)
+        path, unit, row = found
+        row["selected_audit_id"] = ""
+        row["non_actionable_decision"] = {
+            "decision_class": "not_applicable", "priority": "None", "confidence": "High",
+            "criteria_assessment": "The locked inventory contains zero applicable objects.",
+            "evidence_citations": row["allowed_evidence_citations"][:1],
+        }
+        path.write_text(json.dumps(unit), encoding="utf-8")
+        finalize_reconciliation(self.package)
+        self.assertEqual([], reconciliation_seal_errors(self.package))
+        row["non_actionable_decision"]["decision_class"] = "justified_as_is"
+        path.write_text(json.dumps(unit), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "source-counted zero must be Not applicable"):
+            finalize_reconciliation(self.package)
 
     def test_reconciliation_rejects_changed_unit_membership_before_output(self) -> None:
         build_package(self.export, self.package)
@@ -2535,7 +2832,6 @@ class V2WorkflowTests(unittest.TestCase):
             ValueError, "differs from sealed source semantic reconstruction"
         ):
             validate_target(self.package)
-
 
     @unittest.skipUnless(
         os.environ.get("CODEX_NODE") and os.environ.get("CODEX_ARTIFACT_NODE_MODULES"),

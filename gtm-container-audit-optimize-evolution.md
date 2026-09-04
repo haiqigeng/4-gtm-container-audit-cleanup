@@ -1539,3 +1539,119 @@ seconds. Workbook-runtime preflight, release layout/reference checks, offline
 vendor-registry validation and Ruff also passed. This replaces the earlier
 207-test clean-export evidence for the current candidate; it does not replace
 the independent container evaluations, comparisons or installed-release test.
+
+### 2026-09-04 — Both original NVR audits sealed; fresh reconciliation started
+
+Audit A sealed all 1,283 obligations across 126 work units, reporting 232
+actionable findings, 185 owner decisions and 109 evidence limits. Audit B's
+previously sealed result reports 68 proposed operations. Counts do not establish
+which judgments are better. The original packaged reconciliation scaffold passed
+the combined seal/history verification and produced 1,283 comparisons in 43
+bounded units. A new independent reconciler now owns those units, with no cleaned
+container or previous comparison findings supplied.
+
+The generated comparison metadata classifies 722 agreements, 91 compatible
+complementary conclusions, 33 conflicting targets, 208 conflicting verdicts,
+17 different evidence boundaries and 212 one-sided findings. All 1,283 require
+neutral review under this locked implementation. Of these, 658 have only the
+`different_semantic_content` trigger: full canonical payload inequality, without
+another material-risk or disagreement trigger. This is observed authoring
+workload to assess during simplification, not proof that the differences are
+merely cosmetic or safe to ignore. Keep the live reconciliation's rules fixed;
+any supported general simplification needs separate validation.
+
+### 2026-09-04 — Consolidate delegated-stage continuation guidance
+
+The fresh reconciler returned after reading instructions, with no unit edits and
+explicitly no concrete blocker. The coordinator resumed that same context from
+the assigned unfinished step. No audit findings or source evidence changed.
+
+A separate product-engineering review supported moving the existing audit-only
+continuation rule into the shared workflow. Stage completion now explicitly
+means validated required output; an unfinished agent return without a genuine
+blocker resumes the retained context with its evidence and independence boundaries
+unchanged. Removed the superseded audit-specific paragraph while preserving its
+checkpoint/manifest/plan navigation. This adds no retry count, new stage, agent,
+permission or script. Skill validation and whitespace checks pass. Behavioral
+reliability remains to be demonstrated in the subsequent normal-use evaluation.
+
+### 2026-09-04 — Focused timer-record repair and reconciliation authoring work
+
+The resumed fresh reconciler saved eight reviews, then identified two exact
+source-owned defects: one timer repair's verification describes a second operation
+although the proposal is atomic; another operation changes a variable and a
+trigger while its rollback covers only the variable. It left those rows pending
+rather than silently rewriting accepted source payloads or dropping the repairs.
+Created a focused working successor preserving both sealed audits and source
+evidence. Separate fresh owners are preparing the two exact amendments; the
+coordinator will serialize their seals. The predecessor and its partial
+reconciliation remain unchanged for evidence-based reuse of unaffected reviews.
+
+A product-engineering review also approved replacing manual neutral-decision
+copying with explicit row-local source selection. The development implementation
+now authors either a present audit ID or a supported non-actionable decision,
+with separate verification rationale and citations. One local resolver projects
+the entire selected sealed payload and verifies it again during sealed-result
+reconstruction. Closed narrowing fields reject operations and unknown data; the
+existing applicability, source-known repair and semantic review gates remain.
+Full-content differences still require review. No new workflow stage, dependency
+or compatibility authoring path was added. Documentation and focused regression
+tests are updated; full-suite validation and independent diff review are pending.
+The live evaluation continues with its original locked runtime, not this draft.
+
+Both timer amendments now pass validation and have sequence-1 seals. Comparison
+against the immutable predecessor confirms only the two intended decision/operation
+verification or rollback fields changed; actions and all other decisions are
+unchanged. The repaired successor passed combined seal/history reconstruction and
+received a new reconciliation scaffold. A fresh reconciler owns resumption and
+may reuse the eight prior completed reviews only after matching their full inputs.
+
+Both amendment owners encountered malformed generated audit JSON during provenance
+editing. Coordinator reproduction exposed a patch-tool read failure reporting
+invalid base64 for the large JSON file. Restored only generated candidates from
+valid sealed predecessors, reapplied retained plans, and mechanically rewrote the
+three provenance fields with JSON round-trip equality for every other value.
+Normal validation and sealing then passed. This identifies a concrete need to
+avoid manual large-artifact provenance edits in the maintained amendment path;
+the one-off recovery is development evidence, not a new required production step.
+
+The selection-authoring draft passed all 213 tests with the workbook runtime in
+134.688 seconds. Independent diff review found no implementation defect, but
+requested end-to-end tests for supported narrowing, class-required owner/evidence
+fields, applicability and source-known repair constraints. Those tests remain
+required before this batch is considered complete.
+
+### 2026-09-04 — Complete the authoring/provenance simplification batch
+
+Added end-to-end narrowing tests covering supported retained, owner and evidence-
+limited decisions through finalization and seal reconstruction, class-required
+fields, both applicability directions, and a real synthetic Custom HTML
+source-known repair that cannot be suppressed. Independent review confirmed the
+previous coverage gap is closed with no residual issue in this scoped batch.
+
+The maintained plan applicator now accepts explicit amendment parent, agent and
+context flags, validates complete/fresh/current provenance before writes, and
+projects those fields while generating the audit. Initial application remains
+unchanged. Tests cover single-file and sharded amendments, normal validation and
+sealing without manual generated-JSON edits, invalid/stale/reused identities,
+closed canonical state, unchanged semantics and preserved semantic gates.
+Updated the instructions to use this command instead of manual large-file edits.
+
+The subsequent fresh reconciliation exposed two stale operation references in
+retained timer findings. Separate source owners corrected only those assessments
+to name their own existing atomic repairs. Sequence-2 seals and exact predecessor
+comparisons confirm no action or other decision changed. A new fresh reconciler
+is resuming the repaired successor; complete source audits were not repeated.
+
+Added source-local operation-reference closure guidance. A product-engineering
+review rejected a blocking prose regex: matching an OP-like token cannot reliably
+distinguish an actual proposal reference from a source name or historical quote.
+The semantic reviewer checks references against the final own-audit operation
+set, and reconciliation still checks its combined selected set. No heuristic
+validator, new linking schema or extra workflow stage was added.
+
+All 221 tests passed with the workbook runtime in 165.862 seconds. The release-
+complete coverage gate passes all 37 modules at 75.35% aggregate line/branch
+coverage, with 4,458 of 6,480 branches covered. Ruff, skill validation and whitespace
+checks pass. These are engineering and scoped-review results, not completion of
+the four container comparisons, final release review or installed-release test.
