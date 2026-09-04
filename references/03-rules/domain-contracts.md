@@ -61,6 +61,12 @@ semantics. The reusable-event-settings documentation above confirms this
 capability (consulted 2026-09-03); the choice of a useful group and its maintenance
 benefit remains an evidence-based audit judgment.
 
+Assess scoped settings reuse independently from unresolved route approval when
+the proposal preserves every recipient, effective value, event, destination,
+trigger, consent control and setup dependency. Keep the ownership question open
+for changes that actually depend on it; assess each compatible subgroup rather
+than accepting or rejecting reuse for the entire field-name family.
+
 A firing trigger defines occurrence; an exception/blocker suppresses eligibility
 when both match the same event. Explicit priority controls start order only among
 co-eligible tags. It does not wait for asynchronous completion. Remove explicit

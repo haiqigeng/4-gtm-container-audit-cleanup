@@ -2261,3 +2261,217 @@ and artifact dependencies and all passed (31.111 seconds), covering custom-code
 decision labels, workbook build/verification/delivery sealing, and French display
 binding/reimport. Thus all 238 tests executed successfully across the two runs.
 No runtime speedup percentage is claimed from these differently configured runs.
+
+Local commit `c518b26342233f5fbc42401683b0fcbbf0ef38bd` was packaged as
+`skill-c518b26`, version 2.2.1, 55 runtime files, clean source identity and tree
+`71f9f81999803b84be18e7ed1eaa658ca04b40b2af7389fae74ac4831f249302`.
+Declared identity and bundled workbook-runtime preflight both passed. This is a
+prepared development candidate, not an installed or published release; the active
+editorial pass remains bound to `skill-22e9b01`.
+
+### NVR workbook build and independent delivery review
+
+The editor reviewed all 1,524 rows and passed maintained editorial validation
+and sealing, seal `455f2a5b272c679f0f838cc8483f4ad14a2d1f9aca1594f31e0ce82bb9a759c1`.
+Build 000 produced the five-sheet workbook and five previews. Technical workbook
+verification passed; normalized workbook hash
+`034d9c573dc7f1a729e1b4c525c581b576a01640824b0f0b61fd87635104a965`.
+The main agent inspected all five previews. This was not a readability approval:
+some detail cells still expose dense structured prose or object inventories
+(for example Custom Code current behavior row 7). Independent fidelity and
+workbook-only reader reviewers were assigned separate locked bundles without
+these observations or each other's findings. Their results and final delivery
+seal remain pending; the workbook is not yet a qualified final delivery.
+
+Both build-000 reviews have now completed. Fidelity passed all 1,524 rows and
+the overview. The workbook-only reader returned `needs_revision`, with 14
+actionable issues: confirmed clipping of two overview blocks, indistinct action
+titles, repetitive or awkward prose, serialized configuration in visible
+findings, oversized consumer inventories and raw-payload notes, and ID-only
+expanded scope notes. The earlier reader runtime limitation was resolved; it is
+not an outstanding blocker. Filters, frozen headers and all 1,524 notes were
+confirmed. Detailed reading/rendering was sampled, not every possible viewport.
+
+The existing editor was resumed for a presentation-only amendment using the
+maintained parent-seal protocol, preserving editorial version 000, build 000 and
+canonical semantics. Builder/note representation issues remain coordinator-owned.
+Inspection confirms the builder uses fixed-height overview blocks and serializes
+whole technical-note payloads into comments; corrections must preserve exact
+technical recovery while making the human delivery usable. Delivery is not sealed.
+All fixes, tests and commits remain local until full release readiness is proven.
+
+The note usability correction is now assigned to a separate development worker
+(mapper/note-rendering scope only), while the retained editor handles prose. The
+coordinator replaced the builder/verifier's fixed overview preview endpoint with
+the last modeled overview cell plus two padding rows. Executed checks against
+both actual helper functions confirmed a 75-row overview renders through row 77,
+the current 60-row shape still ends at row 62, and detail previews stay bounded
+at row 30. Whitespace checks passed. This prevents the preview range from hiding
+later overview content; it does not itself solve merged-cell text clipping.
+Full workbook integration and visual verification remain required after the
+presentation fixes. No in-flight runtime or existing workbook was modified.
+
+The former source-text preview test now executes the actual builder and verifier
+helpers, covering long/current overview extents and populated/empty detail sheets.
+All six release-health tests passed, as did focused Ruff and whitespace checks.
+Workbook guidance now positively specifies readable field/change notes and full
+named scope, with explicit canonical location/action hash for summarized bulk
+payloads. This clarifies presentation, not audit meaning or lossless technical
+recovery. The note worker and editorial amendment remain live; full integration
+and reader acceptance are still pending.
+
+The note worker completed the mapper/builder correction and four focused note
+tests: complete named scope on every detail surface, unchanged canonical payloads,
+explicit references for bulk scalar values, relevant nested changes, all action
+kinds, dependencies, deterministic comment insertion/hashes and redaction. Notes
+now omit strings over 600 characters with an explicit character count, canonical
+record location, operation ID and action hash; identifiers and paths are not cut.
+Bulk payloads remain lossless in the technical record. Coordinator inspection
+fixed test import lint findings; focused Ruff then passed. All three bundled
+workbook integration tests passed (31.091 seconds), including exact reimport,
+comment recovery/delivery checks, custom-code labels and French display binding.
+The full regression suite is now running. Existing real-container build 000 and
+its locked runtime remain untouched; the editorial amendment is still live.
+
+Full regression completed: 242 tests discovered, 239 passed and the three
+artifact-runtime tests skipped in this invocation (128.979 seconds). Those same
+three already passed with the required bundled environment after these changes
+(31.091 seconds), so all 242 tests executed successfully across the two runs.
+Repository-wide Ruff also passed. Independent scoped delivery-code review is
+running; this is not a whole-skill release approval. The real NVR presentation
+amendment and subsequent delivery/cleaned comparison remain outstanding.
+
+Independent scoped review found two concrete note defects despite passing tests:
+500 short-valued structured entries still produced an 80,807-character note, and
+comparing already-redacted values could omit a genuinely changed sensitive field.
+The review found no other all-seven-AGENTS issue, canonical mutation or new
+privacy exposure; it did not approve the patch. The same note worker was resumed
+to bound structured detail explicitly and preserve changed-field identity without
+revealing sensitive values, with reproducing tests. Release remains withheld.
+
+### Current NVR comparison checkpoint (delivery still pending)
+
+Main resumed comparison of the sealed current target against the authorized
+default/cleaned pair without exposing cleaned evidence to editorial agents.
+Current default/cleaned/target counts are tags 192/192/190, triggers 133/88/129,
+variables 133/126/130, folders 37/37/43 and templates 35/23/35. Counts are not
+superiority evidence. Two earlier opportunities are now visible in the target:
+trigger 1031 explicitly names OneTrustLoaded, and OP-CAREERS-CTA-TRIGGER-UNION
+consolidates 1276/1278 under 1276 while preserving the original typed listener
+options that cleaned's 2192 does not retain explicitly. A bounded five-case
+JavaScript predicate check agreed with the original exact alternatives, including
+trailing newline and extra-text rejection; this is not browser/runtime proof.
+
+The target also shares Booking Context across 1962/1966/1969, retaining five
+1962-only fields locally, whereas cleaned shares only 1966/1969. Effective-value
+equivalence still needs current-target verification before qualification.
+
+A remaining comparison question is scoped shared settings for 1669/1725:
+cleaned uses one six-field owner, while the target keeps equal local arrays.
+Current reconciliation explicitly rejected Audit A's related 1668/1669/1725
+scoped extraction, partly citing unresolved downstream ownership
+(CD-639B002B8AEC1161), although it accepted a different nonsecret S2S cohort.
+Inspect whether that rejects a source-preserving configuration simplification
+for an unrelated consent/ownership question, and whether complementary safe
+cohorts were lost during selection. This is an unresolved utility comparison,
+not an instruction to copy cleaned or a proven semantic defect. Complete exact
+source/proposal review before choosing a fix. No sealed judgment was changed.
+
+### Delivery repair integration
+
+The editorial amendment completed: 1,191 rows changed; validation and sealing
+passed with version 001 seal
+`7a6562df029af1b2b5c9028abfdbc238c250cd5f6929357a5b3cd1802c518e85`.
+Prior snapshot/build remain unchanged. Independent note re-review passed both
+findings: its 500-entry probe fell from 80,807 to 10,166 characters with all
+affected paths retained, and redaction-hidden changes now carry explicit markers
+without secrets. Six note tests and the preview test independently passed;
+repository-wide Ruff and whitespace checks passed. This is scoped approval only.
+
+A separate `audit-package-delivery-notes-dev` copy is being prepared for the
+new mapper/builder and reviewed prose. It preserves the existing source/audit
+runtime identity and will be explicitly recorded as a mixed-version development
+delivery evaluation, not a fresh production qualification. The copy command's
+delivery exclusion did not take effect; the mapper refused to overwrite copied
+outputs. Those copied outputs were moved intact to the sibling
+`delivery-notes-dev-copied-predecessor`, and only mapping was retried. The original
+package and its output history are untouched. A development-only transfer script
+will verify all retained upstream bytes, exact old semantic bindings and unchanged
+canonical prose before reusing reviewed editorial fields against the new map.
+
+Transfer verified 1,005 retained upstream files and all 1,524 row bindings, allowing
+only new named-scope/redacted-change presentation metadata. New editorial sealing
+passed (`eed0559299da7b1defc0fae4af6e21dbdc4436f7e1897f9a166f0139a2b8a761`).
+The development workbook built successfully, normalized hash
+`80dc81424d9dc0982312dafd9c1fad2ecaa5a9c786c73bfa827c3edc33f98571`, and
+technical verification passed. Main inspected all five rendered sheets; the two
+previously clipped overview blocks are fully visible in this preview. Separate
+fresh fidelity and workbook-only reader reviews are now running with locked
+bundles. Their verdicts and final delivery sealing remain outstanding.
+
+Current effective-settings comparison reused the maintained extractor on default,
+cleaned and target. Booking tags 1962/1966/1969 retain 16/11/11 fields with no
+added/removed keys; target reference differences are funnelName/funnelLocation,
+cleaned differs only at funnelName. Lead tags 1669/1725 retain six fields; target
+differs only at ttclid's renamed reference, cleaned values equal default. Verify
+referenced variable configuration equivalence before treating those differences
+as neutral. No runtime equivalence or complete comparison verdict is claimed.
+
+Reference tracing confirms variable 944 and URL-query reader 1666 retain their
+types/parameters/formatting with changed names. Booking funnelLocation transfers
+1710 to the existing 2101 owner: both read the same version-2 data-layer key;
+1710 explicitly disables defaults while 2101 has no default setting, and neither
+configures a default value or formatting transform. Canonical
+CD-8D43059871B72A12/CD-C86B4722361D5938 already own the assessed transfer and
+retirement with separate exact consumer writes. This records the concrete source
+distinction rather than treating different raw references as identical strings.
+
+Lifecycle inspection found owner decisions for unused templates and separate
+retention for templates required by paused consumers. The existing coverage
+contract explicitly rejects deletion from disuse alone and requires safe
+disposition/owner/rollback assessment. Cleaned's smaller template count therefore
+does not itself establish superiority or authorize changing that contract. These
+records still need comparison against exact source use, not blanket approval.
+
+After the redaction/structured-note corrections and successful real development
+workbook build, the full regression suite was started with the bundled artifact
+runtime enabled, so workbook integration tests are included in this same run.
+
+Focused lead-settings analysis inspected the actual sealed Audit A proposal
+OP-TIKTOK-TRANSPORT-LEAD-SETTINGS, not cleaned's implementation. Applying it only
+in memory through the maintained operation model preserved all 5/6/6 effective
+typed fields for 1668/1669/1725, all non-parameter configuration, and event/
+destination parameters. Source controls and setup dependencies remain unchanged.
+This contradicts treating unresolved downstream consent ownership, by itself,
+as a reason to reject that source-preserving extraction. Combined-packet
+compatibility and independent rejudgment are still required before adoption.
+
+General guidance now explicitly applies separation from unrelated owner questions
+to optimisations as well as corrections, and evaluates compatible settings
+subgroups without requiring approval for routes they do not change. No case IDs,
+new stage, detector, schema or automatic approval were added. Existing source
+audits, canonical record and workbook remain untouched; the development fix must
+be proved through the appropriate subsequent evaluation/owning-stage judgment.
+
+The full post-note-fix regression completed successfully: all 244 tests passed
+in one run, including bundled workbook integration (159.851 seconds; no skips).
+This verifies the code batch, not the newly clarified semantic guidance or
+whole-container superiority. Independent development-workbook reviews continue.
+
+Reader review completed: all five sheets are readable/legible, with one material
+technical-handoff prerequisite at Recommendations A6 (bulk exact values point to
+canonical-record.json outside the workbook). Other findings are minor polish.
+The retained editor was resumed only for explicit visible implementation
+prerequisites on affected recommendations and targeted prose defects; the
+canonical record remains unchanged. Guidance now distinguishes a decision-ready
+workbook from bulk technical payload needed for later implementation. Fidelity
+returned a candid pending result after structural coverage of 1,524 rows but
+incomplete semantic reading; the same context was resumed to finish, without
+restarting or treating that partial result as approval.
+
+Combining the existing 229-operation packet with the sealed Audit A scoped
+lead-settings proposal passed maintained operation validation (zero errors) and
+in-memory dependency-ordered application (230 operations). No package or target
+artifact was written. This eliminates an immediate write/dependency conflict as
+the reason for rejection; it is not a new sealed reconciliation decision, full
+target assurance, or authorization to modify the workbook's semantic result.

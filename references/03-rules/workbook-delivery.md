@@ -92,15 +92,22 @@ Naming findings about code objects remain `Naming`, not `Custom code & templates
 8. `Analyst decision / implementation handoff`
 9. `Static verification / rollback`
 
-Long field paths, hashes, redacted payload detail, and dependencies belong in
-row-bound comments and canonical JSON. Comments must never expose secret or
-personal values; preserve the exact action through its canonical hash and keep
-the unredacted source only in the sealed technical record. The visible row names
-actual GTM objects and the complete change in analyst language.
+Use row-bound comments for readable change details: exact object identities,
+changed fields, relevant values and dependencies. Keep bulk code, template and
+structured payloads in the canonical JSON; identify that location and the action
+hash explicitly when the comment summarizes them. Comments must never expose
+secret or personal values. The visible row names actual GTM objects and the
+complete change in analyst language; the canonical record preserves the exact
+action and unredacted technical evidence.
+
+When a note defers bulk detail to the canonical record, make that implementation
+prerequisite explicit in the visible handoff. The workbook must still explain the
+complete proposed change sufficiently for the analyst's decision; distinguish
+that decision from the exact technical payload needed for later implementation.
 
 Keep visible affected-scope summaries compact: name at most three representative
 objects, then state how many additional objects are covered. Put the complete,
-exact object-key inventory in that row's note so readability never weakens
+named object-key inventory in that row's note so readability never weakens
 traceability.
 For Recommendations, derive that scope from the owning decisions and the complete
 declared operation: changed, removed, renamed, paused, deleted and created objects,

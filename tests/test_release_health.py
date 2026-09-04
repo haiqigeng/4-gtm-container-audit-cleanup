@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -33,13 +36,31 @@ class ReleaseHealthTests(unittest.TestCase):
         self.assertEqual(1, skill.count(completion))
 
     def test_workbook_rendering_is_bounded_in_build_and_verification(self) -> None:
+        node = os.environ.get("CODEX_NODE") or shutil.which("node")
+        if not node:
+            self.skipTest("Node.js is required to execute the pure preview helper")
         for relative_path in (
             "scripts/gtm_workbook_build.mjs",
             "scripts/gtm_workbook_verify.mjs",
         ):
             source = (ROOT / relative_path).read_text(encoding="utf-8")
-            self.assertIn("function previewRange(sheetModel)", source)
-            self.assertIn("range,\n      autoCrop", source)
+            start = source.index("function previewRange(")
+            end = source.index("\n}", start) + 2
+            helper = source[start:end]
+            # Execute the production helper without importing the XLSX runtime.
+            result = subprocess.run(
+                [node, "--input-type=module", "-e", helper + """
+import assert from 'node:assert/strict';
+const overview = {name: '01 Overview', dimensions: {columns: Array(8)}};
+assert.equal(previewRange({...overview, cells: [{row: 0}, {row: 74}]}), 'A1:H77');
+assert.equal(previewRange({...overview, cells: [{row: 0}, {row: 59}]}), 'A1:H62');
+const detail = {name: '02 Recommendations', dimensions: {columns: Array(9)}};
+assert.equal(previewRange({...detail, rows: Array(100)}), 'A1:I30');
+assert.equal(previewRange({...detail, rows: []}), 'A1:I6');
+"""],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
 
     def test_declared_runtime_rejects_dirty_build_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

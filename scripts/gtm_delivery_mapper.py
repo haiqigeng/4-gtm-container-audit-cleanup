@@ -142,6 +142,14 @@ def _display_scope(keys: list[Any], names: dict[str, str]) -> str:
     return "; ".join(values) or "Container-wide"
 
 
+def _note_scope(keys: list[Any], names: dict[str, str]) -> list[dict[str, str]]:
+    """Bind the complete named inventory independently of the visible summary."""
+    return [
+        {"object_key": str(key), "object_name": names.get(str(key), "")}
+        for key in keys if key
+    ]
+
+
 def _human_audit_focus(row: dict[str, Any]) -> str:
     if row.get("scope_level") == "coverage":
         return "Applicability to this container"
@@ -187,6 +195,31 @@ def _operation_audit_area(sources: list[dict[str, Any]]) -> str:
     return _audit_area_category(primary)
 
 
+def _changed_note_paths(before: Any, after: Any, path: str) -> list[str]:
+    """Keep changed leaf identities even when delivery redaction equalizes values."""
+    if type(before) is type(after) and before == after:
+        return []
+    if isinstance(before, dict) and isinstance(after, dict):
+        return [
+            changed
+            for key in dict.fromkeys([*before, *after])
+            for changed in (
+                _changed_note_paths(before[key], after[key], f"{path}.{key}")
+                if key in before and key in after else [f"{path}.{key}"]
+            )
+        ]
+    if isinstance(before, list) and isinstance(after, list):
+        return [
+            changed
+            for index in range(max(len(before), len(after)))
+            for changed in (
+                _changed_note_paths(before[index], after[index], f"{path}[{index}]")
+                if index < min(len(before), len(after)) else [f"{path}[{index}]"]
+            )
+        ]
+    return [path]
+
+
 def _row(
     *,
     row_id: str,
@@ -195,6 +228,25 @@ def _row(
     prose: dict[str, str],
 ) -> dict[str, Any]:
     safe_locked = redact_delivery_value(locked)
+    if "technical_note" in locked:
+        hidden_changes = {}
+        for kind, actions in locked["technical_note"].items():
+            for index, action in enumerate(actions):
+                if "before" not in action or "after" not in action:
+                    continue
+                path = action.get("json_path") or {
+                    "renames": "$.name", "pauses": "$.paused",
+                }.get(kind, "$")
+                safe = safe_locked["technical_note"][kind][index]
+                visible_paths = _changed_note_paths(safe["before"], safe["after"], path)
+                hidden = [
+                    changed for changed in _changed_note_paths(action["before"], action["after"], path)
+                    if not any(changed == visible or changed.startswith((visible + ".", visible + "["))
+                               for visible in visible_paths)
+                ]
+                if hidden:
+                    hidden_changes[f"{kind}[{index}]"] = redact_delivery_value(hidden)
+        safe_locked["redacted_change_paths"] = hidden_changes
     safe_prose = {
         key: str(redact_delivery_value(value)) for key, value in prose.items()
     }
@@ -263,6 +315,7 @@ def _recommendation_rows(
                     "human_finding_types": human_types,
                     "priority": priority,
                     "subject_keys": subject_keys,
+                    "named_scope": _note_scope(subject_keys, names),
                     "depends_on": dependencies,
                     "action_payload_sha256": operation.get("action_payload_sha256"),
                     "exact_target_state": operation.get("exact_target_state"),
@@ -363,6 +416,7 @@ def _owner_rows(
                     "area_id": row.get("area_id"),
                     "reconciliation_rationale": row.get("reconciliation_rationale", ""),
                     "subject_keys": row.get("subject_keys", []),
+                    "named_scope": _note_scope(row.get("subject_keys", []), names),
                     "priority": decision.get("priority"),
                     "confidence": decision.get("confidence"),
                     "owner_question": decision.get("owner_question"),
@@ -403,6 +457,7 @@ def _full_audit_rows(
                     "audit_mechanism": row.get("audit_mechanism"),
                     "fact_kind": row.get("fact_kind"),
                     "subject_keys": row.get("subject_keys", []),
+                    "named_scope": _note_scope(row.get("subject_keys", []), names),
                     "decision_class": decision.get("decision_class"),
                     "human_decision_label": row.get("human_decision_label"),
                     "operation_id": operation_id,
@@ -461,6 +516,7 @@ def _custom_code_rows(
                     "fact_kind": source.get("fact_kind"),
                     "reconciliation_rationale": source.get("reconciliation_rationale", ""),
                     "subject_keys": source.get("subject_keys", []),
+                    "named_scope": _note_scope(source.get("subject_keys", []), names),
                     "decision_class": decision.get("decision_class"),
                     "operation_id": operation_id,
                     "priority": decision.get("priority"),

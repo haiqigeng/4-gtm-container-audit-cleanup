@@ -220,7 +220,7 @@ function previewRange(sheetModel) {
   const columnCount = sheetModel.dimensions.columns.length;
   const endColumn = String.fromCharCode(64 + columnCount);
   const endRow = sheetModel.name === "01 Overview"
-    ? 62
+    ? Math.max(...sheetModel.cells.map((cell) => cell.row + 1)) + 2
     : Math.min(30, 5 + Math.max((sheetModel.rows || []).length, 1));
   return `A1:${endColumn}${endRow}`;
 }
@@ -274,31 +274,86 @@ async function addFrozenPanes(outputPath, visibleSheets) {
   await fs.writeFile(outputPath, output);
 }
 
+function noteValue(value, reference) {
+  // A readable scalar budget, never a silent substring cut. Identities, paths,
+  // action kinds and dependencies are formatted separately without this budget.
+  if (typeof value === "string" && value.length > 600) {
+    return `[Bulk string omitted (${value.length} characters after redaction); ${reference}]`;
+  }
+  if (value && typeof value === "object") {
+    const serialized = JSON.stringify(value);
+    if (serialized.length > 2400) {
+      return `[Bulk structured value omitted (${serialized.length} serialized characters after redaction); ${reference}]`;
+    }
+    if (Array.isArray(value)) return value.map(item => noteValue(item, reference));
+    return Object.fromEntries(Object.entries(value).map(
+      ([key, item]) => [key, noteValue(item, reference)],
+    ));
+  }
+  return value;
+}
+
+function noteChanges(before, after, fieldPath, reference, pathsOnly = false) {
+  if (JSON.stringify(before) === JSON.stringify(after)) return [];
+  if (before && after && typeof before === "object" && typeof after === "object"
+      && Array.isArray(before) === Array.isArray(after)) {
+    return [...new Set([...Object.keys(before), ...Object.keys(after)])].flatMap(key =>
+      noteChanges(before[key], after[key],
+        Array.isArray(before) ? `${fieldPath}[${key}]` : `${fieldPath}.${key}`, reference, pathsOnly));
+  }
+  if (pathsOnly) return [fieldPath];
+  const display = value => value === undefined ? "(absent)"
+    : JSON.stringify(noteValue(value, reference));
+  return [`${fieldPath}: ${display(before)} → ${display(after)}`];
+}
+
+function technicalCommentText(row) {
+  const locked = row.locked;
+  const lines = ["Complete affected scope:", ...locked.named_scope.map(
+    item => `- ${item.object_name || "Unnamed object"} (${item.object_key})`,
+  )];
+  if (!locked.named_scope.length) lines.push("Container-wide");
+  if (row.primary_sheet === "02 Recommendations") {
+    const reference = `see canonical-record.json, operation ${locked.operation_id}, action_payload_sha256 ${locked.action_payload_sha256}`;
+    lines.push("", `Operation: ${locked.operation_id}`,
+      `Source decisions: ${locked.source_decision_ids.join(", ")}`,
+      `Audit areas: ${locked.source_audit_areas.join(", ")}`,
+      `Dependencies: ${locked.depends_on.join(", ") || "None"}`,
+      `Target: ${locked.exact_target_state}`,
+      `Exact payload and recovery: ${reference}`,
+      "Action details (redacted; unchanged nested values are not repeated):");
+    for (const [kind, actions] of Object.entries(locked.technical_note)) {
+      for (const [index, action] of actions.entries()) {
+        lines.push(`${kind}[${index}]:`);
+        for (const [key, value] of Object.entries(action)) {
+          if (key === "before" || key === "after") continue;
+          const detail = ["object", "value"].includes(key) ? noteValue(value, reference) : value;
+          lines.push(`  ${key}: ${JSON.stringify(detail)}`);
+        }
+        if ("before" in action || "after" in action) {
+          const fieldPath = action.json_path || ({ renames: "$.name", pauses: "$.paused" }[kind]) || "$";
+          let changes = noteChanges(action.before, action.after, fieldPath, reference);
+          if (changes.join("\n").length > 2400) {
+            lines.push(`  Bulk changed values omitted; ${reference}. Complete affected paths:`);
+            changes = noteChanges(action.before, action.after, fieldPath, reference, true);
+          }
+          lines.push(...changes.map(line => `  ${line}`));
+          for (const changed of locked.redacted_change_paths[`${kind}[${index}]`] || []) {
+            lines.push(`  ${changed}: [Changed value redacted]`);
+          }
+        }
+      }
+    }
+  } else {
+    for (const key of ["decision_id", "area_id", "audit_mechanism", "fact_kind", "decision_class", "operation_id"]) {
+      if (locked[key]) lines.push(`${key}: ${locked[key]}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function addTechnicalComment(workbook, sheet, cellAddress, row, model) {
-  const operationNote = {
-    operation_id: row.locked.operation_id,
-    source_decision_ids: row.locked.source_decision_ids,
-    source_audit_areas: row.locked.source_audit_areas,
-    subject_keys: row.locked.subject_keys,
-    depends_on: row.locked.depends_on,
-    exact_target_state: row.locked.exact_target_state,
-    actions: row.locked.technical_note,
-    action_payload_sha256: row.locked.action_payload_sha256,
-  };
-  const auditNote = {
-    decision_id: row.locked.decision_id,
-    subject_keys: row.locked.subject_keys,
-    area_id: row.locked.area_id,
-    audit_mechanism: row.locked.audit_mechanism,
-    fact_kind: row.locked.fact_kind,
-    decision_class: row.locked.decision_class,
-    operation_id: row.locked.operation_id,
-  };
-  const heading = row.primary_sheet === "02 Recommendations"
-    ? "Technical operation detail"
-    : "Exact row identifiers";
-  const note = row.primary_sheet === "02 Recommendations" ? operationNote : auditNote;
-  const text = `${heading}\n${JSON.stringify(note, null, 2)}`;
+  const text = technicalCommentText(row);
   workbook.comments.addThread(
     { cell: sheet.getRange(cellAddress) },
     text,

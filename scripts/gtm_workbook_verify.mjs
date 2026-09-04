@@ -143,7 +143,7 @@ function previewRange(sheetModel) {
   const columnCount = sheetModel.dimensions.columns.length;
   const endColumn = String.fromCharCode(64 + columnCount);
   const endRow = sheetModel.name === "01 Overview"
-    ? 62
+    ? Math.max(...sheetModel.cells.map((cell) => cell.row + 1)) + 2
     : Math.min(30, 5 + Math.max((sheetModel.rows || []).length, 1));
   return `A1:${endColumn}${endRow}`;
 }

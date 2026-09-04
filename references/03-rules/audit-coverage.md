@@ -49,8 +49,9 @@ verdict or limit the search for material improvements.
 Missing authored operations are unfinished agent work, not external owner
 decisions. When a static defect or equivalence is established, finish the exact
 proposal if the evidence supports it. Separate an independently actionable
-defect from an unrelated ownership question in the same object or family, using
-existing atomic decisions and structured open discovery where needed. If the
+correction or optimisation from an unrelated ownership question in the same
+object or family, using existing atomic decisions and structured open discovery
+where needed. If the
 repair itself needs an unknown default, guard value, or lifecycle choice, retain
 that specific boundary instead of guessing. A source-visible missing guard or
 global reset does not prove that a runtime failure occurred.
