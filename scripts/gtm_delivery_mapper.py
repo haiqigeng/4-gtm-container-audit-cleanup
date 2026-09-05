@@ -120,6 +120,14 @@ def _unique_text(values: list[Any], separator: str = "\n") -> str:
     return separator.join(result)
 
 
+def _human_operation_family(value: Any) -> str:
+    text = str(value or "GTM change").strip()
+    if re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)+", text):
+        text = text.replace("_", " ")
+        text = text[0].upper() + text[1:]
+    return text
+
+
 def _name_index(record: dict[str, Any]) -> dict[str, str]:
     rows = [
         *as_list((record.get("source") or {}).get("object_directory")),
@@ -348,7 +356,7 @@ def _recommendation_rows(
         )
         priority = _max_priority(sources)
         dependencies = [str(value) for value in as_list(operation.get("depends_on"))]
-        operation_family = str(operation.get("operation_family") or "GTM change")
+        operation_family = _human_operation_family(operation.get("operation_family"))
         result.append(
             _row(
                 row_id=f"REC-{operation_id}",

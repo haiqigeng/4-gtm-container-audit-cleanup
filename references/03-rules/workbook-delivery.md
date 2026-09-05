@@ -93,6 +93,10 @@ Naming findings about code objects remain `Naming`, not `Custom code & templates
 8. `Analyst decision / implementation handoff`
 9. `Static verification / rollback`
 
+Render each action label as a short human phrase followed by its exact operation
+ID. Canonical machine identifiers remain locked in the technical record and row
+note; underscore-delimited operation-family keys are humanized for display.
+
 Use row-bound comments for readable change details: exact object identities,
 changed fields, relevant values and dependencies. Keep bulk code, template and
 structured payloads in the canonical JSON; identify that location and the action

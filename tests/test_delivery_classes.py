@@ -13,6 +13,7 @@ from gtm_delivery_mapper import (  # noqa: E402
     _audit_area_category,
     _custom_code_rows,
     _full_audit_rows,
+    _human_operation_family,
     _name_index,
     _operation_audit_area,
     _overview,
@@ -38,6 +39,13 @@ def record(decision_class: str, **fields: str) -> dict:
 
 
 class DeliveryClassTests(unittest.TestCase):
+    def test_machine_operation_family_is_humanized_for_delivery(self) -> None:
+        self.assertEqual(
+            "Remove redundant firing priority",
+            _human_operation_family("remove_redundant_firing_priority"),
+        )
+        self.assertEqual("GA4 event cleanup", _human_operation_family("GA4 event cleanup"))
+
     def test_retained_code_keeps_explicit_source_behavior_and_pending_handoff(self) -> None:
         source = record(
             "justified_as_is", current_behavior="The source still contains the log.",
