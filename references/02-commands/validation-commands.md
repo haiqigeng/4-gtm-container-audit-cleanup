@@ -416,16 +416,17 @@ Build and verify the workbook with the workspace artifact runtime:
 & $env:CODEX_NODE scripts/gtm_workbook_verify.mjs audit-package
 ```
 
-Scaffold one workbook-only reader review, complete it with one fresh agent using
-only its declared workbook, audience brief, and rendered previews, inspect every
-visible sheet, then seal:
+Scaffold one workbook delivery review and complete it with one fresh agent using
+only its declared locked inputs. Inspect the workbook, audience brief, and
+rendered previews first; then open `meaning-reference.json` and compare every
+visible row with its canonical meaning before sealing:
 
 ```powershell
 python -B scripts/gtm_delivery_reviews.py scaffold audit-package
 python -B scripts/gtm_delivery_reviews.py seal audit-package
 ```
 
-Record the reader agent/context labels and exact locked input/output hashes.
+Record the reviewer agent/context labels and exact locked input/output hashes.
 Exhaustive row, field, recovery, comment, navigation, dimension, privacy, and
 formula checks are owned by the preceding deterministic workbook verifier.
 

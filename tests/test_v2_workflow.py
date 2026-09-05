@@ -165,6 +165,7 @@ def actionable_priority_export() -> dict:
                 {"type": "template", "key": "eventName", "value": "purchase"},
             ],
             "firingTriggerId": ["10"],
+            "blockingTriggerId": ["11"],
             "priority": {"type": "INTEGER", "value": "10"},
         }
     ]
@@ -182,7 +183,25 @@ def actionable_priority_export() -> dict:
                     ],
                 }
             ],
-        }
+        },
+        {
+            "triggerId": "11",
+            "name": "Block - analytics denied",
+            "type": "CUSTOM_EVENT",
+            "filter": [
+                {
+                    "type": "DOES_NOT_CONTAIN",
+                    "parameter": [
+                        {
+                            "type": "TEMPLATE",
+                            "key": "arg0",
+                            "value": "didomi.enabledVendors",
+                        },
+                        {"type": "TEMPLATE", "key": "arg1", "value": "google"},
+                    ],
+                }
+            ],
+        },
     ]
     return payload
 
@@ -545,7 +564,9 @@ def complete_delivery_reviews(package: Path) -> None:
     reader["independent_agent_id"] = "fixture-reader-agent-001"
     reader["independent_context_id"] = "fixture-reader-context-001"
     reader["input_manifest_sha256"] = reader_manifest["bundle_manifest_sha256"]
-    reader["received_only_workbook_audience_brief_and_previews"] = True
+    reader["received_only_declared_review_inputs"] = True
+    reader["reviewed_workbook_before_meaning_reference"] = True
+    reader["compared_every_visible_row_to_canonical_meaning"] = True
     for row in reader["sheet_reviews"]:
         row.update(
             {
@@ -553,6 +574,8 @@ def complete_delivery_reviews(package: Path) -> None:
                 "standalone_and_clear": True,
                 "next_action_clear": True,
                 "wording_human_readable": True,
+                "semantic_meaning_faithful": True,
+                "content_specific_and_useful": True,
                 "layout_legible": True,
                 "navigation_usable": True,
                 "issues": [],
@@ -2491,8 +2514,11 @@ class V2WorkflowTests(unittest.TestCase):
         payload["containerVersion"]["tag"] = [{
             "tagId": "1", "name": "Custom HTML fixture", "type": "html",
             "parameter": [
-                {"type": "TEMPLATE", "key": "html", "value": "<script>window.fixture=1;</script>"},
-                {"type": "BOOLEAN", "key": "supportDocumentWrite", "value": "true"},
+                {
+                    "type": "TEMPLATE",
+                    "key": "html",
+                    "value": "<script>document.write('fixture');</script>",
+                },
             ],
         }]
         self.export.write_text(json.dumps(payload), encoding="utf-8")
@@ -2501,25 +2527,32 @@ class V2WorkflowTests(unittest.TestCase):
         required = [row for row in ledger["obligations"] if
                     row.get("evidence", {}).get("configuration_obligation", {}).get("source_known_repair")]
         self.assertEqual(1, len(required))
-        obligation_id = required[0]["obligation_id"]
+        obligation = required[0]
+        obligation_id = obligation["obligation_id"]
+        repair = obligation["evidence"]["configuration_obligation"]["source_known_repair"]
         original_complete = complete_semantic_decision
 
         def complete_known_repair(row):
             original_complete(row)
             if row["obligation_id"] != obligation_id:
                 return
-            row.update({field: "Disable unused document.write support." for field in CANONICAL_DECISION_FIELDS})
-            row.update(decision_class="correct_but_materially_non_optimal", priority="Low", confidence="High")
+            row.update({field: "Enable required document.write support." for field in CANONICAL_DECISION_FIELDS})
+            row.update(decision_class="defect", priority="High", confidence="High")
             row["operation_proposal"] = {
-                "operation_id": "OP-DISABLE-DOCUMENT-WRITE",
+                "operation_id": "OP-ENABLE-DOCUMENT-WRITE",
                 "source_decision_id": row["decision_id"],
-                "operation_family": "Disable unused document.write support",
-                "exact_target_state": "Keep the HTML and disable unused document.write support.",
-                "preconditions": "Support is true and the HTML has no document.write call.",
-                "static_verification": "Only the support flag changes to false.",
-                "rollback": "Restore the support flag to true.", "depends_on": [],
+                "operation_family": "Enable required document.write support",
+                "exact_target_state": "Keep the HTML and enable its required document.write support.",
+                "preconditions": "The HTML contains document.write and the support field is absent.",
+                "static_verification": "The parameter list contains the existing HTML and enabled support.",
+                "rollback": "Restore the original parameter list.", "depends_on": [],
                 **{field: [] for field in OPERATION_ACTION_FIELDS},
-                "changes": [{"object_key": "tag:1", "json_path": "$.parameter[1].value", "before_source_sha256": file_sha256(self.package / "locked-source.json"), "after": "false"}],
+                "changes": [{
+                    "object_key": repair["object_key"],
+                    "json_path": "$.parameter",
+                    "before_source_sha256": file_sha256(self.package / "locked-source.json"),
+                    "after": repair["after"],
+                }],
             }
 
         for audit_id in ("audit-a", "audit-b"):
@@ -3068,7 +3101,7 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(verification["overview_cell_checks"])
         self.assertTrue(all(row["status"] == "pass" for row in verification["overview_cell_checks"]))
         review_scaffold = scaffold_delivery_reviews(self.package)
-        self.assertEqual("ready_for_workbook_reader_review", review_scaffold["status"])
+        self.assertEqual("ready_for_workbook_delivery_review", review_scaffold["status"])
         self.assertEqual(
             {"reader"},
             {path.name for path in (build_dir / "reviews").iterdir()},
@@ -3170,6 +3203,26 @@ class V2WorkflowTests(unittest.TestCase):
         reader_manifest_path.write_bytes(reader_manifest_before)
         reader_review_path.write_bytes(reader_review_before)
 
+        reader_meaning_path = reader_dir / "meaning-reference.json"
+        reader_meaning_before = reader_meaning_path.read_bytes()
+        reader_manifest_before = reader_manifest_path.read_bytes()
+        reader_review_before = reader_review_path.read_bytes()
+        forged_meaning = json.loads(reader_meaning_before)
+        forged_meaning["rows"][0]["canonical_prose"]["current_behavior"] = (
+            "Forged workbook meaning"
+        )
+        reader_meaning_path.write_text(
+            json.dumps(forged_meaning, indent=2) + "\n", encoding="utf-8"
+        )
+        rebind_reader_input("meaning-reference.json")
+        with self.assertRaisesRegex(
+            ValueError, "reader meaning reference differs from canonical reconstruction"
+        ):
+            seal_delivery(self.package)
+        reader_meaning_path.write_bytes(reader_meaning_before)
+        reader_manifest_path.write_bytes(reader_manifest_before)
+        reader_review_path.write_bytes(reader_review_before)
+
         preview_record = build_manifest["previews"][0]
         authoritative_preview_path = self.package / preview_record["path"]
         preview_relative = authoritative_preview_path.relative_to(
@@ -3235,6 +3288,28 @@ class V2WorkflowTests(unittest.TestCase):
             seal_delivery(self.package)
         reader["input_manifest_sha256"] = original_manifest
         reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
+        for field, message in (
+            (
+                "reviewed_workbook_before_meaning_reference",
+                "reader must assess the workbook before opening the meaning reference",
+            ),
+            (
+                "compared_every_visible_row_to_canonical_meaning",
+                "reader did not compare every visible row with canonical meaning",
+            ),
+        ):
+            changed = copy.deepcopy(reader)
+            changed[field] = False
+            reader_path.write_text(json.dumps(changed), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, message):
+                seal_delivery(self.package)
+        changed = copy.deepcopy(reader)
+        changed["sheet_reviews"][0]["semantic_meaning_faithful"] = False
+        reader_path.write_text(json.dumps(changed), encoding="utf-8")
+        with self.assertRaisesRegex(
+            ValueError, "semantic_meaning_faithful did not pass"
+        ):
+            seal_delivery(self.package)
         for invalid in ("", []):
             with self.subTest(attestation=invalid):
                 changed = copy.deepcopy(reader)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage one fresh workbook-reader check, then seal delivery."""
+"""Stage one fresh workbook delivery review, then seal delivery."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from gtm_lib import (
 REVIEW_ROOT = "reviews"
 READER_BUNDLE = "reader"
 READER_REVIEW_FILE = "reader-review.json"
+MEANING_REFERENCE_FILE = "meaning-reference.json"
 DELIVERY_MANIFEST_FILE = "delivery-manifest.json"
 DELIVERY_SEAL_FILE = "delivery-seal.json"
 REVIEW_BUNDLE_MANIFEST_FILE = "bundle-manifest.json"
@@ -43,6 +44,39 @@ def _hash_without(payload: dict[str, Any], *fields: str) -> str:
         {key: value for key, value in payload.items() if key not in set(fields)},
         64,
     )
+
+
+def meaning_reference_payload(delivery_map: dict[str, Any]) -> dict[str, Any]:
+    """Return the compact canonical meaning needed after a workbook-first read."""
+    rows = []
+    for row in as_list(delivery_map.get("rows")):
+        if not isinstance(row, dict):
+            continue
+        locked = row.get("locked") or {}
+        rows.append({
+            "row_id": row.get("row_id"),
+            "primary_sheet": row.get("primary_sheet"),
+            "canonical_prose": row.get("canonical_prose"),
+            "semantic_identity": {
+                key: locked.get(key)
+                for key in (
+                    "decision_id", "operation_id", "area_id", "decision_class",
+                    "priority", "confidence", "subject_keys", "exact_target_state",
+                    "static_verification", "rollback",
+                )
+                if key in locked
+            },
+        })
+    payload = {
+        "kind": "gtm_workbook_meaning_reference",
+        "schema_version": 1,
+        "delivery_map_sha256": delivery_map.get("delivery_map_sha256"),
+        "rows": rows,
+    }
+    payload["meaning_reference_sha256"] = _hash_without(
+        payload, "meaning_reference_sha256"
+    )
+    return payload
 
 
 def _locked_file_records(root: Path, paths: list[Path]) -> list[dict[str, Any]]:
@@ -296,18 +330,22 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
     reader.mkdir()
     shutil.copy2(workbook_path, reader / "workbook.xlsx")
     shutil.copy2(delivery / "audience-brief.json", reader / "audience-brief.json")
+    delivery_map = _load(delivery / "delivery-map.json")
+    write_json(reader / MEANING_REFERENCE_FILE, meaning_reference_payload(delivery_map))
     source_previews = build_dir / "previews"
     if source_previews.is_dir():
         shutil.copytree(source_previews, reader / "previews")
     reader_review = {
-        "kind": "gtm_workbook_only_reader_review",
+        "kind": "gtm_workbook_delivery_review",
         "schema_version": 1,
         "status": "pending",
         "independent_agent_id": "",
         "independent_context_id": "",
         "input_manifest_sha256": "",
         "workbook_file_sha256": manifest.get("workbook_file_sha256"),
-        "received_only_workbook_audience_brief_and_previews": False,
+        "received_only_declared_review_inputs": False,
+        "reviewed_workbook_before_meaning_reference": False,
+        "compared_every_visible_row_to_canonical_meaning": False,
         "sheet_reviews": [
             {
                 "sheet": sheet,
@@ -315,6 +353,8 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
                 "standalone_and_clear": False,
                 "next_action_clear": False,
                 "wording_human_readable": False,
+                "semantic_meaning_faithful": False,
+                "content_specific_and_useful": False,
                 "layout_legible": False,
                 "navigation_usable": False,
                 "issues": [],
@@ -325,12 +365,16 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
         "completion_attestation": "",
     }
     write_json(reader / READER_REVIEW_FILE, reader_review)
-    reader_locked = [reader / "workbook.xlsx", reader / "audience-brief.json"]
+    reader_locked = [
+        reader / "workbook.xlsx",
+        reader / "audience-brief.json",
+        reader / MEANING_REFERENCE_FILE,
+    ]
     if (reader / "previews").is_dir():
         reader_locked.extend(path for path in (reader / "previews").rglob("*") if path.is_file())
     reader_manifest = _write_review_manifest(
         reader,
-        review_kind="workbook_only_reader",
+        review_kind="workbook_delivery",
         locked_paths=reader_locked,
         mutable_output=READER_REVIEW_FILE,
     )
@@ -339,7 +383,7 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
     ]
     write_json(reader / READER_REVIEW_FILE, reader_review)
     return {
-        "status": "ready_for_workbook_reader_review",
+        "status": "ready_for_workbook_delivery_review",
         "build_path": str(build_dir),
         "reader_sheets": len(as_list(manifest.get("visible_sheets"))),
     }
@@ -373,6 +417,10 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
         or _load(reader_audience) != expected_audience
     ):
         errors.append("reader audience brief differs from canonical reconstruction")
+    reader_meaning = reader_dir / MEANING_REFERENCE_FILE
+    expected_meaning = meaning_reference_payload(delivery_map)
+    if not reader_meaning.is_file() or _load(reader_meaning) != expected_meaning:
+        errors.append("reader meaning reference differs from canonical reconstruction")
     expected_previews, preview_errors = _expected_preview_hashes(
         package_dir, build_dir, manifest
     )
@@ -384,6 +432,7 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
     reader_locked = [
         reader_dir / "workbook.xlsx",
         reader_dir / "audience-brief.json",
+        reader_dir / MEANING_REFERENCE_FILE,
     ]
     if (reader_dir / "previews").is_dir():
         reader_locked.extend(
@@ -391,7 +440,7 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
         )
     expected_reader_manifest = _review_manifest_payload(
         reader_dir,
-        review_kind="workbook_only_reader",
+        review_kind="workbook_delivery",
         locked_paths=reader_locked,
         mutable_output=READER_REVIEW_FILE,
     )
@@ -402,8 +451,12 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
         errors.append("reader review status must be complete")
     if reader.get("workbook_file_sha256") != manifest.get("workbook_file_sha256"):
         errors.append("reader review is bound to another workbook")
-    if reader.get("received_only_workbook_audience_brief_and_previews") is not True:
+    if reader.get("received_only_declared_review_inputs") is not True:
         errors.append("reader review isolation attestation is missing")
+    if reader.get("reviewed_workbook_before_meaning_reference") is not True:
+        errors.append("reader must assess the workbook before opening the meaning reference")
+    if reader.get("compared_every_visible_row_to_canonical_meaning") is not True:
+        errors.append("reader did not compare every visible row with canonical meaning")
     sheet_rows = [row for row in as_list(reader.get("sheet_reviews")) if isinstance(row, dict)]
     sheet_index = {str(row.get("sheet") or ""): row for row in sheet_rows}
     expected_sheets = set(as_list(manifest.get("visible_sheets")))
@@ -416,6 +469,8 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
             "standalone_and_clear",
             "next_action_clear",
             "wording_human_readable",
+            "semantic_meaning_faithful",
+            "content_specific_and_useful",
             "layout_legible",
             "navigation_usable",
         ):

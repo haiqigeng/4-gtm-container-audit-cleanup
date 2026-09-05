@@ -130,9 +130,11 @@
 - Recovery rebuild matches normalized sheets, cells, formulas, comments,
   navigation text, and dimensions; imported comment text, location, and count
   also match.
-- One workbook-only reader review runs in a fresh agent context, receives only
-  its declared workbook, audience brief, and rendered previews, covers every
-  visible sheet, and passes.
+- One workbook delivery review runs in a fresh agent context with only its
+  declared locked inputs. It first assesses the workbook as a standalone human
+  deliverable, then compares every visible row with the compact canonical meaning
+  reference; every sheet passes usefulness, clarity, semantic fidelity,
+  legibility, and navigation checks.
 - Lightweight provenance records agent/context labels plus locked input/output
   hashes. Labels are distinct where peers must be independent.
 - Source checkpoints are immutable after sealing. A pre-canonical audit

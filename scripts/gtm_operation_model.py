@@ -376,6 +376,7 @@ def operation_write_conflicts(operations: list[dict[str, Any]]) -> list[str]:
     """Detect contradictory writes and writes to objects scheduled for deletion."""
 
     writes: dict[tuple[str, str], tuple[str, str, Any]] = {}
+    indexed_removals: list[tuple[str, list[str | int], int, str, str]] = []
     deleted: dict[str, str] = {}
     errors: list[str] = []
 
@@ -385,6 +386,18 @@ def operation_write_conflicts(operations: list[dict[str, Any]]) -> list[str]:
         except ValueError as exc:
             errors.append(f"{operation_id}: {exc}")
             return
+        for object_key, parent, removed_index, previous_id, previous_path in indexed_removals:
+            if object_key != key[0] or len(tokens) <= len(parent):
+                continue
+            if (
+                tokens[: len(parent)] == parent
+                and isinstance(tokens[len(parent)], int)
+                and tokens[len(parent)] >= removed_index
+            ):
+                errors.append(
+                    f"{operation_id}: indexed write to {key[0]} {key[1]} shifts after "
+                    f"{previous_id} removes {previous_path}; change the containing list once"
+                )
         for (object_key, path), previous in writes.items():
             if object_key != key[0]:
                 continue
@@ -396,6 +409,10 @@ def operation_write_conflicts(operations: list[dict[str, Any]]) -> list[str]:
                     f"with {previous[0]} at {path}"
                 )
         writes[key] = (operation_id, field, value)
+        if field == "removals" and tokens and isinstance(tokens[-1], int):
+            indexed_removals.append(
+                (key[0], tokens[:-1], tokens[-1], operation_id, key[1])
+            )
 
     for operation in operations:
         operation_id = str(operation.get("operation_id") or "")

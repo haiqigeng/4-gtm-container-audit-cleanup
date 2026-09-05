@@ -16,7 +16,6 @@ from gtm_audit_contract import (  # noqa: E402
     OPERATION_ACTION_FIELDS,
     semantic_contract_errors,
 )
-from gtm_audit_plan import source_disposition_errors  # noqa: E402
 from gtm_audit_work_units import (  # noqa: E402
     MAX_SINGLE_OBLIGATIONS,
     build_work_units,
@@ -150,6 +149,15 @@ def work_unit_decision(index: int) -> dict:
 
 class V2OperationSafetyTests(unittest.TestCase):
     def test_source_visible_contract_failures_cannot_be_marked_harmless(self) -> None:
+        def alignment(obligation: dict, decision_class: str) -> list[str]:
+            return decision_obligation_alignment_errors(
+                {"decision_class": decision_class, "operation_proposal": {}},
+                obligation,
+                "decision",
+                source_catalog={},
+                source_sha256="a" * 64,
+            )
+
         consent = {
             "evidence": {
                 "consent_applicability": {
@@ -160,44 +168,11 @@ class V2OperationSafetyTests(unittest.TestCase):
             }
         }
         self.assertTrue(
-            source_disposition_errors(
-                consent,
-                {"decision_class": "container_evidence_limit"},
-                "consent route",
-            )
+            alignment(consent, "container_evidence_limit")
         )
         self.assertEqual(
             [],
-            source_disposition_errors(
-                consent,
-                {"decision_class": "defect"},
-                "consent route",
-            ),
-        )
-
-        ecommerce_mismatch = {
-            "fact_kind": "configuration_obligation",
-            "evidence": {
-                "configuration_obligation": {
-                    "obligation_key": "ecommerce_scope_mismatch:test",
-                    "deterministic_contract_state": "known_noncompliant",
-                }
-            },
-        }
-        self.assertTrue(
-            source_disposition_errors(
-                ecommerce_mismatch,
-                {"decision_class": "owner_decision"},
-                "ecommerce mapping",
-            )
-        )
-        self.assertEqual(
-            [],
-            source_disposition_errors(
-                ecommerce_mismatch,
-                {"decision_class": "defect"},
-                "ecommerce mapping",
-            ),
+            alignment(consent, "defect"),
         )
 
         repeated_setting = {
@@ -206,26 +181,14 @@ class V2OperationSafetyTests(unittest.TestCase):
             "evidence": {"compatibility_checks": {"same_effective_value": True}},
         }
         self.assertTrue(
-            source_disposition_errors(
-                repeated_setting,
-                {"decision_class": "owner_decision"},
-                "shared setting",
-            )
+            alignment(repeated_setting, "owner_decision")
         )
         self.assertEqual(
             [],
-            source_disposition_errors(
-                repeated_setting,
-                {"decision_class": "correct_but_materially_non_optimal"},
-                "shared setting",
-            ),
+            alignment(repeated_setting, "correct_but_materially_non_optimal"),
         )
         self.assertTrue(
-            source_disposition_errors(
-                consent,
-                {"decision_class": "owner_decision"},
-                "consent route",
-            )
+            alignment(consent, "owner_decision")
         )
 
         known_failure = {
@@ -236,19 +199,11 @@ class V2OperationSafetyTests(unittest.TestCase):
             }
         }
         self.assertTrue(
-            source_disposition_errors(
-                known_failure,
-                {"decision_class": "justified_as_is"},
-                "configuration",
-            )
+            alignment(known_failure, "justified_as_is")
         )
         self.assertEqual(
             [],
-            source_disposition_errors(
-                known_failure,
-                {"decision_class": "owner_decision"},
-                "configuration",
-            ),
+            alignment(known_failure, "owner_decision"),
         )
 
         ineffective = {
@@ -260,20 +215,11 @@ class V2OperationSafetyTests(unittest.TestCase):
             },
         }
         self.assertTrue(
-            source_disposition_errors(
-                ineffective,
-                {"decision_class": "owner_decision"},
-                "ineffective blocker",
-            )
+            alignment(ineffective, "owner_decision")
         )
-        self.assertEqual(
-            [],
-            source_disposition_errors(
-                ineffective,
-                {"decision_class": "defect"},
-                "ineffective blocker",
-            ),
-        )
+        self.assertFalse(any(
+            "must be a defect" in error for error in alignment(ineffective, "defect")
+        ))
 
     def test_source_references_are_closed_and_missing_is_not_null(self):
         source = operation_fixture()
@@ -319,6 +265,34 @@ class V2OperationSafetyTests(unittest.TestCase):
         target = {"rows": values.copy()}
         delete_json_path(target, "$.rows[1]")
         self.assertEqual(["first", "third"], target["rows"])
+
+    def test_indexed_removal_cannot_redirect_a_later_write(self):
+        source = operation_fixture()
+        rows = [
+            {"key": name, "value": "shared"}
+            for name in ("obsolete", "wanted", "untouched")
+        ]
+        source["containerVersion"]["variable"][0]["rows"] = rows
+        digest = stable_hash(source, 64)
+        remove = operation("OP-REMOVE", removals=[{
+            "object_key": "variable:20", "json_path": "$.rows[0]",
+            "before_source_sha256": digest,
+        }])
+        change = operation("OP-CHANGE", changes=[{
+            "object_key": "variable:20", "json_path": "$.rows[1].value",
+            "before_source_sha256": digest, "after": "fixed",
+        }])
+        change["depends_on"] = ["OP-REMOVE"]
+        errors = validate_operations(source, [remove, change], source_sha256=digest)
+        self.assertTrue(any("indexed write" in error for error in errors), errors)
+
+        remove_high = copy.deepcopy(remove)
+        remove_high["removals"][0]["json_path"] = "$.rows[2]"
+        change_low = copy.deepcopy(change)
+        change_low["changes"][0]["json_path"] = "$.rows[1].value"
+        self.assertEqual(
+            [], validate_operations(source, [remove_high, change_low], source_sha256=digest)
+        )
 
     def test_replay_checks_typed_original_value_after_an_earlier_write(self):
         for before, after in ((False, 0), (0, False), (None, "null"), ([False], [0])):
@@ -469,7 +443,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         }
         self.assertTrue(
             any(
-                "statically ineffective blocker is a defect" in error
+                "statically ineffective blocker must be a defect" in error
                 for error in decision_obligation_alignment_errors(
                     justified, ineffective_blocker, "decision"
                 , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
@@ -491,7 +465,7 @@ class V2OperationSafetyTests(unittest.TestCase):
         }
         self.assertTrue(
             any(
-                "late default consent writer is a defect" in error
+                "late default consent writer must be a defect" in error
                 for error in decision_obligation_alignment_errors(
                     justified, late_consent_default, "decision"
                 , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
@@ -601,6 +575,38 @@ class V2OperationSafetyTests(unittest.TestCase):
                 , source_catalog=object_catalog(source), source_sha256=stable_hash(source, 64))
             )
         )
+
+    def test_protected_source_known_repair_becomes_an_owner_decision(self) -> None:
+        source = operation_fixture()
+        digest = stable_hash(source, 64)
+        obligation = {
+            "fact_kind": "configuration_obligation",
+            "subject_keys": ["tag:1"],
+            "evidence": {
+                "source_json_path": "$.containerVersion.tag[0]",
+                "configuration_obligation": {
+                    "obligation_key": "document_write_support_missing",
+                    "required_outcome": "Issue",
+                    "source_known_repair": {
+                        "mode": "change", "object_key": "tag:1",
+                        "json_path": "$.containerVersion.tag[0].paused",
+                        "before": False, "after": True,
+                    },
+                },
+            },
+        }
+        owner = {"decision_class": "owner_decision", "operation_proposal": {}}
+        self.assertEqual(
+            [],
+            decision_obligation_alignment_errors(
+                owner, obligation, "decision", source_catalog=object_catalog(source),
+                source_sha256=digest, do_not_touch={"tag:1"},
+            ),
+        )
+        self.assertTrue(decision_obligation_alignment_errors(
+            owner, obligation, "decision", source_catalog=object_catalog(source),
+            source_sha256=digest,
+        ))
 
     def test_non_actionable_decision_uses_compact_class_specific_fields(self) -> None:
         decision = {

@@ -401,6 +401,14 @@ def exact_event_names(trigger: dict[str, Any]) -> set[str]:
             names.add(right.strip())
     if names:
         return names
+    if str(trigger.get("type") or "").upper() == "TIMER":
+        configured = trigger.get("eventName")
+        if configured is None:
+            return {"gtm.timer"}
+        if isinstance(configured, dict):
+            configured = configured.get("value")
+        event_name = str(configured or "").strip()
+        return {event_name} if event_name and not refs(event_name) else set()
     lifecycle_events = {
         "PAGEVIEW": "gtm.js",
         "DOM_READY": "gtm.dom",
@@ -412,7 +420,6 @@ def exact_event_names(trigger: dict[str, Any]) -> set[str]:
         "CLICK": "gtm.click",
         "HISTORY_CHANGE": "gtm.historyChange",
         "JS_ERROR": "gtm.pageError",
-        "TIMER": "gtm.timer",
         "SCROLL_DEPTH": "gtm.scrollDepth",
         "YOU_TUBE_VIDEO": "gtm.video",
         "ELEMENT_VISIBILITY": "gtm.elementVisibility",

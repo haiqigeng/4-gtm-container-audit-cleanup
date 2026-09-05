@@ -18,6 +18,7 @@ from gtm_audit_contract import (
 from gtm_cleanroom_audit import (
     AUDIT_IDS,
     decision_obligation_alignment_errors,
+    proposed_deletion_keys,
     sealed_audit_errors,
 )
 from gtm_lib import (
@@ -965,11 +966,21 @@ def finalize_reconciliation(
     from gtm_operation_model import object_catalog, read_operation_source
     source_sha256 = ledger["source_sha256"]
     operation_source = object_catalog(read_operation_source(package_dir / "locked-source.json", source_sha256))
+    context = _read_json(package_dir / "context.json")
+    do_not_touch = {
+        str(value)
+        for value in as_list((context.get("context") or {}).get("do_not_touch"))
+    }
     obligation_by_id = {
         str(row.get("obligation_id") or ""): row
         for row in as_list(ledger.get("obligations"))
         if isinstance(row, dict)
     }
+    retired_keys = proposed_deletion_keys([
+        row.get("canonical_decision")
+        for row in supplied_rows
+        if isinstance(row.get("canonical_decision"), dict)
+    ])
     for comparison_id, expected in expected_rows.items():
         row = supplied.get(comparison_id)
         if not row:
@@ -1009,7 +1020,8 @@ def finalize_reconciliation(
         if obligation:
             errors.extend(
                 decision_obligation_alignment_errors(canonical, obligation, label,
-                    source_catalog=operation_source, source_sha256=source_sha256)
+                    source_catalog=operation_source, source_sha256=source_sha256,
+                    do_not_touch=do_not_touch, retired_object_keys=retired_keys)
             )
         if row.get("applicability") == "source_counted_zero":
             if canonical.get("decision_class") != "not_applicable":

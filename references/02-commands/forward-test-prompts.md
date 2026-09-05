@@ -70,8 +70,9 @@ Measure:
   a fresh reconciliation agent over the two sealed audits;
 - rejection when Audit A/B shares one agent context,
   receives peer findings before sealing, or lacks locked input/output hashes;
-- exhaustive deterministic workbook fidelity plus one fresh workbook-only reader
-  review with declared locked inputs and every visible sheet covered;
+- exhaustive deterministic workbook fidelity plus one fresh workbook delivery
+  review that assesses standalone human usefulness before comparing every
+  visible row with the compact canonical meaning reference;
 - successful fresh source-audit amendment with unchanged checkpoint provenance,
   append-only history, and byte-identical rollback after a rejected amendment;
 - successful family-sharded amendment whose predecessor and successor each

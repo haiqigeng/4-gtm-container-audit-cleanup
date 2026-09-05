@@ -198,6 +198,11 @@ def candidate_source_scope(
         for value in as_list(finding.get("shared_fact_object_keys"))
         if str(value) in shared_by_key
     }
+    object_keys.update(
+        str(value)
+        for value in as_list(finding.get("repair_affected_object_keys"))
+        if str(value) in shared_by_key
+    )
     for identity in as_list(finding.get("object_identities")):
         identity_text = str(identity or "")
         if identity_text in shared_by_key:
@@ -209,44 +214,117 @@ def candidate_source_scope(
             if key in shared_by_key:
                 object_keys.add(key)
 
-    referenced_names = {
+    finding_layer = str(finding.get("object_type") or "").strip()
+    if finding_layer:
+        object_keys.update(
+            key
+            for value in as_list(finding.get("object_ids"))
+            if (key := f"{finding_layer}:{value}") in shared_by_key
+        )
+        finding_names = {
+            str(value) for value in as_list(finding.get("object_names")) if str(value)
+        }
+        object_keys.update(
+            key for key, fact in shared_by_key.items()
+            if key.startswith(f"{finding_layer}:")
+            and str(fact.get("object_name") or "") in finding_names
+        )
+
+    def trace_target_keys(trace: dict[str, Any]) -> set[str]:
+        targets: set[str] = set()
+        for target in as_list(trace.get("targets")):
+            if not isinstance(target, dict):
+                continue
+            target_key = str(target.get("object_key") or "")
+            if target_key:
+                targets.add(target_key)
+            for child in as_list(target.get("member_traces")):
+                if isinstance(child, dict):
+                    targets.update(trace_target_keys(child))
+        return targets
+
+    source_paths: set[str] = set()
+    finding_type = str(finding.get("finding_type") or "")
+    referenced_identities = {
         str(value)
         for field in ("object_ids", "object_names")
         for value in as_list(finding.get(field))
         if str(value)
     }
-    source_paths: set[str] = set()
-    for key, fact in shared_by_key.items():
-        matching_dependency_traces = [
-            trace
-            for trace in as_list(fact.get("execution_dependency_traces"))
-            if str((trace or {}).get("reference") or "") in referenced_names
-        ]
-        if matching_dependency_traces:
-            object_keys.add(key)
-            for trace in matching_dependency_traces:
-                source_paths.update(
-                    path
-                    for path in as_list(trace.get("source_reference_paths"))
-                    if isinstance(path, str) and path.startswith("$.")
-                )
-        referenced_here = referenced_names & {
-            str(value) for value in as_list(fact.get("referenced_variables"))
+    if finding_type == "undefined_variable_reference":
+        for key, fact in shared_by_key.items():
+            if referenced_identities & {
+                str(value) for value in as_list(fact.get("referenced_variables"))
+            }:
+                object_keys.add(key)
+                for leaf in as_list(fact.get("source_leaf_facts")):
+                    if referenced_identities & {
+                        str(value)
+                        for value in as_list((leaf or {}).get("referenced_variables"))
+                    }:
+                        path = str((leaf or {}).get("json_path") or "")
+                        if path.startswith("$."):
+                            source_paths.add(path)
+    elif finding_type == "missing_trigger_reference":
+        for key, fact in shared_by_key.items():
+            for trace in as_list(fact.get("execution_dependency_traces")):
+                if (
+                    isinstance(trace, dict)
+                    and str(trace.get("reference") or "") in referenced_identities
+                ):
+                    object_keys.add(key)
+                    source_paths.update(
+                        path
+                        for path in as_list(trace.get("source_reference_paths"))
+                        if isinstance(path, str) and path.startswith("$.")
+                    )
+    elif finding_type in {"missing_setupTag_reference", "missing_teardownTag_reference"}:
+        source_id = next(
+            (str(value) for value in as_list(finding.get("object_ids"))
+             if f"tag:{value}" in shared_by_key),
+            "",
+        )
+        if source_id:
+            object_keys.add(f"tag:{source_id}")
+
+    changed = True
+    while changed:
+        changed = False
+        variable_names = {
+            str(shared_by_key[key].get("object_name") or "")
+            for key in object_keys
+            if key.startswith("variable:")
         }
-        if referenced_here:
-            object_keys.add(key)
-            for leaf in as_list(fact.get("source_leaf_facts")):
-                if referenced_here & {
-                    str(value)
-                    for value in as_list((leaf or {}).get("referenced_variables"))
-                }:
-                    path = str((leaf or {}).get("json_path") or "")
-                    if path.startswith("$."):
-                        source_paths.add(path)
-        if key in object_keys:
-            path = str(fact.get("source_json_path") or "")
-            if path.startswith("$."):
-                source_paths.add(path)
+        for key, fact in shared_by_key.items():
+            matching_dependency_traces = [
+                trace for trace in as_list(fact.get("execution_dependency_traces"))
+                if isinstance(trace, dict) and trace_target_keys(trace) & object_keys
+            ]
+            referenced_here = variable_names & {
+                str(value) for value in as_list(fact.get("referenced_variables"))
+            }
+            if matching_dependency_traces or referenced_here:
+                if key not in object_keys:
+                    object_keys.add(key)
+                    changed = True
+                for trace in matching_dependency_traces:
+                    source_paths.update(
+                        path
+                        for path in as_list(trace.get("source_reference_paths"))
+                        if isinstance(path, str) and path.startswith("$.")
+                    )
+                for leaf in as_list(fact.get("source_leaf_facts")):
+                    if referenced_here & {
+                        str(value)
+                        for value in as_list((leaf or {}).get("referenced_variables"))
+                    }:
+                        path = str((leaf or {}).get("json_path") or "")
+                        if path.startswith("$."):
+                            source_paths.add(path)
+    for key in object_keys:
+        path = str(shared_by_key[key].get("source_json_path") or "")
+        if path.startswith("$."):
+            source_paths.add(path)
     return sorted(object_keys), sorted(source_paths)
 
 

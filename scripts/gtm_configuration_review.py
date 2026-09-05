@@ -1169,6 +1169,20 @@ def configured_field_values(obj: dict[str, Any], field: str) -> list[str]:
 
     def visit(value: Any) -> None:
         if isinstance(value, dict):
+            mapped = {
+                str(item.get("key") or "").strip(): item.get("value")
+                for item in as_list(value.get("map"))
+                if isinstance(item, dict)
+                and item.get("value") is not None
+                and not isinstance(item.get("value"), (dict, list))
+            }
+            configured_name = str(
+                mapped.get("parameter") or mapped.get("field") or ""
+            ).strip().lower()
+            if configured_name == target:
+                paired = mapped.get("parameterValue", mapped.get("fieldValue"))
+                if paired is not None:
+                    values.append(str(paired))
             key = str(value.get("key") or "").strip().lower()
             raw = value.get("value")
             if key == target and raw is not None and not isinstance(raw, (dict, list)):
@@ -1946,9 +1960,11 @@ def required_configuration_obligations(
             support_index >= 0
             and str(parameters[support_index].get("value") or "").lower() == "true"
         )
-        document_write = bool(
-            re.search(r"\bdocument\s*\.\s*write\s*\(", html, re.I)
-        )
+        document_write = bool(re.search(
+            r"\bdocument\s*(?:\.\s*write|\[\s*['\"]write['\"]\s*\])\s*\(",
+            html,
+            re.I,
+        ))
         html_anchors = anchors_for(
             f"parameter[{html_index}]" if html_index >= 0 else "html",
             "html",
@@ -1987,41 +2003,32 @@ def required_configuration_obligations(
                     }
                     if support_index >= 0
                     else {
-                        "mode": "append",
+                        "mode": "change",
                         "object_key": str(shared.get("object_key") or ""),
                         "json_path": f"{own_prefix}.parameter",
-                        "value": {
-                            "type": "BOOLEAN",
-                            "key": "supportDocumentWrite",
-                            "value": "true",
-                        },
+                        "before": parameters,
+                        "after": [
+                            *parameters,
+                            {
+                                "type": "BOOLEAN",
+                                "key": "supportDocumentWrite",
+                                "value": "true",
+                            },
+                        ],
                     }
                 )
         elif support_enabled and not document_write:
             add(
                 "unused_document_write_support",
-                "Issue",
+                "Review",
                 (
-                    "Custom HTML enables Support document.write although the exported "
-                    "code contains no document.write() call."
+                    "Custom HTML enables Support document.write and the direct exported "
+                    "code scan found no document.write call. Code review must determine "
+                    "whether an indirect call or generated code still requires it."
                 ),
                 [*support_anchors, *html_anchors],
                 ("purpose_output_alignment", "custom_code_behavior_alignment"),
             )
-            if "unused_document_write_support" in obligations:
-                obligations["unused_document_write_support"][
-                    "source_known_repair"
-                ] = {
-                    "mode": "change",
-                    "object_key": str(shared.get("object_key") or ""),
-                    "json_path": (
-                        f"{own_prefix}.parameter[{support_index}].value"
-                    ),
-                    "before": str(
-                        parameters[support_index].get("value") or ""
-                    ),
-                    "after": "false",
-                }
 
     consent_initialization_ids = consent_initialization_trigger_ids(cv)
     firing_trigger_ids = {
@@ -2982,6 +2989,8 @@ def required_configuration_obligations(
                     if not variable_record:
                         continue
                     variable_index, variable = variable_record
+                    if str(variable.get("type") or "").lower() != "v":
+                        continue
                     for data_layer_path in configured_field_values(variable, "name"):
                         match = re.search(r"(?:^|\.)ecommerce\.([A-Za-z0-9_]+)", data_layer_path, re.I)
                         if not match:
@@ -3016,20 +3025,19 @@ def required_configuration_obligations(
                         )
                         add(
                             key,
-                            "Issue",
+                            "Review",
                             (
                                 f"GA4 event {', '.join(sorted(configured_events))!r} maps "
                                 f"{setting_name!r} through {reference!r} to legacy dataLayer "
-                                f"scope {data_layer_path!r}, which belongs to "
-                                f"{observed_family!r} rather than the event's "
-                                f"{', '.join(sorted(expected_families))!r} scope."
+                                f"scope {data_layer_path!r}. Its {observed_family!r} path "
+                                f"differs from the event's {', '.join(sorted(expected_families))!r} "
+                                "family; review the parameter's source meaning before deciding "
+                                "whether this is intentional or should change."
                             ),
                             anchors,
                             ("purpose_output_alignment", "input_output_consumer_alignment", "vendor_contract_alignment"),
                             ("ecommerce_event_contract", "transaction_value_currency_and_quantity"),
                         )
-                        if key in obligations:
-                            obligations[key]["deterministic_contract_state"] = "known_noncompliant"
     return [obligations[key] for key in sorted(obligations)]
 
 

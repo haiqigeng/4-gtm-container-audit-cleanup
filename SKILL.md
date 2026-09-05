@@ -405,14 +405,18 @@ of authoring through another library. The workbook has `01 Overview`,
 `02 Recommendations`, `03 Decisions Needed`, `04 Full Audit`, and `05 Custom
 Code` only when source-applicable.
 
-Use `scripts/gtm_delivery_reviews.py` to create one workbook-only reader check.
-Run it in one fresh agent context with only its locked workbook, audience brief,
-and rendered previews. Review every visible sheet for concise human wording,
-standalone explanations, clear next actions, legibility, and navigation. Record
-its input and output hashes. Deterministic verification—not the reader—exhaustively
-checks row/field bindings, recovery, comments, navigation, dimensions, unexpected
-formulas or renderer artifacts, privacy, and formula injection before delivery is
-sealed.
+Use `scripts/gtm_delivery_reviews.py` to create one workbook delivery review.
+Run it in one fresh agent context with only its declared locked inputs. First read
+the workbook, audience brief, and rendered previews as a human analyst would;
+review every visible sheet for concise wording, useful content, standalone
+explanations, clear next actions, legibility, and navigation. Then open the compact
+canonical meaning reference and compare every visible row with its canonical
+meaning, identifiers, target state, evidence limits, and owner question. Reject
+generic repeated advice or wording that changes, omits, or overstates a canonical
+finding. Record the review input and output hashes. Deterministic verification—not
+the reviewer—exhaustively checks row/field bindings, recovery, comments,
+navigation, dimensions, unexpected formulas or renderer artifacts, privacy, and
+formula injection before delivery is sealed.
 
 ## Decision Rules
 

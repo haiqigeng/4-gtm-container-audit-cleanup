@@ -39,6 +39,7 @@ from gtm_cleanroom_audit import (
     _sealed_audit_record_errors,
     decision_obligation_alignment_errors,
     operation_proposal_errors,
+    proposed_deletion_keys,
 )
 from gtm_lib import as_list, require_safe_package_root, write_json
 from gtm_operation_model import (
@@ -334,71 +335,6 @@ def _complete_decision(
     return result
 
 
-def source_disposition_errors(
-    locked: dict[str, Any], decision: dict[str, Any], label: str
-) -> list[str]:
-    """Keep source-visible contract failures out of harmless/evidence-limit classes."""
-
-    evidence = locked.get("evidence") or {}
-    decision_class = str(decision.get("decision_class") or "")
-    known_failure_classes = {"defect", "owner_decision"}
-    errors: list[str] = []
-    applicability = evidence.get("consent_applicability") or {}
-    if applicability.get("direct_non_advanced_browser_vendor") and (
-        evidence.get("positive_route_contains_consent") is True
-        or evidence.get("blocker_contains_consent") is not True
-    ) and decision_class != "defect":
-        errors.append(
-            f"{label}: direct browser consent-control issue must be a defect"
-        )
-
-    if (
-        str(locked.get("fact_kind") or "") == "ineffective_blocking_trigger"
-        and decision_class != "defect"
-    ):
-        errors.append(
-            f"{label}: a source-proven ineffective blocking trigger must be a defect"
-        )
-
-    compatibility = evidence.get("compatibility_checks") or {}
-    if (
-        str(locked.get("audit_mechanism") or "") == "optimization_candidate_review"
-        and str(locked.get("fact_kind") or "")
-        in {"shared_event_setting", "shared_config_setting"}
-        and compatibility.get("same_effective_value") is True
-        and decision_class == "owner_decision"
-    ):
-        errors.append(
-            f"{label}: repeated equal settings require a container-based optimisation "
-            "assessment, not a generic owner decision"
-        )
-
-    def has_known_noncompliance(value: Any) -> bool:
-        if isinstance(value, dict):
-            return value.get("deterministic_contract_state") == "known_noncompliant" or any(
-                has_known_noncompliance(child) for child in value.values()
-            )
-        if isinstance(value, list):
-            return any(has_known_noncompliance(child) for child in value)
-        return False
-
-    if has_known_noncompliance(evidence) and decision_class not in known_failure_classes:
-        errors.append(
-            f"{label}: known source contract failure must be a defect or owner decision"
-        )
-    configuration_obligation = evidence.get("configuration_obligation") or {}
-    if (
-        str(configuration_obligation.get("obligation_key") or "").startswith(
-            "ecommerce_scope_mismatch:"
-        )
-        and decision_class != "defect"
-    ):
-        errors.append(
-            f"{label}: a source-visible ecommerce scope contradiction must be a defect"
-        )
-    return errors
-
-
 def _author_decisions(
     locked_by_obligation: dict[str, dict[str, Any]],
     plan: dict[str, Any],
@@ -464,7 +400,6 @@ def _author_decisions(
         completed = _complete_decision(locked, selected)
         label = str(completed.get("decision_id") or obligation_id)
         errors.extend(semantic_contract_errors(completed, label))
-        errors.extend(source_disposition_errors(locked, completed, label))
         citations = {
             str(value) for value in as_list(completed.get("evidence_citations"))
         }
@@ -587,6 +522,12 @@ def apply_plan(
     source_sha256 = ledger["source_sha256"]
     source = read_operation_source(bundle / "locked-source.json", source_sha256)
     source_catalog = object_catalog(source)
+    context = _read_json(bundle / "context.json")
+    do_not_touch = {
+        str(value)
+        for value in as_list((context.get("context") or {}).get("do_not_touch"))
+    }
+    retired_keys = proposed_deletion_keys(list(authored.values()))
     for obligation_id, decision in authored.items():
         obligation = obligation_by_id.get(obligation_id)
         if obligation:
@@ -596,6 +537,8 @@ def apply_plan(
                     obligation,
                     str(decision.get("decision_id") or obligation_id),
                     source_catalog=source_catalog, source_sha256=source_sha256,
+                    do_not_touch=do_not_touch,
+                    retired_object_keys=retired_keys,
                 )
             )
     operations = [
@@ -605,11 +548,6 @@ def apply_plan(
     ]
     if not authored_errors:
         operations = merge_exact_operation_ids(operations)
-        context = _read_json(bundle / "context.json")
-        do_not_touch = {
-            str(value)
-            for value in as_list((context.get("context") or {}).get("do_not_touch"))
-        }
         errors.extend(
             f"audit operation safety gate failed: {error}"
             for error in validate_operations(

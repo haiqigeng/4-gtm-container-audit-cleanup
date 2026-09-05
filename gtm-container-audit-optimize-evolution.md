@@ -2849,14 +2849,50 @@ of this design change.
   evidence. Configuration obligations explicitly trace object meaning, dataLayer
   path, type/shape, consumer and destination meaning.
 - A source-visible direct-browser consent-control failure must be resolved as a
-  defect. Other known contract failures can no longer pass as harmless or as a
-  generic evidence limit; they require a defect or an exact owner decision.
+  defect. A protected object keeps the same finding as an owner decision without
+  a prohibited operation. Other known contract failures cannot pass as harmless
+  or as a generic evidence limit.
 - Lifecycle trigger types now contribute their exact GTM event identity to the
   ineffective-blocker scan, so a page-view tag blocked only by an unrelated CMP
   callback is detected in the same pass as custom-event mismatches.
-- GA4 ecommerce settings now recognize indirect settings-table parameter names
-  and create exact obligations when a visible parameter source belongs to a
-  different legacy ecommerce event family. Such source-visible contradictions
-  must be defects, independently of any separate owner choice.
+- GA4 ecommerce settings recognize native settings-table parameter names and
+  paired values. A visible legacy ecommerce path from a data-layer variable is
+  retained as a review candidate until its outgoing parameter meaning proves a
+  contradiction.
 - Repeated equal Google settings must receive a source-based consolidate-or-
   retain assessment. A generic owner question can no longer close that work.
+
+## v2.2.1 release corrections
+
+The release review kept the North Star, 27-area scope, independent audits,
+single-pass production workflow, and workbook structure. It corrected the
+bounded release blockers without adding another audit stage or compatibility
+path:
+
+- source-indexed list removals can no longer shift a later write onto another
+  row; affected lists use the existing whole-list change representation;
+- Timer triggers use their configured static event name, with `gtm.timer` only
+  as the absent-field default and dynamic identities left unresolved;
+- Custom HTML recognises dot and literal-bracket `document.write` calls, while
+  lexical absence remains a review question rather than proof that support is
+  unused;
+- required document-write support uses an exact whole-parameter-list change;
+  protected objects retain the finding as an owner decision without a forbidden
+  operation;
+- evidence-dependent verdict checks now run in the shared obligation-alignment
+  path across plan application, audit validation, and reconciliation;
+- ecommerce source-family differences remain neutral review candidates unless
+  variable type and parameter meaning prove a contradiction;
+- native Google settings tables retain paired values for existing literal,
+  dynamic, and type checks;
+- operational ownership follows typed source identities, explicit repair scope,
+  and resolved dependency traces, including typed missing-reference consumers;
+  and
+- the existing fresh workbook reviewer now reads the workbook first, then checks
+  every visible row against a compact canonical meaning reference for fidelity,
+  specificity, usefulness, and clear human wording.
+
+These corrections reuse the existing operation model, graph, audit validator,
+and delivery review. They do not add a server-container audit, runtime
+certification, GTM mutation, repeated product cycles, or a second delivery
+reviewer.

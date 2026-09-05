@@ -205,11 +205,16 @@ Rebuild from only that reconstructed canonical authority, its manifest, and the
 sealed editorial artifact;
 the normalized sheet/cell/navigation/comment/dimension model must match.
 
-Then run one workbook-only reader review in a fresh agent context. It receives
-the workbook, audience brief, and rendered previews only; it reviews every visible
-sheet and rejects unclear, non-standalone, repetitive, machine-oriented,
-illegible, or poorly navigable output. Record its locked input and output hash.
-The reader does not duplicate exhaustive row attestations or reopen audit
+Then run one workbook delivery review in a fresh agent context with only its
+declared locked inputs. The reviewer first reads the workbook, audience brief,
+and rendered previews as a standalone human deliverable and checks every visible
+sheet for clarity, concision, useful content, actionable next steps, legibility,
+and navigation. The reviewer then opens the compact canonical meaning reference
+and compares every visible row with its canonical meaning, identifiers, target
+state, evidence limits, and owner question. Reject generic repeated advice,
+coverage-only evidence presented as configuration detail, or wording that changes,
+omits, or overstates a canonical finding. Record the locked input and output hash.
+The reviewer does not duplicate deterministic row mechanics or reopen audit
 judgments.
 
 Apply presentation-only corrections through a new editorial artifact and rebuild.

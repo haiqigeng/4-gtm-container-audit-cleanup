@@ -1,9 +1,9 @@
 # GTM Container Audit & Optimize
 
 A reusable Codex skill for static Google Tag Manager web-container audit and
-optimization. This checkout contains the v2.2.1 development candidate; the latest
-published release is [v2.1.1](https://github.com/haiqigeng/4-gtm-container-audit-cleanup/releases/tag/v2.1.1).
-The candidate uses one deterministic
+optimization. The current release is
+[v2.2.1](https://github.com/haiqigeng/4-gtm-container-audit-cleanup/releases/tag/v2.2.1).
+It uses one deterministic
 canonical scan, fresh-agent scan assurance, two complete independent semantic
 audits in parallel, one fresh-agent reconciliation, deterministic target
 validation, and one analyst workbook.
@@ -79,8 +79,9 @@ not an external owner decision.
 The portable provenance contract records agent/context labels and locked
 input/output hashes. Labels are distinct where reviewers must be independent.
 Deterministic workbook verification exhaustively checks canonical row and field
-bindings; one fresh workbook-only reader reviews every visible sheet for human
-clarity, usefulness, layout, and navigation.
+bindings. One fresh workbook delivery reviewer first judges every visible sheet
+as a human deliverable, then compares every row with a compact canonical meaning
+reference for fidelity, specificity, usefulness, layout, and navigation.
 
 One product execution has one comprehensive source pass. Target simulation
 recomputes facts and assurance for static validation; it does not open another

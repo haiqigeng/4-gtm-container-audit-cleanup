@@ -12,6 +12,12 @@ sys.path.insert(0, str(SCRIPTS))
 
 from gtm_baseline_audit import audit_export  # noqa: E402
 from gtm_canonical_scan import build_canonical_scan  # noqa: E402
+from gtm_configuration_review import (  # noqa: E402
+    configured_field_values,
+    configured_parameter_terms,
+    registry_contract_topics,
+    vendor_record,
+)
 from gtm_custom_code_extract import (  # noqa: E402
     code_hash,
     cookie_write_facts,
@@ -20,6 +26,7 @@ from gtm_custom_code_extract import (  # noqa: E402
     technical_code_review,
 )
 from gtm_lib import param_value, refs, safe_scalar_preview, source_integrity_findings  # noqa: E402
+from gtm_operational_review import candidate_source_scope  # noqa: E402
 
 
 def condition(operator: str, left: str, right: str) -> dict:
@@ -130,7 +137,46 @@ def detector_fixture() -> dict:
 
 
 class V2DetectorRegressionTests(unittest.TestCase):
-    def test_ga4_ecommerce_scope_mismatch_becomes_exact_obligation(self) -> None:
+    def test_document_write_support_keeps_code_judgment_and_uses_supported_repairs(self) -> None:
+        cases = (
+            ("document['write']('<p>x</p>')", "true", set()),
+            ("window.renderHtml()", "true", {"unused_document_write_support"}),
+            ("document.write('<p>x</p>')", None, {"document_write_support_missing"}),
+        )
+        for code, support, expected in cases:
+            with self.subTest(code=code, support=support):
+                fixture = detector_fixture()
+                parameters = [{"key": "html", "type": "TEMPLATE", "value": code}]
+                if support is not None:
+                    parameters.append({
+                        "key": "supportDocumentWrite", "type": "BOOLEAN", "value": support,
+                    })
+                fixture["containerVersion"]["tag"] = [{
+                    "tagId": "77", "name": "Custom HTML", "type": "html",
+                    "parameter": parameters,
+                }]
+                with tempfile.TemporaryDirectory() as directory:
+                    source = Path(directory) / "container.json"
+                    source.write_text(json.dumps(fixture), encoding="utf-8")
+                    scan = build_canonical_scan(source)["canonical_scan"]
+                row = next(
+                    item for item in scan["configuration_evidence"]["objects"]
+                    if item["object_key"] == "tag:77"
+                )
+                obligations = {
+                    item["obligation_key"]: item
+                    for item in row["required_configuration_obligations"]
+                }
+                self.assertEqual(expected, set(obligations))
+                if "unused_document_write_support" in obligations:
+                    self.assertEqual("Review", obligations["unused_document_write_support"]["required_outcome"])
+                    self.assertNotIn("source_known_repair", obligations["unused_document_write_support"])
+                if "document_write_support_missing" in obligations:
+                    repair = obligations["document_write_support_missing"]["source_known_repair"]
+                    self.assertEqual("change", repair["mode"])
+                    self.assertEqual("true", repair["after"][-1]["value"])
+
+    def test_ga4_ecommerce_path_difference_remains_a_review_candidate(self) -> None:
         fixture = detector_fixture()
         container = fixture["containerVersion"]
         container["variable"].append(
@@ -181,10 +227,57 @@ class V2DetectorRegressionTests(unittest.TestCase):
         self.assertTrue(
             obligations[0]["obligation_key"].startswith("ecommerce_scope_mismatch:")
         )
-        self.assertEqual(
-            "known_noncompliant",
-            obligations[0]["deterministic_contract_state"],
-        )
+        self.assertEqual("Review", obligations[0]["required_outcome"])
+        self.assertNotIn("deterministic_contract_state", obligations[0])
+
+    def test_native_event_settings_values_reach_registry_contract_checks(self) -> None:
+        tag = {
+            "type": "gaawe",
+            "parameter": [
+                {"key": "eventName", "value": "purchase"},
+                {"key": "eventSettingsTable", "type": "LIST", "list": [{
+                    "type": "MAP", "map": [
+                        {"key": "parameter", "value": "value"},
+                        {"key": "parameterValue", "value": "twelve"},
+                    ],
+                }]},
+            ],
+        }
+        self.assertEqual(["twelve"], configured_field_values(tag, "value"))
+        context = dict(vendor_record("gaawe"))
+        context["vendor"] = context["name"]
+        topic = registry_contract_topics(
+            tag, context, ["purchase"], configured_parameter_terms(tag)
+        )[0]
+        self.assertEqual("known_noncompliant", topic["deterministic_contract_state"])
+        self.assertIn("value is not a number", topic["contract_violations"])
+
+    def test_candidate_scope_uses_typed_resolved_dependencies(self) -> None:
+        finding = {
+            "object_type": "tag", "object_ids": ["10"],
+            "object_names": ["Target"], "shared_fact_object_keys": ["tag:10"],
+        }
+        shared = {
+            "tag:10": {"object_name": "Target", "source_json_path": "$.tag[0]"},
+            "tag:20": {
+                "object_name": "Other", "source_json_path": "$.tag[1]",
+                "execution_dependency_traces": [{
+                    "reference": "10", "source_reference_paths": ["$.tag[1].firing[0]"],
+                    "targets": [{"object_key": "trigger:10"}],
+                }],
+            },
+            "tag:30": {
+                "object_name": "Consumer", "source_json_path": "$.tag[2]",
+                "execution_dependency_traces": [{
+                    "reference": "Target", "source_reference_paths": ["$.tag[2].setup[0]"],
+                    "targets": [{"object_key": "tag:10"}],
+                }],
+            },
+            "trigger:10": {"object_name": "Trigger", "source_json_path": "$.trigger[0]"},
+        }
+        keys, paths = candidate_source_scope(finding, shared)
+        self.assertEqual(["tag:10", "tag:30"], keys)
+        self.assertIn("$.tag[2].setup[0]", paths)
 
     def test_pageview_route_cannot_use_custom_event_blocker(self) -> None:
         fixture = detector_fixture()

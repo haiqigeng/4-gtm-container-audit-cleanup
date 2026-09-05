@@ -13,6 +13,7 @@ from gtm_baseline_audit import (
     build_consumers,
     build_execution_reachability,
     build_lifecycle_matrix,
+    exact_event_names,
 )
 
 
@@ -63,6 +64,16 @@ class LifecycleReachabilityTests(unittest.TestCase):
                   "builtInVariable:Event", "customTemplate:template", "folder:members"}
     unreferenced = {"trigger:group", "trigger:empty", "variable:empty",
                     "builtInVariable:Click URL", "customTemplate:empty", "folder:empty"}
+
+    def test_timer_uses_configured_event_identity(self):
+        timer = {
+            "type": "TIMER",
+            "eventName": {"type": "TEMPLATE", "value": "timer5"},
+        }
+        self.assertEqual({"timer5"}, exact_event_names(timer))
+        timer["eventName"]["value"] = "{{Timer Event}}"
+        self.assertEqual(set(), exact_event_names(timer))
+        self.assertEqual({"gtm.timer"}, exact_event_names({"type": "TIMER"}))
 
     def test_unreachable_chain_preserves_every_candidate_and_actual_consumers(self):
         rows, findings = inspect(fixture())

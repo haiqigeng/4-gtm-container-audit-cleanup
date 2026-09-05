@@ -721,15 +721,37 @@ def operation_proposal_errors(
     return errors
 
 
+def proposed_deletion_keys(decisions: list[dict[str, Any]]) -> set[str]:
+    """Return objects retired by the complete proposed target."""
+
+    return {
+        str(action.get("object_key") or "")
+        for decision in decisions
+        for action in as_list((decision.get("operation_proposal") or {}).get("deletions"))
+        if isinstance(action, dict) and str(action.get("object_key") or "")
+    }
+
+
 def decision_obligation_alignment_errors(
     decision: dict[str, Any], obligation: dict[str, Any], label: str,
     *, source_catalog: dict[str, dict[str, Any]], source_sha256: str,
+    do_not_touch: set[str] | None = None,
+    retired_object_keys: set[str] | None = None,
 ) -> list[str]:
     """Reject verdicts that contradict an exact source-proven obligation."""
 
     errors: list[str] = []
     evidence = obligation.get("evidence") or {}
     decision_class = str(decision.get("decision_class") or "")
+    protected_keys = set(do_not_touch or set())
+    retired_keys = set(retired_object_keys or set())
+    subject_keys = {
+        str(value) for value in as_list(obligation.get("subject_keys")) if str(value)
+    }
+    protected_obligation = bool(
+        subject_keys & protected_keys
+    )
+    obligation_retired = bool(subject_keys) and subject_keys <= retired_keys
     from gtm_operation_model import same_json_value, source_before
 
     proposal = copy.deepcopy(decision.get("operation_proposal") or {})
@@ -751,9 +773,20 @@ def decision_obligation_alignment_errors(
     configuration = evidence.get("configuration_obligation") or {}
     repair = configuration.get("source_known_repair") or {}
     if configuration.get("required_outcome") == "Issue" and repair:
-        if decision_class not in ACTIONABLE_DECISION_CLASSES:
+        repair_protected = str(repair.get("object_key") or "") in protected_keys
+        repair_retired = str(repair.get("object_key") or "") in retired_keys
+        if repair_protected and decision_class != "owner_decision":
+            errors.append(f"{label}: protected source-known repair requires an owner decision")
+        elif (
+            not repair_protected
+            and not repair_retired
+            and decision_class not in ACTIONABLE_DECISION_CLASSES
+        ):
             errors.append(f"{label}: source-known configuration repair must be actionable")
         if (
+            not repair_protected
+            and not repair_retired
+            and
             configuration.get("obligation_key") == "unused_document_write_support"
             and decision_class != "correct_but_materially_non_optimal"
         ):
@@ -786,7 +819,7 @@ def decision_obligation_alignment_errors(
             and row == {"object_key": repair.get("object_key")}
             for action_field, row in action_rows
         )
-        if decision_class in ACTIONABLE_DECISION_CLASSES and not retires_subject and (
+        if not repair_protected and not repair_retired and decision_class in ACTIONABLE_DECISION_CLASSES and not retires_subject and (
             field is None or not any(
                 kind == field and same_json_value(row, {
                     key: value for key, value in expected.items()
@@ -798,12 +831,58 @@ def decision_obligation_alignment_errors(
                 f"{label}: operation must exactly implement the source-known repair"
             )
 
+    applicability = evidence.get("consent_applicability") or {}
+    if applicability.get("direct_non_advanced_browser_vendor") and (
+        evidence.get("positive_route_contains_consent") is True
+        or evidence.get("blocker_contains_consent") is not True
+    ) and not obligation_retired and decision_class != (
+        "owner_decision" if protected_obligation else "defect"
+    ):
+        errors.append(
+            f"{label}: direct browser consent-control issue must be a defect, or an "
+            "owner decision when its object is protected"
+        )
+
+    compatibility = evidence.get("compatibility_checks") or {}
+    if (
+        str(obligation.get("audit_mechanism") or "") == "optimization_candidate_review"
+        and str(obligation.get("fact_kind") or "")
+        in {"shared_event_setting", "shared_config_setting"}
+        and compatibility.get("same_effective_value") is True
+        and decision_class == "owner_decision"
+    ):
+        errors.append(
+            f"{label}: repeated equal settings require a container-based optimisation "
+            "assessment, not a generic owner decision"
+        )
+
+    def has_known_noncompliance(value: Any) -> bool:
+        if isinstance(value, dict):
+            return value.get("deterministic_contract_state") == "known_noncompliant" or any(
+                has_known_noncompliance(child) for child in value.values()
+            )
+        if isinstance(value, list):
+            return any(has_known_noncompliance(child) for child in value)
+        return False
+
+    if (
+        has_known_noncompliance(evidence)
+        and not obligation_retired
+        and decision_class not in {"defect", "owner_decision"}
+    ):
+        errors.append(f"{label}: known source contract failure must be a defect or owner decision")
+
     if obligation.get("fact_kind") == "ineffective_blocking_trigger":
         object_ids = [str(value) for value in as_list(evidence.get("object_ids"))]
         tag_id = object_ids[0] if object_ids else ""
         blocker_id = object_ids[1] if len(object_ids) > 1 else ""
-        if decision_class != "defect":
-            errors.append(f"{label}: statically ineffective blocker is a defect")
+        if not obligation_retired and decision_class != (
+            "owner_decision" if protected_obligation else "defect"
+        ):
+            errors.append(
+                f"{label}: statically ineffective blocker must be a defect, or an "
+                "owner decision when its object is protected"
+            )
         matching = [
             row
             for field, row in action_rows
@@ -826,11 +905,19 @@ def decision_obligation_alignment_errors(
             and "default" in as_list(row.get("commands"))
             and row.get("default_uses_consent_initialization") is False
         ]
-        if writers and decision_class != "defect":
+        active_writers = [
+            writer
+            for writer in writers
+            if str(writer.get("object_key") or "") not in retired_keys
+        ]
+        if active_writers and decision_class != (
+            "owner_decision" if protected_obligation else "defect"
+        ):
             errors.append(
-                f"{label}: source-visible late default consent writer is a defect"
+                f"{label}: source-visible late default consent writer must be a defect, "
+                "or an owner decision when its object is protected"
             )
-        for writer in writers:
+        for writer in active_writers:
             trigger_ids = [
                 str(value) for value in as_list(writer.get("firing_trigger_ids"))
             ]
@@ -1203,6 +1290,11 @@ def validate_audit(
         operation_source = object_catalog(read_operation_source(bundle / "locked-source.json", source_sha256))
     except ValueError as exc:
         return [*errors, str(exc)]
+    context = json.loads((bundle / "context.json").read_text(encoding="utf-8"))
+    do_not_touch = {
+        str(value)
+        for value in as_list((context.get("context") or {}).get("do_not_touch"))
+    }
     if work_unit_manifest_path.is_file():
         errors.extend(
             work_unit_completion_errors(
@@ -1330,6 +1422,7 @@ def validate_audit(
     }
     decision_rows = [row for row in as_list(audit.get("decisions")) if isinstance(row, dict)]
     decisions = {str(row.get("obligation_id") or ""): row for row in decision_rows}
+    retired_keys = proposed_deletion_keys(decision_rows)
     if len(decisions) != len(decision_rows) or "" in decisions:
         errors.append("audit decisions contain blank or duplicate obligation IDs")
     if set(decisions) != set(obligations):
@@ -1351,7 +1444,8 @@ def validate_audit(
         errors.extend(semantic_contract_errors(decision, label))
         errors.extend(
             decision_obligation_alignment_errors(decision, obligation, label,
-                source_catalog=operation_source, source_sha256=source_sha256)
+                source_catalog=operation_source, source_sha256=source_sha256,
+                do_not_touch=do_not_touch, retired_object_keys=retired_keys)
         )
         if obligation.get("applicability") == "source_counted_zero":
             if decision.get("decision_class") != "not_applicable":
