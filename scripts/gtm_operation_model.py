@@ -136,11 +136,11 @@ def set_json_path(target: Any, path: str, value: Any, *, allow_create: bool = Fa
 
 
 def delete_json_path(target: Any, path: str) -> None:
-    """Remove one existing object field; list-item deletion is intentionally unsupported."""
+    """Remove one existing object field or one indexed list item."""
 
     tokens = _path_tokens(path)
-    if not tokens or isinstance(tokens[-1], int):
-        raise ValueError("field removal must target one named object property")
+    if not tokens:
+        raise ValueError("removal must target one existing field or list item")
     current = target
     for token in tokens[:-1]:
         if isinstance(token, int):
@@ -152,6 +152,11 @@ def delete_json_path(target: Any, path: str) -> None:
                 raise KeyError(path)
             current = current[token]
     final = tokens[-1]
+    if isinstance(final, int):
+        if not isinstance(current, list) or final >= len(current):
+            raise KeyError(path)
+        current.pop(final)
+        return
     if not isinstance(current, dict) or final not in current:
         raise KeyError(path)
     del current[final]
@@ -508,8 +513,8 @@ def validate_operations(
             record = catalog[key]
             try:
                 tokens = _path_tokens(path)
-                if not tokens or isinstance(tokens[-1], int):
-                    raise ValueError("removal must target a named field")
+                if not tokens:
+                    raise ValueError("removal must target one existing field or list item")
                 if tokens == [record["id_key"]] or tokens == ["name"]:
                     errors.append(
                         f"{operation_id}: removal cannot delete identity field {key} {path}"

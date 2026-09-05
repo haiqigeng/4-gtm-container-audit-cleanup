@@ -107,6 +107,7 @@ def _obligation(
     candidate_id: str = "",
     candidate_owner: str = "",
     material_verification_triggers: list[str] | None = None,
+    identity_discriminator: str = "",
 ) -> dict[str, Any]:
     subjects = sorted(set(subject_keys or _subject_keys(evidence)))
     families = sorted(set(family_ids or _owner_family_ids(evidence)))
@@ -120,6 +121,7 @@ def _obligation(
         "candidate_id": candidate_id,
         "source_coordinates": coordinates,
         "release_phase": release_phase,
+        "identity_discriminator": identity_discriminator,
     }
     row = {
         "obligation_id": "OBL-" + area_id[-2:] + "-" + stable_hash(identity, 16).upper(),
@@ -337,6 +339,7 @@ def build_obligation_ledger(
                     "configuration_obligation",
                     evidence,
                     subject_keys=[object_key],
+                    identity_discriminator=str(nested.get("obligation_key") or ""),
                     material_verification_triggers=(
                         ["consent_architecture"] if area_id in {"AREA-09", "AREA-10", "AREA-11", "AREA-12"} else []
                     ),

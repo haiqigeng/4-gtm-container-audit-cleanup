@@ -29,7 +29,7 @@ locked source/context/contract
   -> deterministic validation of the combined target
   -> sealed canonical record
   -> evidence-locked editorial transformation
-  -> one workbook plus technical/fidelity/reader/privacy gates
+  -> one workbook plus exhaustive technical and fresh-reader gates
 ```
 
 There is no three-run mode, reduced-depth mode, same-context fallback, or legacy
@@ -188,6 +188,8 @@ Before reconciliation:
 - each fresh agent authors one isolated declarative plan. Locked neutral
   candidate groups enumerate exact obligation IDs; compact decision profiles
   assign whole candidates, while exact obligation overrides split candidates.
+  The deterministic groups contain at most 30 obligation IDs, keeping one
+  authoring context bounded without changing obligation coverage.
   A profile may share one decision only when
   its criteria assessment, target, preserved distinctions, next step, and
   evidence meaning are genuinely identical. Shared actionable operations follow
@@ -260,9 +262,9 @@ the coverage release's exact current-checkpoint binding. Candidate validity neve
 authorises a write over stale predecessor provenance.
 
 Audit A and Audit B use distinct agent/context labels and remain mutually blind
-until completion. Other peer reviews use distinct labels within the review pair.
-Every stage records its locked input and sealed output hashes so provenance is
-checkable. Distinct labels are required only where peers must be independent.
+until completion. Every agent-authored stage records its locked input and sealed
+output hashes so provenance is checkable. Distinct labels are required only where
+peers must be independent.
 
 ## Stage 5 — Reconciliation And Neutral Verification
 
@@ -340,10 +342,9 @@ is not evidence.
 ## Stage 6 — Exact Operations And Deterministic Target Validation
 
 Only reconciled and required-neutral-verified decisions enter target synthesis.
-Operations support creates, additions, changes, named-field removals, remaps,
+Operations support creates, additions, changes, field/list-item removals, remaps,
 renames, pauses, and deletions with stable IDs, dependencies, exact source-bound
-values, static
-verification, and rollback. Changes and named-field removals bind their original
+values, static verification, and rollback. Changes and field/list-item removals bind their original
 value through `before_source_sha256` plus the exact object key and relative path,
 not a duplicated literal `before`. Verify that hash against the actual,
 independently locked source bytes. Resolve values transiently from one immutable
@@ -393,9 +394,9 @@ declared prose only. It cannot create a finding, target, operation, evidence
 boundary, priority, or confidence value.
 
 Reconstruct the delivery map exactly from the independently rebuilt canonical
-record and require its seal and closed inventory to match. Workbook fidelity
-compares visible delivery with that canonical projection, never with a mutable
-map treated as its own authority.
+record and require its seal and closed inventory to match. Deterministic workbook
+verification compares every visible row and locked field with that canonical
+projection, never with a mutable map treated as its own authority.
 
 A missing or incorrect canonical delivery field stops Stage 7. For a user-
 authorized focused repair, pass the exact decision IDs and a concrete reason to

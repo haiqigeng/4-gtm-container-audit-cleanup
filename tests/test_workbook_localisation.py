@@ -22,8 +22,7 @@ from gtm_delivery_mapper import (  # noqa: E402
     seal_editorial,
     validate_editorial,
 )
-from gtm_delivery_reviews import _expected_fidelity_input  # noqa: E402
-from gtm_lib import file_sha256, stable_hash, write_json  # noqa: E402
+from gtm_lib import file_sha256, write_json  # noqa: E402
 
 
 def canonical_fixture():
@@ -123,32 +122,19 @@ class WorkbookLocalisationTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 self.assertTrue(display_prose_errors(invalid, english))
 
-    def test_editorial_validation_and_fidelity_keep_canonical_identity(self):
+    def test_editorial_validation_keeps_canonical_identity(self):
         original_map = copy.deepcopy(self.map)
         self.editorial["display_prose"] = french_display(self.editorial["display_prose"])
         write_json(self.editorial_path, self.editorial)
         self.assertEqual([], validate_editorial(self.package))
-        manifest = {"workbook_file_sha256": "fixture", "normalized_model": {"sheets": []}}
-        fidelity = _expected_fidelity_input(self.package, manifest)
-        self.assertEqual(display_prose_defaults(self.map), fidelity["display_prose_canonical"])
-        self.assertEqual(self.editorial["display_prose"], fidelity["display_prose_delivered"])
-        self.assertEqual(fidelity["fidelity_input_sha256"], stable_hash(
-            {key: value for key, value in fidelity.items() if key != "fidelity_input_sha256"}, 64))
-        for field in ("display_prose_canonical", "display_prose_delivered"):
-            changed = copy.deepcopy(fidelity)
-            changed[field]["sheets"]["02 Recommendations"]["headers"][0] = "Changed meaning"
-            self.assertNotEqual(fidelity["fidelity_input_sha256"], stable_hash(
-                {key: value for key, value in changed.items() if key != "fidelity_input_sha256"}, 64))
         self.editorial["display_prose"]["sheets"]["02 Recommendations"]["title"] = "Actions proposées"
         write_json(self.editorial_path, self.editorial)
-        reconstructed = _expected_fidelity_input(self.package, manifest)
-        self.assertNotEqual(fidelity["fidelity_input_sha256"], reconstructed["fidelity_input_sha256"])
-        self.assertEqual(fidelity["display_prose_canonical"], reconstructed["display_prose_canonical"])
-        self.assertEqual(fidelity["rows"], reconstructed["rows"])
-        for field in ("workbook_file_sha256", "canonical_record_sha256", "delivery_map_sha256"):
-            self.assertEqual(fidelity[field], reconstructed[field])
-        self.assertEqual([row["locked"] for row in self.map["rows"]],
-                         [row["canonical_locked_fields"] for row in fidelity["rows"]])
+        self.assertEqual([], validate_editorial(self.package))
+        editorial = json.loads(self.editorial_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [row["binding_sha256"] for row in self.map["rows"]],
+            [row["binding_sha256"] for row in editorial["rows"]],
+        )
         self.assertEqual(original_map, json.loads((self.package / "delivery/delivery-map.json").read_text(encoding="utf-8")))
         self.editorial["language"] = "English"
         write_json(self.editorial_path, self.editorial)

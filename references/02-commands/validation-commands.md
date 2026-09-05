@@ -125,6 +125,8 @@ python -B scripts/gtm_audit_plan.py scaffold audit-package/audit-bundles/audit-b
 
 In its own fresh context, each agent edits only its own plan. The scaffold locks
 neutral `candidate_groups` from structural fields; those groups are not verdicts.
+Each deterministic group contains at most 30 obligation IDs, which bounds one
+authoring decision without dropping or changing any locked obligation.
 Author compact
 `decision_profiles` that assign complete candidate-group IDs, and exact
 `obligation_overrides` for every obligation in a candidate that must split.
@@ -166,7 +168,7 @@ and projected into the canonical decision, not repeated at decision level.
 Independent semantic review checks their specificity; a word count does not prove it.
 Action-row `json_path` values are object-relative (for example
 `$.priority`), never full `$.containerVersion...` source coordinates.
-For changes and named-field removals, use exactly `object_key`, `json_path`,
+For changes and field/list-item removals, use exactly `object_key`, `json_path`,
 and `before_source_sha256`; changes also require `after`. Copy the full
 `source_sha256` from the locked input identity, not a leaf hash. Literal `before`,
 redacted placeholders, alternate selectors and extra fields are rejected.
@@ -414,17 +416,18 @@ Build and verify the workbook with the workspace artifact runtime:
 & $env:CODEX_NODE scripts/gtm_workbook_verify.mjs audit-package
 ```
 
-Scaffold fidelity and workbook-only reader reviews, complete them with separate
-fresh agents using their declared locked inputs only, inspect every rendered
-preview, then seal:
+Scaffold one workbook-only reader review, complete it with one fresh agent using
+only its declared workbook, audience brief, and rendered previews, inspect every
+visible sheet, then seal:
 
 ```powershell
 python -B scripts/gtm_delivery_reviews.py scaffold audit-package
 python -B scripts/gtm_delivery_reviews.py seal audit-package
 ```
 
-Record distinct agent/context labels and exact locked input/output hashes for the
-two delivery reviews. Neither review receives the other's findings.
+Record the reader agent/context labels and exact locked input/output hashes.
+Exhaustive row, field, recovery, comment, navigation, dimension, privacy, and
+formula checks are owned by the preceding deterministic workbook verifier.
 
 The final seal returns the one workbook path. If sealed semantic content is
 missing or wrong, use the focused repair procedure above. If

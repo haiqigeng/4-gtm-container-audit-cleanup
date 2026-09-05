@@ -2810,3 +2810,23 @@ The reviewer reports 55 focused synthetic tests plus an independent in-memory
 binding/secret-removal/malformed-reference check passed, with no real container
 or credential access. This is scoped code review, not the final whole-skill review.
 The current audit handles remain active without a completed result.
+
+### Production delivery simplification
+
+The production workflow now assigns exhaustive workbook correctness to the
+deterministic delivery chain. The delivery map is reconstructed from the sealed
+canonical record; the editorial artifact may change only declared prose and
+attests semantic and identifier preservation; the workbook build is checked
+against the sealed map/editorial identities; and the verifier checks every row,
+locked field, comment, navigation element, dimension, formula/privacy condition,
+and recovery build.
+
+The separate row-by-row fidelity agent and its bundle are removed. One fresh
+workbook-only reader remains and reviews every visible sheet, using only the
+workbook, audience brief, and rendered previews, for concise human wording,
+standalone explanations, clear next actions, legibility, and navigation. This
+keeps independent semantic scan/audit/reconciliation contexts while removing a
+duplicate large-context delivery review that repeatedly stalled on real
+containers. Stage-local recovery remains the default; a complete rerun is needed
+only when upstream evidence is invalidated. No release or remote change is part
+of this design change.

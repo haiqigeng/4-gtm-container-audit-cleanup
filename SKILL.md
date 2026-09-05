@@ -215,6 +215,8 @@ Use `scripts/gtm_audit_plan.py` to scaffold exactly
 compact decision profiles there. The scaffold locks neutral candidate groups
 from locked area, mechanism, fact, applicability, and verification-trigger fields
 so the agent does not rebuild obligation-ID plumbing. These are not verdicts:
+each group contains at most 30 obligation IDs so a large neutral candidate remains
+bounded without changing the locked obligation set.
 review every obligation and split any candidate whose judgment, target, evidence
 meaning, or action differs. Assign complete candidates through compact
 `decision_profiles`; use exact `obligation_overrides` for all obligations that
@@ -239,7 +241,7 @@ dependencies with empty lists. Supply every necessary action and dependency;
 follow the declared operation-family and structured-action contract.
 Action-row `json_path` values are object-relative paths such as
 `$.priority`, never full `$.containerVersion...` source coordinates.
-Changes and named-field removals use `before_source_sha256`, copied from the
+Changes and field/list-item removals use `before_source_sha256`, copied from the
 locked source identity, instead of literal `before`. The object key and path
 identify the old value. Never copy credentials into a proposal or its prose;
 recovery requires the canonical operation and matching locked source. See the
@@ -354,9 +356,9 @@ result, and only then writes and seals the canonical reconciliation files.
 ### 5. Synthesize And Validate The Target
 
 Use `scripts/gtm_target_synthesis.py` to compile only reconciled, required-
-verified decisions into exact creates, additions, changes, named-field removals,
-remaps, renames, pauses, deletions, dependencies, static verification, and
-rollback. Synthesis may
+verified decisions into exact creates, additions, changes, field/list-item
+removals, remaps, renames, pauses, deletions, dependencies, static verification,
+and rollback. Synthesis may
 not introduce a new semantic choice.
 
 Use `scripts/gtm_target_validation.py` to validate the combined packet against the
@@ -389,8 +391,9 @@ audits and seals unchanged. Reconcile the affected work and rebuild dependent
 validation and delivery. Do not rerun ingestion or the complete audits. Delivery may never patch
 a canonical field or overwrite a sealed predecessor.
 The delivery map must be an exact deterministic projection of the independently
-reconstructed canonical record; workbook fidelity is checked against that same
-authority, not against a mutable delivery artifact.
+reconstructed canonical record. Deterministic workbook verification checks every
+delivered row and locked field against that authority, not against a mutable
+delivery artifact.
 
 Run the editorial transformation after canonical sealing. It may improve declared
 prose fields only and must preserve every technical identifier and locked meaning.
@@ -402,13 +405,14 @@ of authoring through another library. The workbook has `01 Overview`,
 `02 Recommendations`, `03 Decisions Needed`, `04 Full Audit`, and `05 Custom
 Code` only when source-applicable.
 
-Use `scripts/gtm_delivery_reviews.py` to create separately scoped fidelity and
-workbook-only reader checks. Run them in separate fresh agent contexts with
-distinct labels and locked inputs; neither receives the other's findings. Record
-each input and output hash. Render and visually inspect every visible sheet.
-Pass exact row/field recovery, comments/navigation/dimensions, absence of
-unexpected formulas or renderer artifacts, privacy, formula injection, fidelity,
-readability, and layout checks before sealing delivery.
+Use `scripts/gtm_delivery_reviews.py` to create one workbook-only reader check.
+Run it in one fresh agent context with only its locked workbook, audience brief,
+and rendered previews. Review every visible sheet for concise human wording,
+standalone explanations, clear next actions, legibility, and navigation. Record
+its input and output hashes. Deterministic verification—not the reader—exhaustively
+checks row/field bindings, recovery, comments, navigation, dimensions, unexpected
+formulas or renderer artifacts, privacy, and formula injection before delivery is
+sealed.
 
 ## Decision Rules
 
@@ -465,7 +469,7 @@ that same parent hash using the documented commands.
 Preserve sealed predecessors and repair the exact owning records. Source
 amendments use a fresh agent context, explicit prior-seal binding, the unchanged
 source checkpoint, and the maintained immutable snapshot/history protocol.
-After canonical sealing, make semantic or fidelity repairs in a working successor
+After canonical sealing, make semantic repairs in a working successor
 using the repair command above. Reuse prior reconciliation conclusions only when
 their full comparison inputs and neutral evidence still match and validate; a
 fresh reconciler owns changed rows. Presentation-only repairs use a new editorial

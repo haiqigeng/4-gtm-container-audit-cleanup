@@ -71,6 +71,7 @@ PLAN_DECISION_FIELDS = {
 }
 OPERATION_DECISION_FIELDS = ("static_verification", "rollback")
 AUTHORED_OPERATION_FIELDS = OPERATION_PROPOSAL_FIELDS - {"source_decision_id"}
+MAX_OBLIGATIONS_PER_CANDIDATE_GROUP = 30
 
 
 def _authoring_contract() -> dict[str, Any]:
@@ -181,13 +182,19 @@ def _candidate_decision_groups(decisions: list[dict[str, Any]]) -> list[dict[str
             tuple(sorted(str(value) for value in as_list(row.get("material_verification_triggers")))),
         )
         grouped.setdefault(key, []).append(obligation_id)
-    return [
-        {
-            "group_id": f"candidate-{index:03d}",
-            "obligation_ids": sorted(grouped[key]),
-        }
-        for index, key in enumerate(sorted(grouped), start=1)
-    ]
+    groups: list[dict[str, Any]] = []
+    for key in sorted(grouped):
+        obligation_ids = sorted(grouped[key])
+        for offset in range(0, len(obligation_ids), MAX_OBLIGATIONS_PER_CANDIDATE_GROUP):
+            groups.append(
+                {
+                    "group_id": f"candidate-{len(groups) + 1:03d}",
+                    "obligation_ids": obligation_ids[
+                        offset : offset + MAX_OBLIGATIONS_PER_CANDIDATE_GROUP
+                    ],
+                }
+            )
+    return groups
 
 
 def _empty_plan(owner_id: str, decisions: list[dict[str, Any]]) -> dict[str, Any]:

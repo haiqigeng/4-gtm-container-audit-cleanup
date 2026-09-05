@@ -364,7 +364,7 @@ downstream server-container enforcement is outside this audit.”
 
 ### 27. Exact Operations And Deterministic Target Validation
 
-- Compile creates, additions, changes, named-field removals, remaps, renames,
+- Compile creates, additions, changes, field/list-item removals, remaps, renames,
   pauses, deletions, and dependencies. Simulate the complete combined packet from
   the locked original and recompute target facts and assurance. Validate exact
   references, dependencies, writes, protected objects, and the implemented

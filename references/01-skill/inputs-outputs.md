@@ -37,8 +37,8 @@ The audit package contains immutable source and contract locks, the canonical
 scan, independent scan assurance, obligation ledger, two isolated audit bundles
 and seals, reconciliation and neutral verification, exact operation packet,
 deterministic target-validation evidence, sealed canonical record and manifest,
-delivery map/editorial seals, workbook build and verification artifacts, and
-independent fidelity/reader review seals.
+delivery map/editorial seals, workbook build and exhaustive technical verification
+artifacts, and one fresh workbook-reader review seal.
 
 The target-validation result consists of five files beneath `target-validation/`:
 `projected-container.json`, `canonical-scan.json`, `scan-assurance.json`,
@@ -67,8 +67,8 @@ technical artifact, not a second workbook.
 
 `pass` means complete source-audit coverage, deterministic target validation,
 canonical sealing, exact workbook coverage,
-technical verification, fidelity, workbook-only reader, rendered-layout, privacy,
-and formula checks all passed. A blocked workflow reports its exact unmet gate;
+exhaustive row/field and recovery verification, workbook-only reader,
+rendered-layout, privacy, and formula checks all passed. A blocked workflow reports its exact unmet gate;
 it never substitutes a partial workbook.
 
 Passing proves the implemented static checks and delivery gates, not runtime

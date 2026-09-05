@@ -79,7 +79,7 @@
 ## Target Validation
 
 - Every actionable canonical decision has exact creates, additions, changes,
-  named-field removals, remaps, renames, pauses, deletions, dependencies,
+  field/list-item removals, remaps, renames, pauses, deletions, dependencies,
   verification, and rollback.
 - The operation packet is deterministically reconstructed from sealed
   reconciliation and exactly matches every artifact consumed downstream.
@@ -106,8 +106,8 @@
 
 - Every canonical record has all mandatory delivery fields before mapping.
 - The delivery map and its seal are exact deterministic projections of an
-  independently reconstructed canonical record; workbook fidelity uses that
-  authority and cannot be detached by rehashing a mutable delivery artifact.
+  independently reconstructed canonical record; exhaustive workbook verification
+  uses that authority and cannot be detached by rehashing a mutable delivery artifact.
 - A missing or wrong sealed semantic field stops delivery. A user-authorized
   focused repair names exact decision IDs and a concrete reason. Its new working
   successor preserves validated source evidence, checkpoints, both audits, seals,
@@ -130,8 +130,9 @@
 - Recovery rebuild matches normalized sheets, cells, formulas, comments,
   navigation text, and dimensions; imported comment text, location, and count
   also match.
-- Independent fidelity and workbook-only reader reviews run in separate fresh
-  agent contexts, receive only their declared locked inputs, and pass.
+- One workbook-only reader review runs in a fresh agent context, receives only
+  its declared workbook, audience brief, and rendered previews, covers every
+  visible sheet, and passes.
 - Lightweight provenance records agent/context labels plus locked input/output
   hashes. Labels are distinct where peers must be independent.
 - Source checkpoints are immutable after sealing. A pre-canonical audit
@@ -163,10 +164,10 @@
 
 Fail or block on partial/ambiguous evidence, assurance mismatch, unavailable
 required fresh agent contexts, peer findings supplied before independent audits
-or reviews are sealed, incomplete obligations, unresolved reconciliation or
+are sealed, incomplete obligations, unresolved reconciliation or
 neutral work, invalid provenance hashes, semantic invention during
 synthesis/delivery, operation conflict, failed or substituted target validation,
-invalid repair provenance, canonical drift, workbook row drift,
-missing delivery coverage, dirty release provenance, privacy/formula risk,
+invalid repair provenance, canonical drift, workbook row or locked-field drift,
+missing reader or delivery coverage, dirty release provenance, privacy/formula risk,
 illegible rendering, incomplete trust-boundary coverage evidence, unavailable
 required official vendor evidence at release, or any claim of mutation/publication.

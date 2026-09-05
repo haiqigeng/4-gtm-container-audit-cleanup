@@ -78,7 +78,9 @@ not an external owner decision.
 
 The portable provenance contract records agent/context labels and locked
 input/output hashes. Labels are distinct where reviewers must be independent.
-Workbook fidelity and workbook-only reader checks also use separate fresh agents.
+Deterministic workbook verification exhaustively checks canonical row and field
+bindings; one fresh workbook-only reader reviews every visible sheet for human
+clarity, usefulness, layout, and navigation.
 
 One product execution has one comprehensive source pass. Target simulation
 recomputes facts and assurance for static validation; it does not open another

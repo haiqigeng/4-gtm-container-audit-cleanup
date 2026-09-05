@@ -75,7 +75,8 @@ according to the issue addressed by the established finding, not merely the
 object's implementation type. For example, consent handling implemented in custom
 code belongs under CMP & consent; removal of duplicated loader code belongs under
 Duplicates & consolidation. A category is a navigation label, not a new verdict.
-The existing fidelity review checks that it faithfully describes the finding.
+The sealed editorial artifact attests that it faithfully describes the finding;
+the deterministic verifier preserves the selected label and its row binding.
 Do not duplicate an operation to put it in multiple categories. Full Audit keeps
 the precise original area and focus in a separate `Detailed audit focus` column.
 Naming findings about code objects remain `Naming`, not `Custom code & templates`.
@@ -179,8 +180,8 @@ English scaffold is the default, not an automatic translation service. Preserve
 the exact sheet-name keys, column order and meaning, counts, and any technical
 references in subtitles or coverage prose. Sheet tabs keep their canonical names;
 navigation inserts those names mechanically. Localisation changes display prose
-only, never identifiers or locked decision fields. Fidelity review includes the
-meaning and alignment of translated headings; technical reimport checks titles,
+only, never identifiers or locked decision fields. The editorial review preserves
+the meaning and alignment of translated headings; technical reimport checks titles,
 subtitles, headings, navigation and empty states against the bound build model.
 Use textual status labels plus accessible colours,
 filters, frozen headers, wrapped top-aligned cells, stable widths, outline groups,
@@ -192,29 +193,23 @@ carrier of meaning.
 
 The delivery mapper first independently reconstructs the canonical record and
 requires the exact closed delivery-map projection and seal. The deterministic
-builder must verify exact primary ownership and row coverage,
-locked-field equality, navigation text, absence of unexpected formulas or
-renderer artifacts, imported comment text/location/count, redaction,
-source/record hashes, and safe cell values.
+builder and verifier must exhaustively verify exact primary ownership and row
+coverage, locked-field equality, navigation text, absence of unexpected formulas
+or renderer artifacts, imported comment text/location/count, redaction,
+source/record hashes, dimensions, and safe cell values.
 Rebuild from only that reconstructed canonical authority, its manifest, and the
 sealed editorial artifact;
 the normalized sheet/cell/navigation/comment/dimension model must match.
 
-Then run two checks with separate fresh agents and locked inputs:
-
-- fidelity compares every visible row with its bound canonical record and rejects
-  changed meaning, omitted caveats, overstated consequences, mismatched actions,
-  or altered identifiers;
-- workbook-only reader review receives the workbook, audience brief, and rendered
-  previews only, and rejects unclear, non-standalone, repetitive, machine-oriented,
-  illegible, or poorly navigable output.
-
-The fidelity reviewer and workbook-only reader use distinct agent/context labels
-and receive only their declared inputs; neither receives the other's findings.
-Record each locked input and output hash.
+Then run one workbook-only reader review in a fresh agent context. It receives
+the workbook, audience brief, and rendered previews only; it reviews every visible
+sheet and rejects unclear, non-standalone, repetitive, machine-oriented,
+illegible, or poorly navigable output. Record its locked input and output hash.
+The reader does not duplicate exhaustive row attestations or reopen audit
+judgments.
 
 Apply presentation-only corrections through a new editorial artifact and rebuild.
-Use a focused working successor for a canonical completeness or semantic fidelity
+Use a focused working successor for a canonical completeness or semantic
 defect. Copying retained evidence does not author judgments or establish their
 validity against a new scan. Render and inspect every visible sheet, then pass
 formula-injection and privacy checks before

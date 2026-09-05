@@ -43,6 +43,7 @@ from gtm_lib import (  # noqa: E402
 )
 from gtm_operation_model import (  # noqa: E402
     apply_operations,
+    delete_json_path,
     dependency_order,
     merge_exact_operation_ids,
     normalize_operation,
@@ -165,6 +166,32 @@ class V2OperationSafetyTests(unittest.TestCase):
         self.assertEqual([], validate_operations(source, [removed], source_sha256=digest))
         self.assertNotIn("notes", apply_operations(source, [removed], source_sha256=digest)["containerVersion"]["tag"][0])
         self.assertIn("notes", source["containerVersion"]["tag"][0])
+
+    def test_source_bound_removal_can_remove_one_indexed_list_item(self):
+        source = operation_fixture()
+        source["containerVersion"]["tag"][0]["parameter"].append(
+            {"key": "credential", "type": "TEMPLATE", "value": "{{Secret}}"}
+        )
+        digest = stable_hash(source, 64)
+        action = {
+            "object_key": "tag:1",
+            "json_path": "$.parameter[2]",
+            "before_source_sha256": digest,
+        }
+        removal = operation("OP-REMOVE-CREDENTIAL-ROW", removals=[action])
+        self.assertEqual([], validate_operations(source, [removal], source_sha256=digest))
+        projected = apply_operations(source, [removal], source_sha256=digest)
+        self.assertEqual(2, len(projected["containerVersion"]["tag"][0]["parameter"]))
+        self.assertEqual(3, len(source["containerVersion"]["tag"][0]["parameter"]))
+        self.assertEqual(
+            {"key": "shared", "type": "TEMPLATE", "value": "{{Old Variable}}"},
+            projected["containerVersion"]["tag"][0]["parameter"][1],
+        )
+
+        values = ["first", "second", "third"]
+        target = {"rows": values.copy()}
+        delete_json_path(target, "$.rows[1]")
+        self.assertEqual(["first", "third"], target["rows"])
 
     def test_replay_checks_typed_original_value_after_an_earlier_write(self):
         for before, after in ((False, 0), (0, False), (None, "null"), ([False], [0])):

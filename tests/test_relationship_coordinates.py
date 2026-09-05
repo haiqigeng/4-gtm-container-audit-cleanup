@@ -37,6 +37,25 @@ class RelationshipCoordinateTests(unittest.TestCase):
             "available_member_evidence_anchors": {"tag:1": [path, path]},
         }), [path])
 
+    def test_nested_configuration_obligations_have_distinct_ids(self):
+        evidence = {
+            "object_key": "variable:344",
+            "source_json_path": "$.containerVersion.variable[37]",
+        }
+        first = _obligation(
+            "AREA-14", "object", "configured_leaf_branch_trace_review",
+            "configuration_obligation", evidence,
+            subject_keys=["variable:344"],
+            identity_discriminator="lookup_table_blank_row_value:0",
+        )
+        second = _obligation(
+            "AREA-14", "object", "configured_leaf_branch_trace_review",
+            "configuration_obligation", evidence,
+            subject_keys=["variable:344"],
+            identity_discriminator="lookup_table_blank_row_value:1",
+        )
+        self.assertNotEqual(first["obligation_id"], second["obligation_id"])
+
     def test_arbitrary_configuration_values_are_not_promoted_to_paths(self):
         self.assertEqual(_source_paths({
             "value": "$.containerVersion.variable[99]",

@@ -70,8 +70,8 @@ Measure:
   a fresh reconciliation agent over the two sealed audits;
 - rejection when Audit A/B shares one agent context,
   receives peer findings before sealing, or lacks locked input/output hashes;
-- separate fresh-agent fidelity and workbook-only reader review with distinct
-  labels and declared locked inputs;
+- exhaustive deterministic workbook fidelity plus one fresh workbook-only reader
+  review with declared locked inputs and every visible sheet covered;
 - successful fresh source-audit amendment with unchanged checkpoint provenance,
   append-only history, and byte-identical rollback after a rejected amendment;
 - successful family-sharded amendment whose predecessor and successor each
@@ -103,8 +103,8 @@ Measure:
   unchanged predecessor, and only generated downstream exclusions in the working
   successor; amend exact owning records and revalidate dependent artifacts without
   a complete source-audit restart or automatic transfer of new-scan judgments;
-- workbook row coverage, locked-field equality, claim fidelity, standalone reader
-  comprehension, formula/privacy safety, and rendered layout; and
+- workbook row coverage, locked-field equality, sealed editorial semantics,
+  standalone reader comprehension, formula/privacy safety, and rendered layout; and
 - complete branch-aware measurement of every Python trust-boundary module plus a
   strict fail-closed online check of every required official registry source; and
 - only after quality passes: wall-clock time, work-unit cost, amendment rate,

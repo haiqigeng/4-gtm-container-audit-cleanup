@@ -112,7 +112,7 @@ class DeliveryClassTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             _audit_area_category({"area_id": "AREA-UNKNOWN"})
 
-    def test_reconciled_handoffs_remain_bound_for_fidelity_review(self) -> None:
+    def test_reconciled_handoffs_remain_locked_during_editorial_delivery(self) -> None:
         source = record("justified_as_is")
         rationale = "Keep the event distinct; alias removal is owned by OP-ALIAS."
         source["audit_decisions"][0]["reconciliation_rationale"] = rationale
@@ -125,7 +125,7 @@ class DeliveryClassTests(unittest.TestCase):
             self.assertNotIn("reconciliation_rationale", row["allowed_prose_fields"])
         self.assertEqual(original, source)
 
-    def test_shared_owner_handoff_remains_bound_for_fidelity_review(self) -> None:
+    def test_shared_owner_handoff_remains_locked_during_editorial_delivery(self) -> None:
         source = record("owner_decision", owner_question="Which destination is intended?")
         rationale = "The setup answer is shared with CD-SETUP; purchase meaning is separate."
         source["audit_decisions"][0]["reconciliation_rationale"] = rationale

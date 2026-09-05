@@ -26,6 +26,8 @@ from gtm_audit_contract import (  # noqa: E402
 )
 from gtm_audit_package_build import build_package as executable_build_package  # noqa: E402
 from gtm_audit_plan import (  # noqa: E402
+    MAX_OBLIGATIONS_PER_CANDIDATE_GROUP,
+    _candidate_decision_groups,
     apply_plan,
     scaffold_plan,
 )
@@ -534,37 +536,6 @@ def complete_editorial(package: Path) -> None:
 def complete_delivery_reviews(package: Path) -> None:
     current = json.loads((package / "delivery" / "current-build.json").read_text(encoding="utf-8"))
     root = package / "delivery" / current["build_path"] / "reviews"
-    fidelity_path = root / "fidelity" / "fidelity-review.json"
-    fidelity = json.loads(fidelity_path.read_text(encoding="utf-8"))
-    fidelity_manifest = json.loads(
-        (fidelity_path.parent / "bundle-manifest.json").read_text(encoding="utf-8")
-    )
-    fidelity["status"] = "complete"
-    fidelity["independent_agent_id"] = "fixture-fidelity-agent-001"
-    fidelity["independent_context_id"] = "fixture-fidelity-context-001"
-    fidelity["input_manifest_sha256"] = fidelity_manifest["bundle_manifest_sha256"]
-    fidelity["overview_review"] = {
-        "verdict": "pass",
-        "meaning_preserved": True,
-        "evidence_limits_preserved": True,
-        "next_action_preserved": True,
-        "issues": [],
-    }
-    for row in fidelity["row_reviews"]:
-        row.update(
-            {
-                "verdict": "pass",
-                "meaning_preserved": True,
-                "caveats_preserved": True,
-                "action_matches": True,
-                "identifiers_preserved": True,
-                "issues": [],
-            }
-        )
-    fidelity["completion_attestation"] = (
-        "Meaning and caveats preserved."
-    )
-    fidelity_path.write_text(json.dumps(fidelity, indent=2) + "\n", encoding="utf-8")
     reader_path = root / "reader" / "reader-review.json"
     reader = json.loads(reader_path.read_text(encoding="utf-8"))
     reader_manifest = json.loads(
@@ -736,6 +707,25 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertEqual([], plan["decision_profiles"])
         self.assertEqual([], plan["obligation_overrides"])
         self.assertLessEqual(len(plan["candidate_groups"]), len(audit["decisions"]))
+
+    def test_candidate_groups_are_deterministically_bounded(self) -> None:
+        decisions = [
+            {"obligation_id": f"OB-{index:03d}"}
+            for index in range(MAX_OBLIGATIONS_PER_CANDIDATE_GROUP + 5)
+        ]
+        groups = _candidate_decision_groups(decisions)
+        self.assertEqual(
+            [MAX_OBLIGATIONS_PER_CANDIDATE_GROUP, 5],
+            [len(group["obligation_ids"]) for group in groups],
+        )
+        self.assertEqual(
+            [f"OB-{index:03d}" for index in range(MAX_OBLIGATIONS_PER_CANDIDATE_GROUP + 5)],
+            [
+                obligation_id
+                for group in groups
+                for obligation_id in group["obligation_ids"]
+            ],
+        )
 
     def test_audit_plan_applies_an_exact_actionable_group(self) -> None:
         self.export.write_text(
@@ -2983,6 +2973,53 @@ class V2WorkflowTests(unittest.TestCase):
         build_manifest_path.write_bytes(build_manifest_before)
         current_path.write_bytes(current_before)
 
+        changed_manifest = copy.deepcopy(build_manifest)
+        delivered_rows = [
+            row
+            for sheet in changed_manifest["normalized_model"]["sheets"]
+            for row in sheet.get("rows", [])
+        ]
+        self.assertTrue(delivered_rows)
+        delivered_rows[0]["locked"]["priority"] = "forged"
+        changed_manifest["normalized_workbook_sha256"] = stable_hash(
+            changed_manifest["normalized_model"], 64
+        )
+        changed_manifest["recovery_normalized_workbook_sha256"] = changed_manifest[
+            "normalized_workbook_sha256"
+        ]
+        changed_manifest["workbook_build_manifest_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in changed_manifest.items()
+                if key != "workbook_build_manifest_sha256"
+            },
+            64,
+        )
+        build_manifest_path.write_text(
+            json.dumps(changed_manifest, indent=2) + "\n", encoding="utf-8"
+        )
+        changed_current = copy.deepcopy(current)
+        changed_current["workbook_build_manifest_sha256"] = changed_manifest[
+            "workbook_build_manifest_sha256"
+        ]
+        changed_current["current_build_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in changed_current.items()
+                if key != "current_build_sha256"
+            },
+            64,
+        )
+        current_path.write_text(
+            json.dumps(changed_current, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "workbook locked fields differ from the canonical delivery map"
+        ):
+            scaffold_delivery_reviews(self.package)
+        build_manifest_path.write_bytes(build_manifest_before)
+        current_path.write_bytes(current_before)
+
         verification = json.loads(
             (
                 self.package / "delivery" / current["build_path"] / "technical-verification.json"
@@ -2994,58 +3031,49 @@ class V2WorkflowTests(unittest.TestCase):
         self.assertTrue(all(row["status"] == "pass" for row in verification["pane_checks"]))
         self.assertTrue(verification["overview_cell_checks"])
         self.assertTrue(all(row["status"] == "pass" for row in verification["overview_cell_checks"]))
-        scaffold_delivery_reviews(self.package)
-        for bundle_name, review_name, expected_error in (
-            (
-                "fidelity",
-                "fidelity-review.json",
-                "fidelity workbook copy differs from the authoritative workbook",
-            ),
-            (
-                "reader",
-                "reader-review.json",
-                "reader workbook copy differs from the authoritative workbook",
-            ),
-        ):
-            review_dir = build_dir / "reviews" / bundle_name
-            workbook_copy = review_dir / "workbook.xlsx"
-            review_manifest_path = review_dir / "bundle-manifest.json"
-            review_path = review_dir / review_name
-            workbook_before = workbook_copy.read_bytes()
-            review_manifest_before = review_manifest_path.read_bytes()
-            review_before = review_path.read_bytes()
-            workbook_copy.write_bytes(workbook_before + b"forged-workbook-copy")
-            review_manifest = json.loads(review_manifest_before)
-            for locked_file in review_manifest["locked_files"]:
-                if locked_file["path"] == "workbook.xlsx":
-                    locked_file["sha256"] = file_sha256(workbook_copy)
-            review_manifest["bundle_manifest_sha256"] = stable_hash(
-                {
-                    key: value
-                    for key, value in review_manifest.items()
-                    if key != "bundle_manifest_sha256"
-                },
-                64,
-            )
-            review_manifest_path.write_text(
-                json.dumps(review_manifest, indent=2) + "\n", encoding="utf-8"
-            )
-            review = json.loads(review_before)
-            review["input_manifest_sha256"] = review_manifest[
-                "bundle_manifest_sha256"
-            ]
-            review_path.write_text(
-                json.dumps(review, indent=2) + "\n", encoding="utf-8"
-            )
-            with self.assertRaisesRegex(ValueError, expected_error):
-                seal_delivery(self.package)
-            workbook_copy.write_bytes(workbook_before)
-            review_manifest_path.write_bytes(review_manifest_before)
-            review_path.write_bytes(review_before)
-
+        review_scaffold = scaffold_delivery_reviews(self.package)
+        self.assertEqual("ready_for_workbook_reader_review", review_scaffold["status"])
+        self.assertEqual(
+            {"reader"},
+            {path.name for path in (build_dir / "reviews").iterdir()},
+        )
         reader_dir = build_dir / "reviews" / "reader"
         reader_manifest_path = reader_dir / "bundle-manifest.json"
         reader_review_path = reader_dir / "reader-review.json"
+        workbook_copy = reader_dir / "workbook.xlsx"
+        workbook_before = workbook_copy.read_bytes()
+        reader_manifest_before = reader_manifest_path.read_bytes()
+        reader_review_before = reader_review_path.read_bytes()
+        workbook_copy.write_bytes(workbook_before + b"forged-workbook-copy")
+        reader_manifest = json.loads(reader_manifest_before)
+        for locked_file in reader_manifest["locked_files"]:
+            if locked_file["path"] == "workbook.xlsx":
+                locked_file["sha256"] = file_sha256(workbook_copy)
+        reader_manifest["bundle_manifest_sha256"] = stable_hash(
+            {
+                key: value
+                for key, value in reader_manifest.items()
+                if key != "bundle_manifest_sha256"
+            },
+            64,
+        )
+        reader_manifest_path.write_text(
+            json.dumps(reader_manifest, indent=2) + "\n", encoding="utf-8"
+        )
+        reader_review = json.loads(reader_review_before)
+        reader_review["input_manifest_sha256"] = reader_manifest[
+            "bundle_manifest_sha256"
+        ]
+        reader_review_path.write_text(
+            json.dumps(reader_review, indent=2) + "\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "reader workbook copy differs from the authoritative workbook"
+        ):
+            seal_delivery(self.package)
+        workbook_copy.write_bytes(workbook_before)
+        reader_manifest_path.write_bytes(reader_manifest_before)
+        reader_review_path.write_bytes(reader_review_before)
 
         def rebind_reader_input(relative_path: str) -> None:
             review_manifest = json.loads(
@@ -3128,72 +3156,30 @@ class V2WorkflowTests(unittest.TestCase):
         reader_preview_path.write_bytes(reader_preview_before)
         reader_manifest_path.write_bytes(reader_manifest_before)
         reader_review_path.write_bytes(reader_review_before)
-        fidelity_manifest_path = (
-            build_dir / "reviews" / "fidelity" / "bundle-manifest.json"
-        )
-        fidelity_manifest_before = fidelity_manifest_path.read_bytes()
-        fidelity_manifest = json.loads(fidelity_manifest_before)
-        fidelity_manifest["locked_files"][0]["path"] = (
+        reader_manifest_before = reader_manifest_path.read_bytes()
+        reader_manifest = json.loads(reader_manifest_before)
+        reader_manifest["locked_files"][0]["path"] = (
             "../../../../../outside-workbook.xlsx"
         )
-        fidelity_manifest["locked_files"][0]["sha256"] = file_sha256(
+        reader_manifest["locked_files"][0]["sha256"] = file_sha256(
             outside_workbook
         )
-        fidelity_manifest["bundle_manifest_sha256"] = stable_hash(
+        reader_manifest["bundle_manifest_sha256"] = stable_hash(
             {
                 key: value
-                for key, value in fidelity_manifest.items()
+                for key, value in reader_manifest.items()
                 if key != "bundle_manifest_sha256"
             },
             64,
         )
-        fidelity_manifest_path.write_text(
-            json.dumps(fidelity_manifest, indent=2) + "\n",
+        reader_manifest_path.write_text(
+            json.dumps(reader_manifest, indent=2) + "\n",
             encoding="utf-8",
         )
         with self.assertRaisesRegex(ValueError, "remain inside"):
             seal_delivery(self.package)
         self.assertEqual(outside_workbook_before, outside_workbook.read_bytes())
-        fidelity_manifest_path.write_bytes(fidelity_manifest_before)
-        fidelity_input_path = (
-            build_dir / "reviews" / "fidelity" / "fidelity-input.json"
-        )
-        fidelity_input_before = fidelity_input_path.read_bytes()
-        fidelity_manifest_before = fidelity_manifest_path.read_bytes()
-        fidelity_input = json.loads(fidelity_input_before)
-        fidelity_input["review_contract"] = "forged but internally rehashed"
-        fidelity_input["fidelity_input_sha256"] = stable_hash(
-            {
-                key: value
-                for key, value in fidelity_input.items()
-                if key != "fidelity_input_sha256"
-            },
-            64,
-        )
-        fidelity_input_path.write_text(
-            json.dumps(fidelity_input, indent=2) + "\n", encoding="utf-8"
-        )
-        fidelity_manifest = json.loads(fidelity_manifest_before)
-        for locked_file in fidelity_manifest["locked_files"]:
-            if locked_file["path"] == "fidelity-input.json":
-                locked_file["sha256"] = file_sha256(fidelity_input_path)
-        fidelity_manifest["bundle_manifest_sha256"] = stable_hash(
-            {
-                key: value
-                for key, value in fidelity_manifest.items()
-                if key != "bundle_manifest_sha256"
-            },
-            64,
-        )
-        fidelity_manifest_path.write_text(
-            json.dumps(fidelity_manifest, indent=2) + "\n", encoding="utf-8"
-        )
-        with self.assertRaisesRegex(
-            ValueError, "fidelity input differs from canonical reconstruction"
-        ):
-            seal_delivery(self.package)
-        fidelity_input_path.write_bytes(fidelity_input_before)
-        fidelity_manifest_path.write_bytes(fidelity_manifest_before)
+        reader_manifest_path.write_bytes(reader_manifest_before)
         complete_delivery_reviews(self.package)
         reader_path = (
             self.package
@@ -3204,25 +3190,7 @@ class V2WorkflowTests(unittest.TestCase):
             / "reader-review.json"
         )
         reader = json.loads(reader_path.read_text(encoding="utf-8"))
-        fidelity_path = reader_path.parents[1] / "fidelity" / "fidelity-review.json"
-        fidelity = json.loads(fidelity_path.read_text(encoding="utf-8"))
-        original_agent = reader["independent_agent_id"]
-        original_context = reader["independent_context_id"]
         original_manifest = reader["input_manifest_sha256"]
-        reader["independent_agent_id"] = fidelity["independent_agent_id"]
-        reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(
-            ValueError, "fidelity and reader reviews must use different agents"
-        ):
-            seal_delivery(self.package)
-        reader["independent_agent_id"] = original_agent
-        reader["independent_context_id"] = fidelity["independent_context_id"]
-        reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(
-            ValueError, "fidelity and reader reviews must use different contexts"
-        ):
-            seal_delivery(self.package)
-        reader["independent_context_id"] = original_context
         reader["input_manifest_sha256"] = "f" * 64
         reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(
@@ -3231,15 +3199,17 @@ class V2WorkflowTests(unittest.TestCase):
             seal_delivery(self.package)
         reader["input_manifest_sha256"] = original_manifest
         reader_path.write_text(json.dumps(reader, indent=2) + "\n", encoding="utf-8")
-        for review_path, review, role in ((reader_path, reader, "reader"), (fidelity_path, fidelity, "fidelity")):
-            for invalid in ("", []):
-                with self.subTest(role=role, attestation=invalid):
-                    changed = copy.deepcopy(review)
-                    changed["completion_attestation"] = invalid
-                    review_path.write_text(json.dumps(changed), encoding="utf-8")
-                    with self.assertRaisesRegex(ValueError, f"{role} completion attestation must be a non-blank string"):
-                        seal_delivery(self.package)
-            review_path.write_text(json.dumps(review), encoding="utf-8")
+        for invalid in ("", []):
+            with self.subTest(attestation=invalid):
+                changed = copy.deepcopy(reader)
+                changed["completion_attestation"] = invalid
+                reader_path.write_text(json.dumps(changed), encoding="utf-8")
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "reader completion attestation must be a non-blank string",
+                ):
+                    seal_delivery(self.package)
+        reader_path.write_text(json.dumps(reader), encoding="utf-8")
         result = seal_delivery(self.package)
         self.assertEqual(result["status"], "pass")
         self.assertTrue(Path(result["workbook"]).is_file())
@@ -3250,16 +3220,8 @@ class V2WorkflowTests(unittest.TestCase):
             (build_dir / "delivery-seal.json").read_text(encoding="utf-8")
         )
         self.assertEqual(
-            file_sha256(fidelity_path),
-            delivery_manifest["fidelity_review_file_sha256"],
-        )
-        self.assertEqual(
             file_sha256(reader_path),
             delivery_manifest["reader_review_file_sha256"],
-        )
-        self.assertEqual(
-            delivery_manifest["fidelity_review_file_sha256"],
-            delivery_seal["fidelity_review_file_sha256"],
         )
         self.assertEqual(
             delivery_manifest["reader_review_file_sha256"],

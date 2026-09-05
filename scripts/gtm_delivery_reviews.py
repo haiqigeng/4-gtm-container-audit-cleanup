@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage independent fidelity and workbook-only reader checks, then seal delivery."""
+"""Stage one fresh workbook-reader check, then seal delivery."""
 
 from __future__ import annotations
 
@@ -12,8 +12,6 @@ from typing import Any
 from gtm_delivery_mapper import (
     DELIVERY_ROOT,
     audience_brief_payload,
-    delivery_map_from_record,
-    display_prose_defaults,
     editorial_seal_errors,
 )
 from gtm_lib import (
@@ -24,13 +22,9 @@ from gtm_lib import (
     stable_hash,
     write_json,
 )
-from gtm_operation_model import read_operation_source
 
 REVIEW_ROOT = "reviews"
-FIDELITY_BUNDLE = "fidelity"
 READER_BUNDLE = "reader"
-FIDELITY_INPUT_FILE = "fidelity-input.json"
-FIDELITY_REVIEW_FILE = "fidelity-review.json"
 READER_REVIEW_FILE = "reader-review.json"
 DELIVERY_MANIFEST_FILE = "delivery-manifest.json"
 DELIVERY_SEAL_FILE = "delivery-seal.json"
@@ -77,8 +71,8 @@ def _review_manifest_payload(
         "independence_contract": {
             "required": True,
             "boundary": (
-                "Use a fresh agent and context for this review and do not provide the "
-                "peer review output before both reviews are complete."
+                "Use one fresh agent and context. Review only the declared workbook, "
+                "audience brief, and rendered previews."
             ),
         },
     }
@@ -237,6 +231,34 @@ def _current_build(package_dir: Path) -> tuple[Path, dict[str, Any], list[str]]:
         return build_dir, manifest, errors
     if not workbook.is_file() or file_sha256(workbook) != manifest.get("workbook_file_sha256"):
         errors.append("workbook file is missing or changed")
+    delivery = package_dir / DELIVERY_ROOT
+    delivery_map = _load(delivery / "delivery-map.json")
+    editorial_path = delivery / "editorial.json"
+    editorial_seal = _load(delivery / "editorial-seal.json")
+    if manifest.get("delivery_map_sha256") != delivery_map.get("delivery_map_sha256"):
+        errors.append("workbook build is bound to another delivery map")
+    if manifest.get("editorial_file_sha256") != file_sha256(editorial_path):
+        errors.append("workbook build is bound to another editorial artifact")
+    if manifest.get("editorial_seal_sha256") != editorial_seal.get("editorial_seal_sha256"):
+        errors.append("workbook build is bound to another editorial seal")
+    expected_rows = {
+        str(row.get("row_id") or ""): row
+        for row in as_list(delivery_map.get("rows"))
+    }
+    model_rows = [
+        row
+        for sheet in as_list((manifest.get("normalized_model") or {}).get("sheets"))
+        for row in as_list((sheet or {}).get("rows"))
+        if isinstance(row, dict)
+    ]
+    supplied_rows = {str(row.get("row_id") or ""): row for row in model_rows}
+    if len(supplied_rows) != len(model_rows) or set(supplied_rows) != set(expected_rows):
+        errors.append("workbook build rows differ from the canonical delivery map")
+    else:
+        for row_id, expected in expected_rows.items():
+            delivered = supplied_rows[row_id]
+            if delivered.get("locked") != expected.get("locked"):
+                errors.append(f"{row_id}: workbook locked fields differ from the canonical delivery map")
     technical_path = build_dir / "technical-verification.json"
     if not technical_path.is_file():
         errors.append("workbook technical verification is missing")
@@ -249,68 +271,6 @@ def _current_build(package_dir: Path) -> tuple[Path, dict[str, Any], list[str]]:
         if technical.get("status") != "pass":
             errors.append("workbook technical verification did not pass")
     return build_dir, manifest, errors
-
-
-def _expected_fidelity_input(
-    package_dir: Path, manifest: dict[str, Any]
-) -> dict[str, Any]:
-    delivery = package_dir / DELIVERY_ROOT
-    sealed_delivery_map = _load(delivery / "delivery-map.json")
-    canonical = _load(package_dir / "canonical-record.json")
-    delivery_map = delivery_map_from_record(
-        canonical, str(sealed_delivery_map.get("language") or "English"),
-        source=read_operation_source(package_dir / "locked-source.json", canonical["source"]["source_sha256"]),
-    )
-    if delivery_map != sealed_delivery_map:
-        raise ValueError("delivery map differs from canonical reconstruction")
-    editorial = _load(delivery / "editorial.json")
-    editorial_rows = {
-        str(row.get("row_id") or ""): row
-        for row in as_list(editorial.get("rows"))
-    }
-    row_locations = {
-        str(row.get("row_id") or ""): row
-        for sheet in as_list((manifest.get("normalized_model") or {}).get("sheets"))
-        for row in as_list((sheet or {}).get("rows"))
-    }
-    rows = []
-    for row in as_list(delivery_map.get("rows")):
-        row_id = str(row.get("row_id") or "")
-        delivered = editorial_rows.get(row_id) or {}
-        location = row_locations.get(row_id) or {}
-        rows.append(
-            {
-                "row_id": row_id,
-                "primary_sheet": row.get("primary_sheet"),
-                "workbook_row_number": location.get("row_number"),
-                "binding_sha256": row.get("binding_sha256"),
-                "canonical_locked_fields": row.get("locked", {}),
-                "canonical_prose": row.get("canonical_prose", {}),
-                "delivered_prose": delivered.get("prose", {}),
-            }
-        )
-    payload = {
-        "kind": "gtm_workbook_fidelity_input",
-        "schema_version": 1,
-        "workbook_file_sha256": manifest.get("workbook_file_sha256"),
-        "canonical_record_sha256": canonical.get("canonical_record_sha256"),
-        "delivery_map_sha256": delivery_map.get("delivery_map_sha256"),
-        "rows": rows,
-        "overview_canonical": delivery_map.get("overview", {}),
-        "overview_delivered": editorial.get("overview_prose", {}),
-        "display_prose_canonical": display_prose_defaults(delivery_map),
-        "display_prose_delivered": editorial.get("display_prose", {}),
-        "review_contract": (
-            "Reject changed meaning, missing caveats, overstated consequences, "
-            "mismatched actions, or any visible row that no longer preserves its lock. "
-            "Compare translated titles, headings and column meanings with the English "
-            "display reference, preserving column order and alignment with the bound rows. "
-            "Check translated subtitles, navigation and overview display prose preserve "
-            "counts, technical references and canonical sheet identities."
-        ),
-    }
-    payload["fidelity_input_sha256"] = stable_hash(payload, 64)
-    return payload
 
 
 def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
@@ -331,54 +291,6 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
         manifest.get("workbook_path"),
         "workbook manifest path",
     )
-
-    fidelity = reviews / FIDELITY_BUNDLE
-    fidelity.mkdir()
-    shutil.copy2(workbook_path, fidelity / "workbook.xlsx")
-    fidelity_input = _expected_fidelity_input(package_dir, manifest)
-    fidelity_rows = as_list(fidelity_input.get("rows"))
-    write_json(fidelity / FIDELITY_INPUT_FILE, fidelity_input)
-    fidelity_review = {
-        "kind": "gtm_workbook_fidelity_review",
-        "schema_version": 1,
-        "status": "pending",
-        "independent_agent_id": "",
-        "independent_context_id": "",
-        "input_manifest_sha256": "",
-        "fidelity_input_sha256": fidelity_input["fidelity_input_sha256"],
-        "overview_review": {
-            "verdict": "pending",
-            "meaning_preserved": False,
-            "evidence_limits_preserved": False,
-            "next_action_preserved": False,
-            "issues": [],
-        },
-        "row_reviews": [
-            {
-                "row_id": row["row_id"],
-                "binding_sha256": row["binding_sha256"],
-                "verdict": "pending",
-                "meaning_preserved": False,
-                "caveats_preserved": False,
-                "action_matches": False,
-                "identifiers_preserved": False,
-                "issues": [],
-            }
-            for row in fidelity_rows
-        ],
-        "completion_attestation": "",
-    }
-    write_json(fidelity / FIDELITY_REVIEW_FILE, fidelity_review)
-    fidelity_manifest = _write_review_manifest(
-        fidelity,
-        review_kind="fidelity",
-        locked_paths=[fidelity / "workbook.xlsx", fidelity / FIDELITY_INPUT_FILE],
-        mutable_output=FIDELITY_REVIEW_FILE,
-    )
-    fidelity_review["input_manifest_sha256"] = fidelity_manifest[
-        "bundle_manifest_sha256"
-    ]
-    write_json(fidelity / FIDELITY_REVIEW_FILE, fidelity_review)
 
     reader = reviews / READER_BUNDLE
     reader.mkdir()
@@ -427,38 +339,27 @@ def scaffold_delivery_reviews(package_dir: Path) -> dict[str, Any]:
     ]
     write_json(reader / READER_REVIEW_FILE, reader_review)
     return {
-        "status": "ready_for_parallel_delivery_reviews",
+        "status": "ready_for_workbook_reader_review",
         "build_path": str(build_dir),
-        "fidelity_rows": len(fidelity_rows),
         "reader_sheets": len(as_list(manifest.get("visible_sheets"))),
     }
 
 
 def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any]) -> list[str]:
     reviews = build_dir / REVIEW_ROOT
-    fidelity_dir = reviews / FIDELITY_BUNDLE
     reader_dir = reviews / READER_BUNDLE
-    input_path = fidelity_dir / FIDELITY_INPUT_FILE
-    fidelity_path = fidelity_dir / FIDELITY_REVIEW_FILE
     reader_path = reader_dir / READER_REVIEW_FILE
-    if not all(path.is_file() for path in (input_path, fidelity_path, reader_path)):
-        return ["fidelity or reader review artifact is missing"]
-    fidelity_input = _load(input_path)
-    fidelity = _load(fidelity_path)
+    if not reader_path.is_file():
+        return ["reader review artifact is missing"]
     reader = _load(reader_path)
-    fidelity_manifest, errors = _review_bundle_errors(fidelity_dir)
-    reader_manifest, reader_bundle_errors = _review_bundle_errors(reader_dir)
-    errors.extend(reader_bundle_errors)
+    reader_manifest, errors = _review_bundle_errors(reader_dir)
     authoritative_workbook_sha256 = str(manifest.get("workbook_file_sha256") or "")
-    for copied_workbook, label in (
-        (fidelity_dir / "workbook.xlsx", "fidelity workbook copy"),
-        (reader_dir / "workbook.xlsx", "reader workbook copy"),
+    copied_workbook = reader_dir / "workbook.xlsx"
+    if (
+        not copied_workbook.is_file()
+        or file_sha256(copied_workbook) != authoritative_workbook_sha256
     ):
-        if (
-            not copied_workbook.is_file()
-            or file_sha256(copied_workbook) != authoritative_workbook_sha256
-        ):
-            errors.append(f"{label} differs from the authoritative workbook")
+        errors.append("reader workbook copy differs from the authoritative workbook")
     delivery_map = _load(package_dir / DELIVERY_ROOT / "delivery-map.json")
     expected_audience = audience_brief_payload(
         str(delivery_map.get("language") or "English")
@@ -480,14 +381,6 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
         errors.append("authoritative previews differ from the workbook build manifest")
     if _relative_file_hashes(reader_dir / "previews") != expected_previews:
         errors.append("reader previews differ from the authoritative rendered previews")
-    expected_fidelity_manifest = _review_manifest_payload(
-        fidelity_dir,
-        review_kind="fidelity",
-        locked_paths=[fidelity_dir / "workbook.xlsx", input_path],
-        mutable_output=FIDELITY_REVIEW_FILE,
-    )
-    if fidelity_manifest != expected_fidelity_manifest:
-        errors.append("fidelity bundle manifest differs from canonical reconstruction")
     reader_locked = [
         reader_dir / "workbook.xlsx",
         reader_dir / "audience-brief.json",
@@ -504,64 +397,7 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
     )
     if reader_manifest != expected_reader_manifest:
         errors.append("reader bundle manifest differs from workbook reconstruction")
-    errors.extend(
-        _review_provenance_errors(fidelity, fidelity_manifest, "fidelity review")
-    )
     errors.extend(_review_provenance_errors(reader, reader_manifest, "reader review"))
-    if fidelity_input.get("fidelity_input_sha256") != _hash_without(
-        fidelity_input, "fidelity_input_sha256"
-    ):
-        errors.append("fidelity input content hash is invalid")
-    try:
-        expected_fidelity_input = _expected_fidelity_input(package_dir, manifest)
-    except ValueError as exc:
-        errors.append(f"fidelity input reconstruction failed: {exc}")
-    else:
-        if fidelity_input != expected_fidelity_input:
-            errors.append("fidelity input differs from canonical reconstruction")
-    if fidelity.get("status") != "complete":
-        errors.append("fidelity review status must be complete")
-    if fidelity.get("fidelity_input_sha256") != fidelity_input.get("fidelity_input_sha256"):
-        errors.append("fidelity review is bound to another input")
-    expected = {str(row.get("row_id") or ""): row for row in as_list(fidelity_input.get("rows"))}
-    supplied_rows = [row for row in as_list(fidelity.get("row_reviews")) if isinstance(row, dict)]
-    supplied = {str(row.get("row_id") or ""): row for row in supplied_rows}
-    if len(supplied) != len(supplied_rows) or set(supplied) != set(expected):
-        errors.append("fidelity review must cover every delivered row exactly once")
-    for row_id, expected_row in expected.items():
-        row = supplied.get(row_id)
-        if not row:
-            continue
-        if row.get("binding_sha256") != expected_row.get("binding_sha256"):
-            errors.append(f"{row_id}: fidelity binding changed")
-        if row.get("verdict") != "pass":
-            errors.append(f"{row_id}: fidelity verdict did not pass")
-        for field in (
-            "meaning_preserved",
-            "caveats_preserved",
-            "action_matches",
-            "identifiers_preserved",
-        ):
-            if row.get(field) is not True:
-                errors.append(f"{row_id}: fidelity check {field} did not pass")
-        if as_list(row.get("issues")):
-            errors.append(f"{row_id}: fidelity issues remain open")
-    overview = fidelity.get("overview_review") or {}
-    if overview.get("verdict") != "pass" or any(
-        overview.get(field) is not True
-        for field in (
-            "meaning_preserved",
-            "evidence_limits_preserved",
-            "next_action_preserved",
-        )
-    ):
-        errors.append("overview fidelity review did not pass")
-    if as_list(overview.get("issues")):
-        errors.append("overview fidelity issues remain open")
-    conclusion = fidelity.get("completion_attestation")
-    if not isinstance(conclusion, str) or not conclusion.strip():
-        errors.append("fidelity completion attestation must be a non-blank string")
-
     if reader.get("status") != "complete":
         errors.append("reader review status must be complete")
     if reader.get("workbook_file_sha256") != manifest.get("workbook_file_sha256"):
@@ -592,10 +428,6 @@ def _review_errors(package_dir: Path, build_dir: Path, manifest: dict[str, Any])
     conclusion = reader.get("completion_attestation")
     if not isinstance(conclusion, str) or not conclusion.strip():
         errors.append("reader completion attestation must be a non-blank string")
-    if fidelity.get("independent_agent_id") == reader.get("independent_agent_id"):
-        errors.append("fidelity and reader reviews must use different agents")
-    if fidelity.get("independent_context_id") == reader.get("independent_context_id"):
-        errors.append("fidelity and reader reviews must use different contexts")
     return errors
 
 
@@ -661,9 +493,6 @@ def seal_delivery(package_dir: Path) -> dict[str, Any]:
         "workbook_file_sha256": manifest.get("workbook_file_sha256"),
         "workbook_build_manifest_sha256": manifest.get("workbook_build_manifest_sha256"),
         "technical_verification_sha256": technical.get("technical_verification_sha256"),
-        "fidelity_review_file_sha256": file_sha256(
-            build_dir / REVIEW_ROOT / FIDELITY_BUNDLE / FIDELITY_REVIEW_FILE
-        ),
         "reader_review_file_sha256": file_sha256(
             build_dir / REVIEW_ROOT / READER_BUNDLE / READER_REVIEW_FILE
         ),
@@ -688,9 +517,6 @@ def seal_delivery(package_dir: Path) -> dict[str, Any]:
         "delivery_manifest_sha256": delivery_manifest["delivery_manifest_sha256"],
         "delivery_manifest_file_sha256": file_sha256(manifest_path),
         "workbook_file_sha256": manifest.get("workbook_file_sha256"),
-        "fidelity_review_file_sha256": delivery_manifest[
-            "fidelity_review_file_sha256"
-        ],
         "reader_review_file_sha256": delivery_manifest[
             "reader_review_file_sha256"
         ],
