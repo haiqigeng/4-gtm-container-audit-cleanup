@@ -25,7 +25,7 @@ from gtm_context_model import (  # noqa: E402
     build_context_model,
     normalize_advanced_consent_mode_approvals,
 )
-from gtm_lib import CONSENT_INITIALIZATION_TRIGGER_ID  # noqa: E402
+from gtm_lib import CONSENT_INITIALIZATION_TRIGGER_ID, stable_hash  # noqa: E402
 from gtm_obligation_ledger import build_obligation_ledger  # noqa: E402
 from gtm_optimization_facts import _consent_metadata  # noqa: E402
 from gtm_scan_assurance import assure_scan  # noqa: E402
@@ -473,6 +473,66 @@ class V2ScanAndOptimizationTests(unittest.TestCase):
             }
             <= check_ids
         )
+
+    def test_operational_candidates_keep_exact_source_scope(self) -> None:
+        payload = rich_export()
+        payload["containerVersion"]["variable"].append(
+            {
+                "variableId": "199",
+                "name": "Value with missing reference",
+                "type": "c",
+                "parameter": [
+                    {
+                        "type": "TEMPLATE",
+                        "key": "value",
+                        "value": "{{Missing source variable}}",
+                    }
+                ],
+            }
+        )
+        source = self.root / "missing-reference.json"
+        source.write_text(json.dumps(payload), encoding="utf-8")
+        scan = build_canonical_scan(source)["canonical_scan"]
+        candidate = next(
+            row
+            for row in scan["operational_evidence"]["candidates"]
+            if row.get("finding_type") == "undefined_variable_reference"
+            and "Missing source variable" in row.get("object_ids", [])
+        )
+        self.assertEqual(["variable:199"], candidate["candidate_object_keys"])
+        self.assertIn(
+            "$.containerVersion.variable[6].parameter[0].value",
+            candidate["candidate_source_paths"],
+        )
+        assurance = assure_scan(source, scan, vendor_registry_path=self.registry)
+        self.assertEqual("pass", assurance["status"])
+        obligation = next(
+            row
+            for row in build_obligation_ledger(scan, assurance)["obligations"]
+            if row.get("candidate_id") == candidate["finding_id"]
+        )
+        self.assertEqual(["variable:199"], obligation["subject_keys"])
+        self.assertIn(
+            "$.containerVersion.variable[6].parameter[0].value",
+            obligation["source_coordinates"],
+        )
+
+        broken = copy.deepcopy(scan)
+        broken_candidate = next(
+            row
+            for row in broken["operational_evidence"]["candidates"]
+            if row.get("finding_id") == candidate["finding_id"]
+        )
+        broken_candidate["candidate_object_keys"] = []
+        broken_candidate["candidate_source_paths"] = []
+        broken["canonical_scan_sha256"] = stable_hash(
+            {key: value for key, value in broken.items() if key != "canonical_scan_sha256"},
+            64,
+        )
+        rebound_assurance = copy.deepcopy(assurance)
+        rebound_assurance["canonical_scan_sha256"] = broken["canonical_scan_sha256"]
+        with self.assertRaisesRegex(ValueError, "lacks exact source scope"):
+            build_obligation_ledger(broken, rebound_assurance)
 
     def test_real_world_assurance_contracts_remain_equivalent(self) -> None:
         payload = rich_export()

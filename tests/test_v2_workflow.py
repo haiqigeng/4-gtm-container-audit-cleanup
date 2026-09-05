@@ -2925,6 +2925,42 @@ class V2WorkflowTests(unittest.TestCase):
         build_manifest_path = build_dir / "workbook-build-manifest.json"
         build_manifest_before = build_manifest_path.read_bytes()
         build_manifest = json.loads(build_manifest_before)
+        reader_comments = [
+            row["text"]
+            for row in build_manifest["normalized_model"]["comments"]
+            if row["sheet"] != "02 Recommendations"
+        ]
+        self.assertTrue(reader_comments)
+        self.assertTrue(
+            all(
+                "decision_id:" not in text
+                and "area_id:" not in text
+                and "audit_mechanism:" not in text
+                and "fact_kind:" not in text
+                and "justified_as_is" not in text
+                and "correct_but_materially_non_optimal" not in text
+                and "source_counted_coverage" not in text
+                and "configured_leaf_branch_trace_review" not in text
+                for text in reader_comments
+            )
+        )
+        overview = next(
+            sheet
+            for sheet in build_manifest["normalized_model"]["sheets"]
+            if sheet["name"] == "01 Overview"
+        )
+        overview_cells = {
+            (cell["row"], cell["column"]): cell["value"]
+            for cell in overview["cells"]
+        }
+        delta_header_row = next(
+            row
+            for (row, column), value in overview_cells.items()
+            if column == 0 and value == "Material object-count changes"
+        )
+        self.assertTrue(
+            all(overview_cells[(delta_header_row + 1, column)] for column in range(4))
+        )
         outside_workbook = self.root / "outside-workbook.xlsx"
         outside_workbook.write_bytes(b"outside-workbook-must-not-be-read")
         outside_workbook_before = outside_workbook.read_bytes()

@@ -27,7 +27,11 @@ from test_v2_workflow import (
 )
 
 from gtm_audit_plan import _author_decisions
-from gtm_delivery_mapper import AUDIT_AREA_CATEGORIES, display_prose_defaults
+from gtm_delivery_mapper import (
+    AUDIT_AREA_CATEGORIES,
+    _audit_area_category,
+    display_prose_defaults,
+)
 from gtm_target_synthesis import build_operation_packet_payloads
 
 
@@ -53,8 +57,11 @@ class SharedOperationWorkflowTests(unittest.TestCase):
         audit_path = self.package / "audit-bundles" / audit_id / "audit.json"
         audit = json.loads(audit_path.read_text(encoding="utf-8"))
         owners = [row for row in audit["decisions"] if row["subject_keys"] == ["variable:21"]]
-        self.assertEqual({"unused_object", "naming_architecture_mismatch"}, {row["fact_kind"] for row in owners})
-        self.assertEqual(2, len(owners))
+        self.assertEqual(
+            {"unused_object", "naming_architecture_mismatch", "unfiled_objects"},
+            {row["fact_kind"] for row in owners},
+        )
+        self.assertEqual(3, len(owners))
         authored = copy.deepcopy(owners[0])
         complete_priority_removal_decision(authored, audit["source_sha256"])
         authored.update({
@@ -92,7 +99,7 @@ class SharedOperationWorkflowTests(unittest.TestCase):
             plan["obligation_overrides"].append({"override_id": "shared-delete", "obligation_ids": sorted(owner_ids), "decision": decision})
         return plan_path, audit_path, plan, owners
 
-    def test_shared_deletion_from_profile_and_override_retains_both_findings(self) -> None:
+    def test_shared_deletion_from_profile_and_override_retains_all_findings(self) -> None:
         for audit_id, profile in (("audit-a", True), ("audit-b", False)):
             plan_path, audit_path, plan, owners = self.shared_plan(audit_id, profile=profile)
             plan_path.write_text(json.dumps(plan), encoding="utf-8")
@@ -100,11 +107,11 @@ class SharedOperationWorkflowTests(unittest.TestCase):
             self.assertEqual([], validate_audit(self.package, audit_id))
             completed = json.loads(audit_path.read_text(encoding="utf-8"))
             actual = [row for row in completed["decisions"] if row["obligation_id"] in {o["obligation_id"] for o in owners}]
-            self.assertEqual(2, len(actual))
+            self.assertEqual(3, len(actual))
             for row in actual:
                 self.assertEqual(row["decision_id"], row["operation_proposal"]["source_decision_id"])
                 self.assertEqual(row["source_coordinates"], row["evidence_citations"])
-            # A shared operation never excuses an incomplete second finding.
+            # A shared operation never excuses an incomplete contributing finding.
             broken = copy.deepcopy(completed)
             next(row for row in broken["decisions"] if row["decision_id"] == actual[1]["decision_id"])["criteria_assessment"] = ""
             audit_path.write_text(json.dumps(broken), encoding="utf-8")
@@ -119,7 +126,7 @@ class SharedOperationWorkflowTests(unittest.TestCase):
         operation = packet["operations"][0]
         record = json.loads((self.package / "reconciled-decisions.json").read_text(encoding="utf-8"))
         findings = [row for row in record["canonical_decisions"] if row["decision"].get("operation_proposal")]
-        self.assertEqual(2, len(findings))
+        self.assertEqual(3, len(findings))
         expected_ids = sorted(row["canonical_decision_id"] for row in findings)
         self.assertEqual(expected_ids, operation["source_reconciled_decision_ids"])
         self.assertEqual({cid: operation["operation_id"] for cid in expected_ids}, packet["decision_to_operation"])
@@ -132,15 +139,21 @@ class SharedOperationWorkflowTests(unittest.TestCase):
         self.assertEqual(1, canonical["summary"]["operation_count"])
         self.assertEqual(expected_ids, canonical["operations"][0]["source_reconciled_decision_ids"])
         retained = [row for row in canonical["audit_decisions"] if row["canonical_decision_id"] in expected_ids]
-        self.assertEqual(2, len(retained))
-        self.assertEqual({"unused_object", "naming_architecture_mismatch"}, {row["fact_kind"] for row in retained})
+        self.assertEqual(3, len(retained))
+        self.assertEqual(
+            {"unused_object", "naming_architecture_mismatch", "unfiled_objects"},
+            {row["fact_kind"] for row in retained},
+        )
         create_delivery_map(self.package)
         delivery = json.loads((self.package / "delivery" / "delivery-map.json").read_text(encoding="utf-8"))
         recommendations = [row for row in delivery["rows"] if row["primary_sheet"] == "02 Recommendations"]
         self.assertEqual(1, len(recommendations))
         recommendation = recommendations[0]
         self.assertEqual(expected_ids, recommendation["locked"]["source_decision_ids"])
-        self.assertEqual(sorted(row["area_id"] for row in retained), recommendation["locked"]["source_audit_areas"])
+        self.assertEqual(
+            sorted({row["area_id"] for row in retained}),
+            recommendation["locked"]["source_audit_areas"],
+        )
         coverage = delivery["coverage"]
         self.assertEqual([operation["operation_id"]], coverage["recommendation_operation_ids"])
         self.assertEqual(
@@ -155,7 +168,10 @@ class SharedOperationWorkflowTests(unittest.TestCase):
             self.assertEqual(1, len(rows))
             self.assertEqual(finding["fact_kind"], rows[0]["locked"]["fact_kind"])
             self.assertEqual(operation["operation_id"], rows[0]["locked"]["operation_id"])
-            self.assertEqual(AUDIT_AREA_CATEGORIES[finding["area_id"]], rows[0]["canonical_prose"]["audit_area"])
+            self.assertEqual(
+                _audit_area_category(finding),
+                rows[0]["canonical_prose"]["audit_area"],
+            )
         # Equal source priorities use stable decision identity for the primary filter.
         primary = min(retained, key=lambda row: row["canonical_decision_id"])
         self.assertEqual(AUDIT_AREA_CATEGORIES[primary["area_id"]], recommendation["canonical_prose"]["audit_area"])
@@ -208,10 +224,11 @@ class SharedOperationWorkflowTests(unittest.TestCase):
         _, audit_path, plan, owners = self.shared_plan("audit-a")
         audit = json.loads(audit_path.read_text(encoding="utf-8"))
         locked = {row["obligation_id"]: row for row in audit["decisions"]}
-        # Give the two existing fixture obligations distinct coordinate allowlists.
-        # Their production unused/naming facts currently have empty allowlists.
-        for index, owner in enumerate(owners):
-            locked[owner["obligation_id"]]["source_coordinates"] = [f"$.containerVersion.variable[0].{'name' if index else 'variableId'}"]
+        # Give the three fixture obligations distinct coordinate allowlists.
+        for field, owner in zip(("variableId", "name", "type"), owners, strict=True):
+            locked[owner["obligation_id"]]["source_coordinates"] = [
+                f"$.containerVersion.variable[0].{field}"
+            ]
         authored, _, errors = _author_decisions(locked, plan)
         self.assertEqual([], errors)
         for owner in owners:

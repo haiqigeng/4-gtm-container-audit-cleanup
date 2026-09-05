@@ -2830,3 +2830,33 @@ duplicate large-context delivery review that repeatedly stalled on real
 containers. Stage-local recovery remains the default; a complete rerun is needed
 only when upstream evidence is invalidated. No release or remote change is part
 of this design change.
+# Release-readiness provenance correction
+
+- Operational sanitation candidates now carry their exact source object keys and
+  raw JSON paths into the neutral scan instead of relying on display IDs alone.
+- Obligation construction fails closed when an operational candidate has no exact
+  source scope. This gives both independent audits and reconciliation usable,
+  source-locked citations for every such candidate.
+- The correction was validated across all five default evaluation containers;
+  all 2,113 operational candidates resolved to at least one source object and path.
+- Workbook row comments now use reader-facing labels while retaining exact IDs,
+  paths and action detail. Priority order is written as an instruction rather
+  than an unexplained number, and a no-count-change overview still fills the
+  source, target and change columns.
+- Control-topology obligations now state the positive direct-browser pattern
+  explicitly: a consent-free firing route plus a reusable denial blocker, with
+  Advanced Mode and client-to-server handling applied only from complete locked
+  evidence. Configuration obligations explicitly trace object meaning, dataLayer
+  path, type/shape, consumer and destination meaning.
+- A source-visible direct-browser consent-control failure must be resolved as a
+  defect. Other known contract failures can no longer pass as harmless or as a
+  generic evidence limit; they require a defect or an exact owner decision.
+- Lifecycle trigger types now contribute their exact GTM event identity to the
+  ineffective-blocker scan, so a page-view tag blocked only by an unrelated CMP
+  callback is detected in the same pass as custom-event mismatches.
+- GA4 ecommerce settings now recognize indirect settings-table parameter names
+  and create exact obligations when a visible parameter source belongs to a
+  different legacy ecommerce event family. Such source-visible contradictions
+  must be defects, independently of any separate owner choice.
+- Repeated equal Google settings must receive a source-based consolidate-or-
+  retain assessment. A generic owner question can no longer close that work.

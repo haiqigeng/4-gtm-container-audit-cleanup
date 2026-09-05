@@ -130,6 +130,105 @@ def detector_fixture() -> dict:
 
 
 class V2DetectorRegressionTests(unittest.TestCase):
+    def test_ga4_ecommerce_scope_mismatch_becomes_exact_obligation(self) -> None:
+        fixture = detector_fixture()
+        container = fixture["containerVersion"]
+        container["variable"].append(
+            {
+                "variableId": "90",
+                "name": "Wrong item source",
+                "type": "v",
+                "parameter": [{"key": "name", "value": "ecommerce.detail.products"}],
+            }
+        )
+        container["tag"].append(
+            {
+                "tagId": "91",
+                "name": "GA4 - Add to cart",
+                "type": "gaawe",
+                "parameter": [
+                    {"key": "eventName", "value": "add_to_cart"},
+                    {
+                        "key": "eventSettingsTable",
+                        "type": "LIST",
+                        "list": [
+                            {
+                                "type": "MAP",
+                                "map": [
+                                    {"key": "parameter", "value": "items"},
+                                    {
+                                        "key": "parameterValue",
+                                        "value": "{{Wrong item source}}",
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                ],
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "container.json"
+            source.write_text(json.dumps(fixture), encoding="utf-8")
+            scan = build_canonical_scan(source)["canonical_scan"]
+        row = next(
+            item
+            for item in scan["configuration_evidence"]["objects"]
+            if item["object_key"] == "tag:91"
+        )
+        obligations = row["required_configuration_obligations"]
+        self.assertEqual(1, len(obligations))
+        self.assertTrue(
+            obligations[0]["obligation_key"].startswith("ecommerce_scope_mismatch:")
+        )
+        self.assertEqual(
+            "known_noncompliant",
+            obligations[0]["deterministic_contract_state"],
+        )
+
+    def test_pageview_route_cannot_use_custom_event_blocker(self) -> None:
+        fixture = detector_fixture()
+        container = fixture["containerVersion"]
+        container["tag"].append(
+            {
+                "tagId": "99",
+                "name": "Lifecycle tag",
+                "type": "html",
+                "firingTriggerId": ["97"],
+                "blockingTriggerId": ["98"],
+            }
+        )
+        container["trigger"].extend(
+            [
+                {"triggerId": "97", "name": "Page view", "type": "PAGEVIEW"},
+                {
+                    "triggerId": "98",
+                    "name": "Vendor consent callback",
+                    "type": "CUSTOM_EVENT",
+                    "customEventFilter": [
+                        {
+                            "type": "EQUALS",
+                            "parameter": [
+                                {"key": "arg0", "value": "{{_event}}"},
+                                {"key": "arg1", "value": "vendor-consent"},
+                            ],
+                        }
+                    ],
+                },
+            ]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            export = Path(directory) / "container.json"
+            export.write_text(json.dumps(fixture), encoding="utf-8")
+            findings = audit_export(export)["findings"]
+        matches = [
+            row
+            for row in findings
+            if row.get("finding_type") == "ineffective_blocking_trigger"
+            and row.get("signature_key") == "tag:99:blockers:98"
+        ]
+        self.assertEqual(1, len(matches))
+
     def test_retained_cleanup_detectors_keep_known_positive_families(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             export = Path(directory) / "container.json"

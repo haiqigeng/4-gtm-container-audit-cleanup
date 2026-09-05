@@ -108,6 +108,7 @@ def _obligation(
     candidate_owner: str = "",
     material_verification_triggers: list[str] | None = None,
     identity_discriminator: str = "",
+    required_audit_question: str | None = None,
 ) -> dict[str, Any]:
     subjects = sorted(set(subject_keys or _subject_keys(evidence)))
     families = sorted(set(family_ids or _owner_family_ids(evidence)))
@@ -142,7 +143,7 @@ def _obligation(
         ),
         "evidence": evidence,
         "evidence_sha256": stable_hash(evidence, 64),
-        "required_audit_question": (
+        "required_audit_question": required_audit_question or (
             "Using only the locked evidence and applicable current contract, decide what "
             "is wrong, what can be materially better, what should stay and why, or what "
             "requires one owner answer or evidence boundary."
@@ -343,6 +344,14 @@ def build_obligation_ledger(
                     material_verification_triggers=(
                         ["consent_architecture"] if area_id in {"AREA-09", "AREA-10", "AREA-11", "AREA-12"} else []
                     ),
+                    required_audit_question=(
+                        "Trace this configured branch through its exact inputs, terminal "
+                        "sources and consumers. Compare object and field meaning, dataLayer "
+                        "path, value type and shape, and destination parameter meaning. "
+                        "Classify a source-visible contradiction as a defect; when the "
+                        "intended replacement is not source-visible, state the exact owner "
+                        "answer needed instead of approving or deferring the contradiction."
+                    ),
                 )
             )
 
@@ -362,6 +371,10 @@ def build_obligation_ledger(
                 f"{layer}:{value}"
                 for value in as_list(candidate.get("object_ids"))
                 if f"{layer}:{value}" in object_keys
+            )
+        if not subjects or not _source_paths(candidate):
+            raise ValueError(
+                f"operational candidate {candidate_id or '<unknown>'} lacks exact source scope"
             )
         rows.append(
             _obligation(
@@ -406,6 +419,16 @@ def build_obligation_ledger(
                     if len(subjects) >= 5
                     else []
                 ),
+                required_audit_question=(
+                    "Assess the smallest compatible settings group from the locked "
+                    "consumers, values, destination, type and shape, timing, route and "
+                    "local-override intent. When repeated settings have the same "
+                    "effective value, conclude whether to consolidate or retain them "
+                    "with a specific source-visible distinction; do not defer that "
+                    "container assessment to a generic owner question."
+                    if candidate_type in {"shared_event_setting", "shared_config_setting"}
+                    else ""
+                ),
             )
         )
 
@@ -441,6 +464,15 @@ def build_obligation_ledger(
                     else []
                 )
                 + (["client_server_transport"] if "AREA-12" in review_area_ids else []),
+                required_audit_question=(
+                    "Design one clear firing and consent-control route from the locked "
+                    "topology. For a direct non-Advanced browser-vendor route, use a "
+                    "consent-free lifecycle or business firing trigger and a reusable "
+                    "consent-denial blocker. A positive route that carries consent, or a "
+                    "route without that blocker, is a source-visible control issue. Apply "
+                    "the separate Advanced Consent Mode or client-to-server contract only "
+                    "when its required locked evidence is complete."
+                ),
             )
         )
 

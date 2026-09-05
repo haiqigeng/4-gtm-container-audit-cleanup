@@ -16,6 +16,7 @@ from gtm_audit_contract import (  # noqa: E402
     OPERATION_ACTION_FIELDS,
     semantic_contract_errors,
 )
+from gtm_audit_plan import source_disposition_errors  # noqa: E402
 from gtm_audit_work_units import (  # noqa: E402
     MAX_SINGLE_OBLIGATIONS,
     build_work_units,
@@ -148,6 +149,132 @@ def work_unit_decision(index: int) -> dict:
 
 
 class V2OperationSafetyTests(unittest.TestCase):
+    def test_source_visible_contract_failures_cannot_be_marked_harmless(self) -> None:
+        consent = {
+            "evidence": {
+                "consent_applicability": {
+                    "direct_non_advanced_browser_vendor": True,
+                },
+                "positive_route_contains_consent": True,
+                "blocker_contains_consent": False,
+            }
+        }
+        self.assertTrue(
+            source_disposition_errors(
+                consent,
+                {"decision_class": "container_evidence_limit"},
+                "consent route",
+            )
+        )
+        self.assertEqual(
+            [],
+            source_disposition_errors(
+                consent,
+                {"decision_class": "defect"},
+                "consent route",
+            ),
+        )
+
+        ecommerce_mismatch = {
+            "fact_kind": "configuration_obligation",
+            "evidence": {
+                "configuration_obligation": {
+                    "obligation_key": "ecommerce_scope_mismatch:test",
+                    "deterministic_contract_state": "known_noncompliant",
+                }
+            },
+        }
+        self.assertTrue(
+            source_disposition_errors(
+                ecommerce_mismatch,
+                {"decision_class": "owner_decision"},
+                "ecommerce mapping",
+            )
+        )
+        self.assertEqual(
+            [],
+            source_disposition_errors(
+                ecommerce_mismatch,
+                {"decision_class": "defect"},
+                "ecommerce mapping",
+            ),
+        )
+
+        repeated_setting = {
+            "audit_mechanism": "optimization_candidate_review",
+            "fact_kind": "shared_event_setting",
+            "evidence": {"compatibility_checks": {"same_effective_value": True}},
+        }
+        self.assertTrue(
+            source_disposition_errors(
+                repeated_setting,
+                {"decision_class": "owner_decision"},
+                "shared setting",
+            )
+        )
+        self.assertEqual(
+            [],
+            source_disposition_errors(
+                repeated_setting,
+                {"decision_class": "correct_but_materially_non_optimal"},
+                "shared setting",
+            ),
+        )
+        self.assertTrue(
+            source_disposition_errors(
+                consent,
+                {"decision_class": "owner_decision"},
+                "consent route",
+            )
+        )
+
+        known_failure = {
+            "evidence": {
+                "configuration_obligation": {
+                    "deterministic_contract_state": "known_noncompliant",
+                }
+            }
+        }
+        self.assertTrue(
+            source_disposition_errors(
+                known_failure,
+                {"decision_class": "justified_as_is"},
+                "configuration",
+            )
+        )
+        self.assertEqual(
+            [],
+            source_disposition_errors(
+                known_failure,
+                {"decision_class": "owner_decision"},
+                "configuration",
+            ),
+        )
+
+        ineffective = {
+            "fact_kind": "ineffective_blocking_trigger",
+            "evidence": {
+                "deterministic_evidence": (
+                    "The firing and blocking triggers have disjoint exact events."
+                )
+            },
+        }
+        self.assertTrue(
+            source_disposition_errors(
+                ineffective,
+                {"decision_class": "owner_decision"},
+                "ineffective blocker",
+            )
+        )
+        self.assertEqual(
+            [],
+            source_disposition_errors(
+                ineffective,
+                {"decision_class": "defect"},
+                "ineffective blocker",
+            ),
+        )
+
     def test_source_references_are_closed_and_missing_is_not_null(self):
         source = operation_fixture()
         source["containerVersion"]["tag"][0]["notes"] = None

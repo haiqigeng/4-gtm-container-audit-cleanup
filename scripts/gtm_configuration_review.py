@@ -1144,6 +1144,14 @@ def configured_parameter_terms(obj: dict[str, Any]) -> set[str]:
             key = str(value.get("key") or "").strip().lower()
             if key and any(field in value for field in ("value", "list", "map")):
                 terms.add(key)
+            raw = value.get("value")
+            if (
+                key in {"parameter", "field"}
+                and raw is not None
+                and not isinstance(raw, (dict, list))
+                and str(raw).strip()
+            ):
+                terms.add(str(raw).strip().lower())
             for child in value.values():
                 visit(child)
         elif isinstance(value, list):
@@ -2932,6 +2940,96 @@ def required_configuration_obligations(
             ("purpose_output_alignment", "custom_code_behavior_alignment"),
             ("template_behavior_and_permissions",),
         )
+
+    ecommerce_families = {
+        "add_to_cart": {"add"},
+        "remove_from_cart": {"remove"},
+        "view_item": {"detail"},
+        "view_item_list": {"impressions"},
+        "select_item": {"impressions"},
+        "begin_checkout": {"checkout"},
+        "add_shipping_info": {"checkout"},
+        "add_payment_info": {"checkout"},
+        "purchase": {"purchase"},
+        "refund": {"refund"},
+    }
+    configured_events = {
+        value.strip().lower()
+        for value in parameter_static_values(cv, obj, "eventName")
+        if value.strip()
+    }
+    expected_families = set().union(
+        *(ecommerce_families[event] for event in configured_events if event in ecommerce_families)
+    ) if configured_events & ecommerce_families.keys() else set()
+    if layer == "tag" and str(obj.get("type") or "").lower() == "gaawe" and expected_families:
+        root_path = own_prefix.split(".tag[", 1)[0]
+        for parameter_index, parameter in enumerate(as_list(obj.get("parameter"))):
+            if not isinstance(parameter, dict) or str(parameter.get("key") or "") != "eventSettingsTable":
+                continue
+            for setting_index, setting in enumerate(as_list(parameter.get("list"))):
+                if not isinstance(setting, dict):
+                    continue
+                setting_parameters = {"parameter": as_list(setting.get("map"))}
+                setting_names = configured_field_values(
+                    setting_parameters, "parameter"
+                )
+                setting_values = configured_field_values(
+                    setting_parameters, "parameterValue"
+                )
+                setting_name = setting_names[0] if setting_names else "event parameter"
+                for reference in sorted({name for value in setting_values for name in refs(value)}):
+                    variable_record = variable_records.get(reference)
+                    if not variable_record:
+                        continue
+                    variable_index, variable = variable_record
+                    for data_layer_path in configured_field_values(variable, "name"):
+                        match = re.search(r"(?:^|\.)ecommerce\.([A-Za-z0-9_]+)", data_layer_path, re.I)
+                        if not match:
+                            continue
+                        observed_family = match.group(1).lower()
+                        legacy_families = {
+                            "add", "remove", "detail", "impressions", "checkout",
+                            "purchase", "refund",
+                        }
+                        if observed_family not in legacy_families or observed_family in expected_families:
+                            continue
+                        setting_path = (
+                            f"{own_prefix}.parameter[{parameter_index}]"
+                            f".list[{setting_index}]"
+                        )
+                        variable_prefix = f"{root_path}.variable[{variable_index}]"
+                        anchors = [
+                            path
+                            for path in available
+                            if path.startswith(setting_path) or path.startswith(variable_prefix)
+                        ]
+                        key = (
+                            "ecommerce_scope_mismatch:"
+                            + stable_hash(
+                                {
+                                    "event": sorted(configured_events),
+                                    "setting": setting_name,
+                                    "reference": reference,
+                                    "path": data_layer_path,
+                                }
+                            )
+                        )
+                        add(
+                            key,
+                            "Issue",
+                            (
+                                f"GA4 event {', '.join(sorted(configured_events))!r} maps "
+                                f"{setting_name!r} through {reference!r} to legacy dataLayer "
+                                f"scope {data_layer_path!r}, which belongs to "
+                                f"{observed_family!r} rather than the event's "
+                                f"{', '.join(sorted(expected_families))!r} scope."
+                            ),
+                            anchors,
+                            ("purpose_output_alignment", "input_output_consumer_alignment", "vendor_contract_alignment"),
+                            ("ecommerce_event_contract", "transaction_value_currency_and_quantity"),
+                        )
+                        if key in obligations:
+                            obligations[key]["deterministic_contract_state"] = "known_noncompliant"
     return [obligations[key] for key in sorted(obligations)]
 
 

@@ -101,6 +101,8 @@ downstream server-container enforcement is outside this audit.”
 
 - Scan every key, ID, exact and normalised name, type, status, folder, note,
   template version, and relevant metadata, including naming anomalies.
+- Carry every operational candidate with its exact source object keys and raw
+  JSON paths; block candidate review when that source scope is absent.
 - Audit role, vendor, destination, purpose, route, and owner; distinguish unknown
   purpose from evidenced obsolescence.
 
@@ -286,6 +288,13 @@ downstream server-container enforcement is outside this audit.”
 - Preserve this boundary when obligations are built: classify a configuration
   obligation from its exact raw source evidence anchors, never from registry
   statements, contract topics, conclusion terms, or official-document metadata.
+- For visible legacy ecommerce mappings, compare each GA4 event's parameter
+  sources with that event's ecommerce scope. A parameter sourced from a different
+  event family is an exact configuration defect, while runtime value availability
+  remains outside this static conclusion.
+- Count parameter names configured inside settings tables as present even when
+  their values are supplied through variables; trace those variables separately
+  for meaning, type, shape, and event-scope alignment.
 
 ### 19. Ads, Floodlight, And Other Vendor Tags
 

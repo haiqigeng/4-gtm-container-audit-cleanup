@@ -302,8 +302,16 @@ function noteChanges(before, after, fieldPath, reference, pathsOnly = false) {
         Array.isArray(before) ? `${fieldPath}[${key}]` : `${fieldPath}.${key}`, reference, pathsOnly));
   }
   if (pathsOnly) return [fieldPath];
-  const display = value => value === undefined ? "(absent)"
-    : JSON.stringify(noteValue(value, reference));
+  const display = value => {
+    if (value === undefined) return "(absent)";
+    if (
+      value && typeof value === "object" && !Array.isArray(value)
+      && Object.keys(value).length === 2 && "type" in value && "value" in value
+    ) {
+      return `${value.value} (${value.type})`;
+    }
+    return JSON.stringify(noteValue(value, reference));
+  };
   return [`${fieldPath}: ${display(before)} → ${display(after)}`];
 }
 
@@ -322,9 +330,19 @@ function technicalCommentText(row) {
       `Target: ${locked.exact_target_state}`,
       `Exact payload and recovery: ${reference}; source-bound old values require the matching locked-source.json`,
       "Action details (redacted; unchanged nested values are not repeated):");
+    const actionLabels = {
+      additions: "Additions", changes: "Changes", creations: "Creations",
+      deletions: "Deletions", pauses: "Pauses", remaps: "Remaps",
+      removals: "Removals", renames: "Renames",
+    };
+    const detailLabels = {
+      object_key: "Object", json_path: "Field path", consumer_key: "Consumer",
+      from_object_key: "From object", to_object_key: "To object",
+      old_reference: "Current reference", new_reference: "Target reference",
+    };
     for (const [kind, actions] of Object.entries(locked.technical_note)) {
       for (const [index, action] of actions.entries()) {
-        lines.push(`${kind}[${index}]:`);
+        lines.push(`${actionLabels[kind] || kind.replaceAll("_", " ")} ${index + 1} (${kind}[${index}]):`);
         for (const [key, value] of Object.entries(action)) {
           if (key === "before" || key === "after") continue;
           if (key === "before_source_sha256") {
@@ -332,7 +350,7 @@ function technicalCommentText(row) {
             continue;
           }
           const detail = ["object", "value"].includes(key) ? noteValue(value, reference) : value;
-          lines.push(`  ${key}: ${JSON.stringify(detail)}`);
+          lines.push(`  ${detailLabels[key] || key.replaceAll("_", " ")}: ${JSON.stringify(detail)}`);
         }
         if ("before" in action || "after" in action) {
           const fieldPath = action.json_path || ({ renames: "$.name", pauses: "$.paused" }[kind]) || "$";
@@ -349,8 +367,27 @@ function technicalCommentText(row) {
       }
     }
   } else {
-    for (const key of ["decision_id", "area_id", "audit_mechanism", "fact_kind", "decision_class", "operation_id"]) {
-      if (locked[key]) lines.push(`${key}: ${locked[key]}`);
+    const labels = {
+      decision_id: "Decision ID", area_id: "Audit area ID",
+      audit_mechanism: "Audit method", fact_kind: "Audit focus",
+      decision_class: "Decision", operation_id: "Linked operation",
+    };
+    for (const key of Object.keys(labels)) {
+      if (!locked[key]) continue;
+      const decisionLabels = {
+        defect: "Needs correction",
+        correct_but_materially_non_optimal: "Optimisation",
+        justified_as_is: "Appropriate as configured",
+        owner_decision: "Decision needed",
+        container_evidence_limit: "Cannot determine from container evidence",
+        not_applicable: "Not applicable",
+      };
+      const value = key === "decision_class"
+        ? decisionLabels[locked[key]] || locked[key]
+        : ["audit_mechanism", "fact_kind"].includes(key)
+          ? String(locked[key]).replaceAll("_", " ")
+          : locked[key];
+      lines.push(`${labels[key]}: ${value}`);
     }
   }
   return lines.join("\n");
@@ -423,7 +460,11 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
   sheet.getRange("E11:G11").values = matrix([display.overview.priority_headers]);
   styleHeaders(sheet.getRange("E11:G11"));
   if (priorityRows.length) {
-    const values = priorityRows.map(([key, value], index) => [key, value, index + 1]);
+    const values = priorityRows.map(([key, value], index) => [
+      key,
+      value,
+      `${index + 1} — review ${["first", "second", "third", "fourth"][index] || `step ${index + 1}`}`,
+    ]);
     sheet.getRangeByIndexes(11, 4, values.length, 3).values = matrix(values);
     styleData(sheet.getRangeByIndexes(11, 4, values.length, 3));
     values.forEach((row, index) => {
@@ -482,11 +523,14 @@ function buildOverview(workbook, deliveryMap, editorial, model) {
     );
     styleData(sheet.getRangeByIndexes(deltaStart, 0, deltas.length, 4));
   } else {
-    cellCoordinates.push([deltaStart, 0]);
-    sheet.getRangeByIndexes(deltaStart, 0, 1, 4).merge();
-    sheet.getRangeByIndexes(deltaStart, 0, 1, 4).values = [[
-      safeText(display.overview.empty_deltas),
-    ]];
+    trackCells(deltaStart, 0, 1, 4);
+    sheet.getRangeByIndexes(deltaStart, 0, 1, 4).values = matrix([[
+      `${safeText(display.overview.empty_deltas)} ${recommendations.size} configuration operation${recommendations.size === 1 ? " is" : "s are"} proposed.`,
+      "No object-count change",
+      "No object-count change",
+      "0",
+    ]]);
+    styleData(sheet.getRangeByIndexes(deltaStart, 0, 1, 4));
   }
   sheet.getRange("A:A").format.columnWidth = 24;
   sheet.getRange("B:B").format.columnWidth = 12;

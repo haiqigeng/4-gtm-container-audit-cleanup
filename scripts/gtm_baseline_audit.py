@@ -399,6 +399,27 @@ def exact_event_names(trigger: dict[str, Any]) -> set[str]:
         operator, left, right = condition_values(node)
         if operator == "EQUALS" and left.strip() == "{{_event}}" and right.strip():
             names.add(right.strip())
+    if names:
+        return names
+    lifecycle_events = {
+        "PAGEVIEW": "gtm.js",
+        "DOM_READY": "gtm.dom",
+        "WINDOW_LOADED": "gtm.load",
+        "INITIALIZATION": "gtm.init",
+        "CONSENT_INITIALIZATION": "gtm.init_consent",
+        "FORM_SUBMISSION": "gtm.formSubmit",
+        "LINK_CLICK": "gtm.linkClick",
+        "CLICK": "gtm.click",
+        "HISTORY_CHANGE": "gtm.historyChange",
+        "JS_ERROR": "gtm.pageError",
+        "TIMER": "gtm.timer",
+        "SCROLL_DEPTH": "gtm.scrollDepth",
+        "YOU_TUBE_VIDEO": "gtm.video",
+        "ELEMENT_VISIBILITY": "gtm.elementVisibility",
+    }
+    event_name = lifecycle_events.get(str(trigger.get("type") or "").upper())
+    if event_name:
+        names.add(event_name)
     return names
 
 

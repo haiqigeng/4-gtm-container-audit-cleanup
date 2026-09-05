@@ -187,6 +187,69 @@ def finding_evidence_terms(finding: dict[str, Any]) -> list[str]:
     return terms[:60]
 
 
+def candidate_source_scope(
+    finding: dict[str, Any],
+    shared_by_key: dict[str, dict[str, Any]],
+) -> tuple[list[str], list[str]]:
+    """Resolve one neutral candidate to existing source objects and exact JSON paths."""
+
+    object_keys = {
+        str(value)
+        for value in as_list(finding.get("shared_fact_object_keys"))
+        if str(value) in shared_by_key
+    }
+    for identity in as_list(finding.get("object_identities")):
+        identity_text = str(identity or "")
+        if identity_text in shared_by_key:
+            object_keys.add(identity_text)
+            continue
+        parts = identity_text.split("|", 2)
+        if len(parts) >= 2:
+            key = f"{parts[0]}:{parts[1]}"
+            if key in shared_by_key:
+                object_keys.add(key)
+
+    referenced_names = {
+        str(value)
+        for field in ("object_ids", "object_names")
+        for value in as_list(finding.get(field))
+        if str(value)
+    }
+    source_paths: set[str] = set()
+    for key, fact in shared_by_key.items():
+        matching_dependency_traces = [
+            trace
+            for trace in as_list(fact.get("execution_dependency_traces"))
+            if str((trace or {}).get("reference") or "") in referenced_names
+        ]
+        if matching_dependency_traces:
+            object_keys.add(key)
+            for trace in matching_dependency_traces:
+                source_paths.update(
+                    path
+                    for path in as_list(trace.get("source_reference_paths"))
+                    if isinstance(path, str) and path.startswith("$.")
+                )
+        referenced_here = referenced_names & {
+            str(value) for value in as_list(fact.get("referenced_variables"))
+        }
+        if referenced_here:
+            object_keys.add(key)
+            for leaf in as_list(fact.get("source_leaf_facts")):
+                if referenced_here & {
+                    str(value)
+                    for value in as_list((leaf or {}).get("referenced_variables"))
+                }:
+                    path = str((leaf or {}).get("json_path") or "")
+                    if path.startswith("$."):
+                        source_paths.add(path)
+        if key in object_keys:
+            path = str(fact.get("source_json_path") or "")
+            if path.startswith("$."):
+                source_paths.add(path)
+    return sorted(object_keys), sorted(source_paths)
+
+
 def scaffold_review(
     export_path: Path,
     shared_facts: dict[str, Any] | None = None,
@@ -225,13 +288,18 @@ def scaffold_review(
                 or layer in {"custom_code", "module"}
             )
         )
+        candidate_keys, candidate_paths = candidate_source_scope(
+            {**finding, "shared_fact_object_keys": shared_keys}, shared_by_key
+        )
         findings.append(
             {
                 **finding,
                 "shared_fact_object_keys": shared_keys,
+                "candidate_object_keys": candidate_keys,
+                "candidate_source_paths": candidate_paths,
                 "shared_behavior_signatures": {
                     key: shared_by_key[key].get("behavior_signatures", {})
-                    for key in shared_keys
+                    for key in candidate_keys
                 },
                 "rationale_evidence_terms": finding_evidence_terms(finding),
                 "review_status": "pending",

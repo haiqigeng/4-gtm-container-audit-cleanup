@@ -63,6 +63,8 @@ OPERATIONAL_CANDIDATE_FACT_FIELDS = frozenset(
         "source_lens",
         "object_identities",
         "shared_fact_object_keys",
+        "candidate_object_keys",
+        "candidate_source_paths",
         "shared_behavior_signatures",
     }
 )
