@@ -19,10 +19,6 @@ node_modules/
 *.xls
 *.csv
 *.json
-!tests/fixtures/
-!tests/fixtures/analyst_cases.json
-!tests/fixtures/readability_case.json
-!tests/fixtures/readability_real_run_cases.json
 *.zip
 artifacts/
 exports/

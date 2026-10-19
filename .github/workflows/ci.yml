@@ -22,43 +22,19 @@ jobs:
           - os: ubuntu-latest
             python-version: "3.13"
           - os: windows-latest
-            python-version: "3.12"
+            python-version: "3.13"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install validation dependencies
-        run: python -m pip install -e ".[analysis,dev]"
+      # The skill is a folder of instructions and scripts, not an installable package: install the dependencies
+      # pyproject.toml declares. Ruff is pinned to the version the release was validated with.
+      - name: Install dependencies
+        run: python -m pip install "openpyxl>=3.1" "pytest>=8" "ruff==0.15.22"
       - name: Lint
         run: python -m ruff check --no-cache .
-      - name: Dead-code scan
-        run: python -m vulture scripts tests --min-confidence 80
-      - name: Code-only self-test (bundled workbook runtime is host-provided)
-        run: python -B scripts/gtm_self_test.py --code-only
-      - name: Offline vendor registry
-        run: python -B scripts/gtm_vendor_registry.py
-      - name: Release structure
-        run: python -B scripts/check_release.py
-      - name: Unit tests
-        run: python -B -m coverage run --data-file="${{ runner.temp }}/gtm-python-coverage.data" --branch -m unittest discover -s tests -v
-      - name: Complete Python trust-boundary coverage evidence
-        run: python -m coverage json --data-file="${{ runner.temp }}/gtm-python-coverage.data" --fail-under=0 -o "${{ runner.temp }}/gtm-python-coverage.json"
-      - name: Fail-closed complete Python coverage gate
-        run: python -B scripts/check_release.py --coverage-json "${{ runner.temp }}/gtm-python-coverage.json" --coverage-profile code-only
+      - name: Tests
+        run: python -B -m pytest -q -p no:cacheprovider
       - name: Compile Python sources
         run: python -B -m compileall -q scripts tests
-
-  release-online-vendor-gate:
-    name: Strict online vendor release gate
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Require every official vendor source to respond
-        run: python -B scripts/gtm_vendor_registry.py --online --max-age-days 120

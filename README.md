@@ -1,165 +1,171 @@
 # GTM Container Audit & Optimize
 
-A reusable Codex skill for static Google Tag Manager web-container audit and
-optimization. The current release is
-[v2.2.1](https://github.com/haiqigeng/4-gtm-container-audit-cleanup/releases/tag/v2.2.1).
-It uses one deterministic
-canonical scan, fresh-agent scan assurance, two complete independent semantic
-audits in parallel, one fresh-agent reconciliation, deterministic target
-validation, and one analyst workbook.
+[![Validate skill](https://github.com/haiqigeng/4-gtm-container-audit-cleanup/actions/workflows/ci.yml/badge.svg)](https://github.com/haiqigeng/4-gtm-container-audit-cleanup/actions/workflows/ci.yml)
+
+An agent skill that audits one complete Google Tag Manager **web-container** export the way a senior web analyst
+would: what is wrong, what can be simpler, and what should stay. Each justified change becomes an exact
+operation, and the resulting container is validated statically. The deliverable is one analyst workbook, in
+English or French.
+
+**Current release:** [v17.3.0](https://github.com/haiqigeng/4-gtm-container-audit-cleanup/releases/tag/v17.3.0), for
+analyst-supervised field use. The skill never changes GTM: an analyst reviews every proposed change and applies it.
 
 ## North Star
 
-Make an existing GTM container as clean, correct, simple, and maintainable as if
-a senior web analyst configured it today from an empty container for the same
-proven needs. Identify defects, materially non-optimal configuration, justified
-design, owner decisions, and evidence limits from container-visible evidence;
-then propose a coherent exact target, validate its static checks, and produce one
-trustworthy human workbook.
+Judge the container as if a senior web analyst rebuilt it today, from an empty container, for the same proven
+needs. Report defects, materially simpler designs, designs that should stay, owner decisions and evidence limits.
+Then deliver exact, statically validated changes in one workbook a junior analyst can act on.
 
-## What It Audits
+## What it audits
 
-The 27-area contract covers source integrity, object identity, dependency and
-lifecycle graphs, duplicates and overlap, tag/template configuration, triggers,
-priority/sequencing, CMP and consent architecture, Advanced Consent Mode,
-client-to-server transport, variables, effective Google Configuration/Event
-Settings, destination/page-view ownership, GA4/ecommerce/vendor semantics,
-source-to-destination value semantics, identity and sensitive fields, custom
-code/templates, Zones and portability, naming, static complexity, business
-architecture, exact operations, and combined target validation.
+Five domain reviewers cover areas A02–A26:
 
-Important architectural positions include:
+| Domain | Areas |
+| --- | --- |
+| D1 Consent, privacy and security | CMP and consent infrastructure, direct consent architecture, Advanced Consent Mode, client-to-server transport, server handoff boundary, personal data and secrets |
+| D2 Google measurement | Google settings ownership, destinations and page views, GA4 events and parameters, ecommerce, Google Ads and Floodlight, value semantics |
+| D3 Vendors, templates and custom code | Tag and template configuration, non-Google vendors, custom templates, Custom HTML and JavaScript |
+| D4 Structure and maintainability | Inventory, references, lifecycle and usage, trigger conditions, firing options and sequencing, variables, environments, naming and folders |
+| D5 Families, duplicates and target design | Duplicates and near-duplicates, efficiency, target architecture (drafted for the integrator) |
 
-- direct non-Advanced vendor tags use a consent-free positive trigger plus one
-  reusable denial blocker;
-- pure client-to-server transporters use firing triggers only and inherit one
-  canonical consent value for explicitly approved downstream enforcement;
-- explicit firing priority is retained only for a proven same-event start-order
-  need;
-- Google Configuration Settings and Event Settings are used only where effective
-  field ownership and all material distinctions support shared ownership; and
-- `gtagConfig` direct settings and same-destination differences are explicit
-  audited surfaces, while variable-backed transport hosts are resolved only from
-  route-owned chains and independently assured.
+Key positions:
+- direct vendor tags use a consent-free business trigger plus one reusable, fail-closed denial blocker;
+- Advanced Consent Mode and server-side consent ownership apply only where the owner approves them;
+- data that leaves the container is removed or renamed only when the source shows it is broken or unused, or the owner approves.
 
-Client-to-server transport remains in scope because its route, field ownership,
-and consent forwarding are configured in the web container. Server-container
-exports and server-container Clients, Transformations, and templates are outside
-the skill.
+Server containers, runtime QA, tracking-plan design and legal rulings are out of scope.
 
-See [audit-coverage.md](references/03-rules/audit-coverage.md) for the complete
-contract.
-
-## Workflow
+## How it works
 
 ```text
-source lock
-  -> deterministic canonical scan
-  -> raw-source assurance in a separate fresh agent context
-  -> typed obligation ledger
-  -> Audit A and Audit B in parallel, in separate fresh agent contexts
-  -> reconciliation and neutral review in a separate fresh agent context
-  -> exact operations
-  -> deterministic validation of the combined target
-  -> sealed canonical record
-  -> evidence-locked editorial mapping
-  -> one verified analyst workbook
+intake            owner questions (completeness, language, tracking plan, protected objects, consent approvals)
+prepare           lock the export, run the deterministic rule catalog, write evidence packs
+D1–D5             five reviewers in parallel (D5 starts with a candidate-blind family pass)
+integrate         merge overlaps, resolve conflicts, apply the naming convention, write the summary
+verify            a fresh verifier checks every ready/conditional change and every Critical/High finding
+build             finalize, simulate the whole target, write and verify the workbook
 ```
 
-Both audits cover every semantic obligation; their object-first and target-first
-orders reduce correlated misses. Both may read the same locked source facts and
-version-locked skill rules, but neither receives the peer's findings until both
-are complete. A fresh reconciliation agent then compares the sealed audits and
-performs the required neutral review of disagreements, one-sided findings, and
-material-risk conclusions. Each audit must identify consequential cleanup and a
-coherent complete target from the source before sealing. A generated candidate
-is not a verdict, and lack of an authored operation is unfinished audit work,
-not an external owner decision.
+The engine checks every operation with exactly its declared prerequisites:
+- references, names, conflicting writes, protected objects and consent controls;
+- new vendor collection paths without a consent predicate;
+- readiness against prerequisites and against values whose meaning is still open.
 
-The portable provenance contract records agent/context labels and locked
-input/output hashes. Labels are distinct where reviewers must be independent.
-Deterministic workbook verification exhaustively checks canonical row and field
-bindings. One fresh workbook delivery reviewer first judges every visible sheet
-as a human deliverable, then compares every row with a compact canonical meaning
-reference for fidelity, specificity, usefulness, layout, and navigation.
+It also lists settings that tags would stop sending. Agents resolve these errors during the run.
 
-One product execution has one comprehensive source pass. Target simulation
-recomputes facts and assurance for static validation; it does not open another
-semantic audit, create recommendations, or require convergence. Passing validates
-the implemented static checks, not runtime behaviour or the absence of any
-further possible optimisation.
+## The workbook
 
-Every authority transition is independently reconstructed from sealed
-predecessors: reconciliation scaffolds, operation packet, target validation,
-canonical record, and delivery map cannot be replaced by a merely self-consistent
-rehash. Every public workflow and workbook command also rejects redirects
-anywhere in the complete package tree before package I/O. Manifest-carried paths
-are separately required to be canonical contained relative paths, and release
-packages are bound to the exact clean source commit and runtime inventory.
+| Tab | Job |
+| --- | --- |
+| 1 Summary | Scope and limits, findings by priority and type, target architecture, naming, how to use the file |
+| 2 Findings and actions | One row per finding: what is wrong, why it matters, what to do as GTM interface steps in execution order, status, check and undo, and a decision column |
+| 3 Questions | Each open question once, with the problems it blocks, ready to send to the site owner |
+| 4 Custom code | Current and new code for every code change, each row with a stable reference |
+| 5 Inventory | Every object with its outcome: keep, change, remove, rename or create |
 
-The workflow ends at workbook delivery. It does not mutate GTM, create/apply an
-import, create a version, publish, certify runtime behaviour, generate a change
-log, or treat workbook delivery as implementation approval.
+`final.json` stays as the exact machine-readable copy. `build` reopens the saved workbook and verifies it:
+- every cell matches the computed layout;
+- every code row matches the engine's execution trace;
+- no change is listed before its prerequisite;
+- text is literal and private values are masked.
 
-See [workflow-and-assurance.md](references/03-rules/workflow-and-assurance.md) and
-[workbook-delivery.md](references/03-rules/workbook-delivery.md).
+## Requirements
 
-## Input And Output
+- Python 3.11+ and [`openpyxl`](https://openpyxl.readthedocs.io/) 3.1+
+- Optional: `esprima` 4.0.1 for JavaScript syntax checks
+- A host that runs sub-agents in parallel, such as Codex or Claude Code; with a cap on active agents, workers start as slots free up
 
-Required: one complete unambiguous GTM ContainerVersion JSON export or equivalent
-read-only evidence. Optional locked context and analyst-approved requirements are
-supported; the latter are withheld until each audit's source-only checkpoint.
+## Quick start
 
-Output: one audit package containing the canonical technical record and proofs,
-plus one `.xlsx` workbook with:
+Load the skill and ask the agent to audit an export. It follows [`SKILL.md`](SKILL.md):
 
-- `01 Overview`
-- `02 Recommendations`
-- `03 Decisions Needed`
-- `04 Full Audit`
-- optional `05 Custom Code` when source-applicable
+> Use the gtm-container-audit-optimize skill to audit `<export.json>`. Output directory `<OUT>`. Deliver the
+> verified workbook.
 
-## Repository Layout
+The agent drives the command line in `scripts/gtm.py`:
 
-- `SKILL.md` — agent routing and mandatory workflow
-- `references/01-skill/` — purpose, scope, inputs/outputs, and acceptance
-- `references/02-commands/` — workflow commands and forward-test protocol
-- `references/03-rules/` — audit, workflow, product, naming, and delivery rules
-- `scripts/` — deterministic evidence, validation, projection, sealing, and XLSX
-  tooling
-- `tests/` — v2 behavioural and end-to-end regression suite
-- `.skill-build-manifest.json` — deterministic runtime identity
+| Command | Use |
+| --- | --- |
+| `intake SOURCE [--context FILE]` | Material questions for the owner |
+| `prepare SOURCE --context FILE --out OUT [--plan PLAN]` | Lock the source, run rules, write packs (a tracking plan is optional) |
+| `show OUT KEY [KEY ...]` / `siblings OUT KEY` | Read an object, or the objects sharing its pattern |
+| `add OUT --worker W --file F` | Validate and save records |
+| `list OUT` / `status OUT` | Record listing and progress |
+| `check OUT --worker W` | Validate one worker's work, including a simulation of its operations |
+| `finalize OUT` | Merge records under integrator decisions, simulate the target, write `final.json` |
+| `build OUT` | Write `OUT/gtm-container-audit.xlsx` and verify it |
 
-## Development Validation
+## Using it in the field
 
-Separately authorized development evaluations may repeat on unseen fixtures to
-improve the skill. Those repeats are outside a product execution and must not
-become simulated-target audit rounds or a product convergence gate.
+1. Read tab 2 from the top, and decide each row: Apply, Reject or Later.
+2. Send tab 3 to the site owner. Rows marked "Needs answer" wait for those answers.
+3. Apply approved changes **in a new GTM workspace**, following each row's changes in order. Then run the row's checks in **Preview** before publishing.
 
-```powershell
-python -B scripts/gtm_skill_identity.py write --root .
-python -B -m unittest discover -s tests -v
-python -B -m coverage run --data-file="$env:TEMP\gtm-python-coverage.data" --branch -m unittest discover -s tests
-python -B -m coverage json --data-file="$env:TEMP\gtm-python-coverage.data" --fail-under=0 -o "$env:TEMP\gtm-python-coverage.json"
-python -B scripts/check_release.py --coverage-json "$env:TEMP\gtm-python-coverage.json" --coverage-profile release-complete
-python -B -m ruff check --no-cache scripts tests
-python -B scripts/gtm_vendor_registry.py --max-age-days 365
-python -B scripts/gtm_vendor_registry.py --online --max-age-days 120
-python -B scripts/gtm_self_test.py --artifact-node $env:CODEX_NODE --artifact-node-modules $env:CODEX_ARTIFACT_NODE_MODULES
-python -B scripts/check_release.py
-git diff --check
-python -B scripts/build_skill_package.py <new-empty-output-directory>
+## Validation behind v17.3.0
+
+| Gate | Result on five real containers |
+| --- | --- |
+| Structural safety (ready changes of a kind the engine checks) | 0 unsafe on every container |
+| Quality against the strongest earlier baselines | Within about one point on four containers; one container 0.33 below its previous run |
+| Findings beyond the deterministic detectors | 38–51%, almost all supported by independent review |
+| Workbook utility | 7–7.5 / 8 |
+| Cost and time per container | about $5–11 and 25–55 minutes; earlier versions took $15–34 and 55–114 minutes |
+
+The final deterministic fixes were proven without model runs:
+- 12 preserved real runs replay to identical findings and operations, and every workbook verifies;
+- the known safety catches still fire;
+- no credential literal appears in any workbook;
+- 46 automated tests and a clean-install smoke test pass in English and French.
+
+## Known limits
+
+- Reviewer judgment varies between runs: producer details can be missed, and assumptions about receiving systems can be wrong. The analyst's review and Preview are part of the workflow for this reason.
+- Questions are occasionally indirect, and long change cells are dense.
+- The skill has not yet been tested on a container outside its development exports. The tracking-plan input has not been exercised in a model run.
+- The audit is static. It doesn't certify live firing, consent timing, what vendors receive, or legal compliance.
+
+## Repository layout
+
+```text
+SKILL.md                     coordinator workflow, worker procedure, commands, completion
+references/
+  policy.md                  classes, readiness, priority, change and removal rules, consent policy, evidence, writing
+  records.md                 record shapes, actions and path grammar, what `check` reports
+  integrator.md, verifier.md, naming.md
+  domains/d1…d5              each reviewer's areas, checklist and typical operations
+scripts/
+  gtm.py                     command line
+  gtmaudit/source.py         export model, graph, consent evidence, effective settings
+  gtmaudit/rules/            deterministic candidate catalog (one module per domain)
+  gtmaudit/render.py, packs.py, privacy.py    evidence views and masking
+  gtmaudit/records.py        record contract and validation
+  gtmaudit/paths.py          action path grammar
+  gtmaudit/operations.py     applying changes: simulation and execution trace
+  gtmaudit/checks.py         judging changes: applicability, consent routes, payloads
+  gtmaudit/final.py          live projection, readiness, verdict history, finalize
+  gtmaudit/steps.py          GTM interface wording (English and French)
+  gtmaudit/workbook.py       five-tab workbook and saved-file verification
+tests/                       behavioural tests by module and an end-to-end CLI test
+agents/openai.yaml           agent metadata
 ```
 
-Set `CODEX_NODE` and `CODEX_ARTIFACT_NODE_MODULES` to the exact paths returned by
-the workspace dependency loader and run
-`& $env:CODEX_NODE scripts/gtm_workbook_build.mjs --preflight` before package
-creation. CI deliberately runs
-`gtm_self_test.py --code-only` because the bundled workbook runtime is
-host-provided; only the release-complete local self-test may claim workbook
-validation. If that runtime is unavailable, workbook delivery blocks rather than
-falling back to a second authoring implementation. The online registry command is
-the explicit release gate: every declared official source must respond, and any
-required-source failure returns nonzero with attempted/succeeded/failed counts.
+## Development
 
-Licensed under the MIT License.
+```bash
+python -m pip install "openpyxl>=3.1" "pytest>=8" "ruff==0.15.22"
+python -m ruff check --no-cache .
+python -B -m pytest -q -p no:cacheprovider
+```
+
+The project follows [`AGENTS.md`](AGENTS.md): no compatibility layers, the simplest complete implementation, one
+home per concern, and positive invariants enforced by checks.
+
+## Versioning
+
+v17.3.0 is a greenfield rewrite. It replaces the v2.x line entirely: workflow, record contract, commands and
+workbook all changed. Versions 3 to 16 were internal development builds and were never published. See
+[CHANGELOG.md](CHANGELOG.md). Earlier releases remain available as tags `v1.x`–`v2.2.1`.
+
+## License
+
+[MIT](LICENSE)
